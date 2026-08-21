@@ -1,558 +1,316 @@
-"use client"
+'use client';
 
-import React, { useState, useEffect } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';  // Add this import
 import {
-  CheckCircle,
-  AlertTriangle,
-  PlusCircle,
-  ArrowUp,
-  ArrowDown,
-  LayoutDashboard,
+  DollarSign,
   Package,
-  Truck,
-  Users,
   ShoppingCart,
+  Users,
   TrendingUp,
-  Box,
+  TrendingDown,
+  Eye,
+  CheckCircle,
   Clock,
-  DollarSign
-} from 'lucide-react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+  XCircle,
+  MoreVertical,
+  ArrowUpRight,
+  ArrowDownRight,
+  Calendar,
+  Download,
+  RefreshCw,
+  Activity,
+  BarChart3
+} from 'lucide-react';
 
-type Order = {
-  id: string
-  total: number
-  status: string
-  createdAt: string
-  items: {
-    id: string
-    quantity: number
-    price: number
-    product: {
-      name: string
-      images: string[]
-      slug: string
-    }
-  }[]
-  address?: {
-    fullName: string
-    phone: string
-    address: string
-    city: string
-    state: string
-    zipCode: string
-  }
+interface StatsCardProps {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+  change: number;
+  changeLabel: string;
+  color: string;
 }
 
-type Product = {
-  id: string
-  name: string
-  price: number
-  discountPrice: number | null
-  stock: number
-  status: string
-  images: string[]
-  category: { name: string }
-}
-
-type Category = {
-  id: string
-  name: string
-  slug: string
-  image: string | null
-  icon: string | null
-  parentId: string | null
-  children?: Category[]
-}
-
-interface NavItem {
-  name: string
-  href: string
-  icon: React.ReactNode
-  badge?: number
-}
-
-export default function AdminDashboard() {
-  const pathname = usePathname()
-  const [orders, setOrders] = useState<Order[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-
-  // Navigation items
-  const navigation: NavItem[] = [
-    {
-      name: 'Dashboard',
-      href: '/admin',
-      icon: <LayoutDashboard size={20} />
-    },
-    {
-      name: 'Products',
-      href: '/admin/products',
-      icon: <Package size={20} />,
-      badge: products.filter(p => p.status === 'APPROVED').length
-    },
-    {
-      name: 'Orders & Delivery',
-      href: '/admin/orders',
-      icon: <Truck size={20} />,
-      badge: orders.filter(o => o.status === 'Pending' || o.status === 'Processing').length
-    },
-    {
-      name: 'Users',
-      href: '/admin/users',
-      icon: <Users size={20} />
-    }
-  ]
-
-  // Fetch all real data from your APIs
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-
-        // 1. Fetch orders
-        const ordersRes = await fetch('/api/orders')
-        if (!ordersRes.ok) throw new Error('Failed to fetch orders')
-        const ordersData = await ordersRes.json()
-        setOrders(ordersData)
-
-        // 2. Fetch products (limit to 50)
-        const productsRes = await fetch('/api/products?limit=50')
-        if (!productsRes.ok) throw new Error('Failed to fetch products')
-        const productsData = await productsRes.json()
-        setProducts(productsData.products || [])
-
-        // 3. Fetch categories
-        const categoriesRes = await fetch('/api/categories?includeChildren=true')
-        if (!categoriesRes.ok) throw new Error('Failed to fetch categories')
-        const categoriesData = await categoriesRes.json()
-        setCategories(categoriesData || [])
-
-      } catch (err) {
-        console.error('Dashboard data fetch error:', err)
-        setError(err instanceof Error ? err.message : 'Failed to load dashboard data')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchDashboardData()
-  }, [])
-
-  // Calculate real metrics from API data
-  const totalEarnings = orders.reduce((sum, order) => sum + order.total, 0)
-  const totalOrders = orders.length
-  const activeProducts = products.filter(p => p.status === 'APPROVED').length
-  const lowStockAlerts = products.filter(p => p.stock < 5).length
-  const pendingOrders = orders.filter(o => o.status === 'Pending' || o.status === 'Processing').length
-
-  // Prepare sales data for chart (last 6 months)
-  const getSalesData = () => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    const currentMonth = new Date().getMonth()
-    const data = []
-
-    for (let i = 5; i >= 0; i--) {
-      const monthIndex = (currentMonth - i + 12) % 12
-      const monthName = months[monthIndex]
-
-      // Filter orders for this month
-      const monthOrders = orders.filter(order => {
-        const orderDate = new Date(order.createdAt)
-        return orderDate.getMonth() === monthIndex
-      })
-
-      const revenue = monthOrders.reduce((sum, order) => sum + order.total, 0)
-      data.push({ month: monthName, revenue, orders: monthOrders.length })
-    }
-
-    return data
-  }
-
-  const salesData = getSalesData()
-
-  const toggleStock = async (id: string, currentStock: number) => {
-    try {
-      const newStock = currentStock === 0 ? 10 : 0
-
-      const res = await fetch(`/api/products/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock: newStock })
-      })
-
-      if (!res.ok) throw new Error('Failed to update stock')
-
-      const productsRes = await fetch('/api/products?limit=50')
-      const productsData = await productsRes.json()
-      setProducts(productsData.products || [])
-
-    } catch (err) {
-      console.error('Stock update error:', err)
-      alert('Failed to update stock. Please try again.')
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading dashboard data...</p>
+const StatsCard: React.FC<StatsCardProps> = ({ title, value, icon, change, changeLabel, color }) => {
+  const isPositive = change >= 0;
+  
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-all duration-200">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-500">{title}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+        </div>
+        <div className={`p-3 rounded-lg ${color}`}>
+          {icon}
         </div>
       </div>
-    )
-  }
+      <div className="flex items-center space-x-2 mt-4">
+        <span className={`text-xs font-medium flex items-center ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+          {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+          {Math.abs(change)}%
+        </span>
+        <span className="text-xs text-gray-500">{changeLabel}</span>
+      </div>
+    </div>
+  );
+};
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md text-center">
-          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Something went wrong</h2>
-          <p className="text-gray-600">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-4 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-          >
-            Retry
+interface Order {
+  id: string;
+  customer: string;
+  products: string;
+  total: number;
+  status: 'completed' | 'pending' | 'processing' | 'cancelled';
+  date: string;
+  paymentMethod: string;
+}
+
+const DashboardPage: React.FC = () => {
+  const [stats, setStats] = useState({
+    revenue: { value: '$45,231.89', change: 12.5, label: 'vs last month' },
+    products: { value: '1,234', change: 8.2, label: 'vs last month' },
+    orders: { value: '56', change: -2.3, label: 'vs last month' },
+    customers: { value: '8,549', change: 15.8, label: 'vs last month' },
+  });
+
+  const [recentOrders, setRecentOrders] = useState<Order[]>([
+    {
+      id: 'ORD-001',
+      customer: 'John Doe',
+      products: 'Organic Tomatoes x2',
+      total: 45.50,
+      status: 'completed',
+      date: '2026-08-21',
+      paymentMethod: 'Credit Card'
+    },
+    {
+      id: 'ORD-002',
+      customer: 'Jane Smith',
+      products: 'Fresh Corn x5',
+      total: 78.00,
+      status: 'pending',
+      date: '2026-08-21',
+      paymentMethod: 'PayPal'
+    },
+    {
+      id: 'ORD-003',
+      customer: 'Robert Johnson',
+      products: 'Organic Fertilizer x3',
+      total: 120.00,
+      status: 'processing',
+      date: '2026-08-20',
+      paymentMethod: 'Bank Transfer'
+    },
+    {
+      id: 'ORD-004',
+      customer: 'Maria Garcia',
+      products: 'Fresh Produce Bundle',
+      total: 230.50,
+      status: 'completed',
+      date: '2026-08-20',
+      paymentMethod: 'Credit Card'
+    },
+    {
+      id: 'ORD-005',
+      customer: 'David Wilson',
+      products: 'Farm Equipment',
+      total: 450.00,
+      status: 'cancelled',
+      date: '2026-08-19',
+      paymentMethod: 'PayPal'
+    },
+  ]);
+
+  const [salesData, setSalesData] = useState([
+    { label: 'Mon', revenue: 1200, orders: 12 },
+    { label: 'Tue', revenue: 1800, orders: 18 },
+    { label: 'Wed', revenue: 1500, orders: 15 },
+    { label: 'Thu', revenue: 2200, orders: 22 },
+    { label: 'Fri', revenue: 2800, orders: 28 },
+    { label: 'Sat', revenue: 2000, orders: 20 },
+    { label: 'Sun', revenue: 1600, orders: 16 },
+  ]);
+
+  const getStatusColor = (status: string) => {
+    const colors = {
+      completed: 'bg-green-100 text-green-700',
+      pending: 'bg-yellow-100 text-yellow-700',
+      processing: 'bg-blue-100 text-blue-700',
+      cancelled: 'bg-red-100 text-red-700',
+    };
+    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-700';
+  };
+
+  const getStatusIcon = (status: string) => {
+    const icons = {
+      completed: <CheckCircle className="w-4 h-4" />,
+      pending: <Clock className="w-4 h-4" />,
+      processing: <Activity className="w-4 h-4" />,
+      cancelled: <XCircle className="w-4 h-4" />,
+    };
+    return icons[status as keyof typeof icons] || null;
+  };
+
+  const maxRevenue = Math.max(...salesData.map(d => d.revenue));
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Welcome back! Heres whats happening with your store today.</p>
+        </div>
+        <div className="flex items-center space-x-3">
+          <button className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            <Download className="w-4 h-4" />
+            <span>Export</span>
+          </button>
+          <button className="flex items-center space-x-2 px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors">
+            <RefreshCw className="w-4 h-4" />
+            <span>Refresh</span>
           </button>
         </div>
       </div>
-    )
-  }
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-gray-200 transition-all duration-300 flex flex-col fixed h-full z-50`}>
-        {/* Logo */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
-              <ShoppingCart className="text-white" size={24} />
-            </div>
-            {sidebarOpen && (
-              <div>
-                <h1 className="font-bold text-gray-800 text-lg">Genesis Agri</h1>
-                <p className="text-xs text-gray-500">Admin Panel</p>
-              </div>
-            )}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="Total Revenue"
+          value={stats.revenue.value}
+          icon={<DollarSign className="w-6 h-6 text-white" />}
+          change={stats.revenue.change}
+          changeLabel={stats.revenue.label}
+          color="bg-green-600"
+        />
+        <StatsCard
+          title="Active Products"
+          value={stats.products.value}
+          icon={<Package className="w-6 h-6 text-white" />}
+          change={stats.products.change}
+          changeLabel={stats.products.label}
+          color="bg-blue-600"
+        />
+        <StatsCard
+          title="Pending Orders"
+          value={stats.orders.value}
+          icon={<ShoppingCart className="w-6 h-6 text-white" />}
+          change={stats.orders.change}
+          changeLabel={stats.orders.label}
+          color="bg-yellow-600"
+        />
+        <StatsCard
+          title="Total Customers"
+          value={stats.customers.value}
+          icon={<Users className="w-6 h-6 text-white" />}
+          change={stats.customers.change}
+          changeLabel={stats.customers.label}
+          color="bg-purple-600"
+        />
+      </div>
+
+      {/* Sales Chart */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="font-semibold text-gray-900">Weekly Sales Overview</h3>
+            <p className="text-sm text-gray-500">Revenue and order volume for the past 7 days</p>
+          </div>
+          <div className="flex items-center space-x-4">
+            <select className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500">
+              <option>Last 7 days</option>
+              <option>Last 14 days</option>
+              <option>Last 30 days</option>
+            </select>
+            <button className="text-sm text-green-600 hover:text-green-700 font-medium">
+              View Details →
+            </button>
           </div>
         </div>
-
-        {/* Toggle Button */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="absolute -right-3 top-20 bg-white border border-gray-200 rounded-full p-1 hover:bg-gray-50"
-        >
-          {sidebarOpen ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
-        </button>
-
-        {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          {navigation.map((item) => {
-            const isActive = pathname === item.href
+        <div className="h-64 flex items-end space-x-2">
+          {salesData.map((day, index) => {
+            const heightPercentage = (day.revenue / maxRevenue) * 100;
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive
-                    ? 'bg-green-50 text-green-700'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
-                  }`}
-              >
-                <span className="flex-shrink-0">{item.icon}</span>
-                {sidebarOpen && (
-                  <>
-                    <span className="flex-1 text-sm font-medium">{item.name}</span>
-                    {item.badge !== undefined && item.badge > 0 && (
-                      <span className="px-2 py-0.5 text-xs bg-green-600 text-white rounded-full">
-                        {item.badge}
-                      </span>
-                    )}
-                  </>
-                )}
-              </Link>
-            )
-          })}
-
-          {/* Quick Actions */}
-          {sidebarOpen && (
-            <div className="pt-4 mt-4 border-t border-gray-200">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
-                Quick Actions
-              </p>
-              <Link
-                href="/admin/products/new"
-                className="flex items-center gap-2 px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <PlusCircle size={16} />
-                Add New Product
-              </Link>
-            </div>
-          )}
-        </nav>
-
-        {/* Footer */}
-        {sidebarOpen && (
-          <div className="p-4 border-t border-gray-200">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                <span className="text-sm font-medium text-gray-600">A</span>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-800">Admin</p>
-                <p className="text-xs text-gray-500">admin@genesis.com</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </aside>
-
-      {/* Main Content */}
-      <main className={`${sidebarOpen ? 'ml-64' : 'ml-20'} flex-1 transition-all duration-300 p-6`}>
-        <div className="max-w-7xl mx-auto space-y-6">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-              <p className="text-sm text-gray-500">Genesis Agri Store Control & Delivery System</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link href="/admin/products" className="px-3.5 py-2 text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center gap-2">
-                <Package size={16} />
-                Products
-              </Link>
-              <Link href="/admin/orders" className="px-3.5 py-2 text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center gap-2">
-                <Truck size={16} />
-                Orders & Delivery
-              </Link>
-              <Link href="/admin/users" className="px-3.5 py-2 text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center gap-2">
-                <Users size={16} />
-                Users
-              </Link>
-              <Link href="/admin/products/new" className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-semibold shadow-sm">
-                <PlusCircle size={16} />
-                Add Product
-              </Link>
-            </div>
-          </div>
-
-          {/* Stats Cards */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sm text-gray-500 font-medium">Total Earnings</div>
-                  <div className="text-2xl font-bold text-gray-800 mt-1">
-                    ${totalEarnings.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              <div key={index} className="flex-1 flex flex-col items-center space-y-2">
+                <div className="w-full flex flex-col items-center space-y-1">
+                  <div 
+                    className="w-full bg-green-600 rounded-t-lg transition-all hover:bg-green-700"
+                    style={{ height: `${heightPercentage}%`, minHeight: '20px' }}
+                  >
+                    <div className="opacity-0 hover:opacity-100 transition-opacity text-center text-white text-xs pt-1">
+                      ${day.revenue}
+                    </div>
                   </div>
                 </div>
-                <div className="p-2 bg-green-50 rounded-lg">
-                  <DollarSign className="text-green-600" size={20} />
+                <div className="flex justify-between w-full px-1">
+                  <span className="text-xs text-gray-500">{day.label}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-1 mt-3 text-sm">
-                <ArrowUp className="text-green-500" size={14} />
-                <span className="text-green-600 font-medium">12.5%</span>
-                <span className="text-gray-400">from last month</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sm text-gray-500 font-medium">Total Orders</div>
-                  <div className="text-2xl font-bold text-gray-800 mt-1">{totalOrders}</div>
-                </div>
-                <div className="p-2 bg-blue-50 rounded-lg">
-                  <ShoppingCart className="text-blue-600" size={20} />
-                </div>
-              </div>
-              <div className="flex items-center gap-1 mt-3 text-sm">
-                <Clock className="text-yellow-500" size={14} />
-                <span className="text-yellow-600 font-medium">{pendingOrders} pending</span>
-                <span className="text-gray-400">orders</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sm text-gray-500 font-medium">Active Products</div>
-                  <div className="text-2xl font-bold text-gray-800 mt-1">{activeProducts}</div>
-                </div>
-                <div className="p-2 bg-purple-50 rounded-lg">
-                  <Box className="text-purple-600" size={20} />
-                </div>
-              </div>
-              <div className="flex items-center gap-1 mt-3 text-sm">
-                <span className="text-gray-400">{products.length} total products</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sm text-gray-500 font-medium">Low Stock Alerts</div>
-                  <div className="text-2xl font-bold text-gray-800 mt-1">{lowStockAlerts}</div>
-                </div>
-                <div className="p-2 bg-red-50 rounded-lg">
-                  <AlertTriangle className="text-red-600" size={20} />
-                </div>
-              </div>
-              <div className="flex items-center gap-1 mt-3 text-sm">
-                <span className={`font-medium ${lowStockAlerts > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {lowStockAlerts > 0 ? `${lowStockAlerts} items need restock` : 'All items in stock'}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          {/* Charts and Inventory Section */}
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                  <TrendingUp size={18} className="text-green-600" />
-                  Sales Overview (Last 6 Months)
-                </h3>
-                <span className="text-xs text-gray-500">Revenue vs Orders</span>
-              </div>
-              <div style={{ height: 240 }}>
-                <ResponsiveContainer>
-                  <LineChart data={salesData}>
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip
-                      formatter={(value: any, name: any, props: any) => {
-                        if (typeof value === 'number') {
-                          return [`$${value.toLocaleString()}`, 'Revenue'];
-                        }
-                        return [value, 'Revenue'];
-                      }}
-                    />
-                    <Line type="monotone" dataKey="revenue" stroke="#2563eb" strokeWidth={3} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-              <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-4">
-                <Package size={18} className="text-green-600" />
-                Inventory Quick Actions
-              </h3>
-              <div className="flex items-center justify-between mb-4 p-3 bg-gray-50 rounded-lg">
-                <div className="text-sm text-gray-600">Add new product</div>
-                <Link href="/admin/products/new" className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm">
-                  <PlusCircle size={16} /> Add
-                </Link>
-              </div>
-              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                {products.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-4">No products found</p>
-                ) : (
-                  products.slice(0, 8).map(p => (
-                    <div key={p.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm text-gray-800 truncate">{p.name}</div>
-                        <div className="text-sm text-gray-500">
-                          ${p.discountPrice ? p.discountPrice.toFixed(2) : p.price.toFixed(2)}
-                          {p.discountPrice && <span className="line-through ml-2 text-gray-400">${p.price.toFixed(2)}</span>}
-                        </div>
-                        <div className="text-xs text-gray-400">{p.category?.name || 'Uncategorized'}</div>
-                      </div>
-                      <div className="flex items-center gap-3 ml-2">
-                        <label className="inline-flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={p.stock > 0}
-                            onChange={() => toggleStock(p.id, p.stock)}
-                            className="w-4 h-4 text-green-600 rounded border-gray-300 focus:ring-green-500"
-                          />
-                          <span className={`text-xs ${p.stock > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                            {p.stock > 0 ? 'In Stock' : 'Out'}
-                          </span>
-                        </label>
-                        <span className="text-xs text-gray-400">({p.stock})</span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </section>
-
-          {/* Recent Orders */}
-          <section className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                <Truck size={18} className="text-green-600" />
-                Recent Orders
-              </h3>
-              <Link href="/admin/orders" className="text-sm text-green-600 hover:text-green-700 hover:underline">
-                View All
-              </Link>
-            </div>
-            <div className="overflow-x-auto">
-              {orders.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-8">No orders yet</p>
-              ) : (
-                <table className="w-full text-left">
-                  <thead className="text-sm text-gray-500 border-b">
-                    <tr>
-                      <th className="py-2 px-3">Order ID</th>
-                      <th className="py-2 px-3">Customer</th>
-                      <th className="py-2 px-3">Items</th>
-                      <th className="py-2 px-3">Total</th>
-                      <th className="py-2 px-3">Status</th>
-                      <th className="py-2 px-3">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.slice(0, 10).map(o => {
-                      const customerName = o.address?.fullName || 'Guest'
-                      const statusColors = {
-                        'Pending': 'bg-yellow-100 text-yellow-800',
-                        'Processing': 'bg-blue-100 text-blue-800',
-                        'Shipped': 'bg-purple-100 text-purple-800',
-                        'Delivered': 'bg-green-100 text-green-800',
-                        'Cancelled': 'bg-red-100 text-red-800'
-                      }
-                      const color = statusColors[o.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'
-
-                      return (
-                        <tr key={o.id} className="border-b last:border-b-0 hover:bg-gray-50 transition-colors">
-                          <td className="py-3 px-3 font-medium text-gray-800 text-sm">{o.id.slice(0, 8)}</td>
-                          <td className="py-3 px-3 text-sm">{customerName}</td>
-                          <td className="py-3 px-3 text-sm">{o.items.length} item{o.items.length !== 1 ? 's' : ''}</td>
-                          <td className="py-3 px-3 font-semibold text-sm">${o.total.toFixed(2)}</td>
-                          <td className="py-3 px-3">
-                            <span className={`inline-block px-2.5 py-1 text-xs rounded-full ${color}`}>
-                              {o.status}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-sm text-gray-500">
-                            {new Date(o.createdAt).toLocaleDateString()}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </section>
+            );
+          })}
         </div>
-      </main>
+      </div>
+
+      {/* Recent Orders Table */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900">Recent Orders</h3>
+            <p className="text-sm text-gray-500">Latest transactions from your store</p>
+          </div>
+          <Link
+            href="/admin/orders"
+            className="text-sm text-green-600 hover:text-green-700 font-medium flex items-center space-x-1"
+          >
+            <span>View All</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Products</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {recentOrders.map((order) => (
+                <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{order.id}</td>
+                  <td className="px-6 py-4 text-sm text-gray-700">{order.customer}</td>
+                  <td className="px-6 py-4 text-sm text-gray-700">{order.products}</td>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">${order.total.toFixed(2)}</td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${getStatusColor(order.status)}`}>
+                      {getStatusIcon(order.status)}
+                      <span className="capitalize">{order.status}</span>
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{order.date}</td>
+                  <td className="px-6 py-4">
+                    <Link
+                      href={`/admin/orders/${order.id}`}
+                      className="text-sm text-green-600 hover:text-green-700 font-medium"
+                    >
+                      View
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
-  )
-}
+  );
+};
+
+export default DashboardPage;

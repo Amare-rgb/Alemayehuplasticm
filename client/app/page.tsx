@@ -14,19 +14,13 @@ import {
   Truck,
   Award,
   Clock,
-  Facebook,
-  Twitter,
-  Instagram,
-  Youtube,
   MapPin,
   Phone,
   Mail,
-  ChevronLeft,
-  ChevronRight,
   CheckCircle
 } from 'lucide-react';
 
-// ✅ Using real ProductCard component
+// Using real ProductCard component
 import ProductCard from '@/components/shop/ProductCard';
 
 // Features data
@@ -57,23 +51,87 @@ const features = [
   },
 ];
 
-// HERO SLIDES using your local files
-const heroSlides = [
+// Mock products data
+const mockProducts = [
   {
-    id: 1,
-    image: '/banners/images.jpeg',
+    id: '1',
+    name: 'Organic Tomatoes',
+    slug: 'organic-tomatoes',
+    price: 5.99,
+    discountPrice: 4.99,
+    stock: 150,
+    images: ['/banners/images.jpeg'],
+    category: { name: 'Fresh Produce', id: 'cat1' }
   },
   {
-    id: 2,
-    image: '/banners/hero-farmer.jpg',
+    id: '2',
+    name: 'Fresh Corn',
+    slug: 'fresh-corn',
+    price: 3.49,
+    discountPrice: null,
+    stock: 200,
+    images: ['/banners/images.jpeg'],
+    category: { name: 'Fresh Produce', id: 'cat1' }
   },
   {
-    id: 3,
-    image: '/banners/OfLUzm2ezjHCJUvuxeMpyqItc.avif',
+    id: '3',
+    name: 'Organic Fertilizer',
+    slug: 'organic-fertilizer',
+    price: 24.99,
+    discountPrice: 19.99,
+    stock: 45,
+    images: ['/banners/images.jpeg'],
+    category: { name: 'Farm Supplies', id: 'cat2' }
   },
   {
-    id: 4,
-    image: '/banners/TSe9c8pWQAoVr1cHJorIxnFDhg.avif',
+    id: '4',
+    name: 'Farm Tractor',
+    slug: 'farm-tractor',
+    price: 4500.00,
+    discountPrice: null,
+    stock: 3,
+    images: ['/banners/images.jpeg'],
+    category: { name: 'Equipment', id: 'cat3' }
+  },
+  {
+    id: '5',
+    name: 'Organic Seeds Pack',
+    slug: 'organic-seeds-pack',
+    price: 12.99,
+    discountPrice: 9.99,
+    stock: 100,
+    images: ['/banners/images.jpeg'],
+    category: { name: 'Seeds', id: 'cat4' }
+  },
+  {
+    id: '6',
+    name: 'Irrigation System',
+    slug: 'irrigation-system',
+    price: 299.99,
+    discountPrice: null,
+    stock: 15,
+    images: ['/banners/images.jpeg'],
+    category: { name: 'Equipment', id: 'cat3' }
+  },
+  {
+    id: '7',
+    name: 'Organic Pesticide',
+    slug: 'organic-pesticide',
+    price: 34.99,
+    discountPrice: 29.99,
+    stock: 80,
+    images: ['/banners/images.jpeg'],
+    category: { name: 'Farm Supplies', id: 'cat2' }
+  },
+  {
+    id: '8',
+    name: 'Harvesting Machine',
+    slug: 'harvesting-machine',
+    price: 899.00,
+    discountPrice: null,
+    stock: 5,
+    images: ['/banners/images.jpeg'],
+    category: { name: 'Equipment', id: 'cat3' }
   },
 ];
 
@@ -103,6 +161,7 @@ function Footer() {
                   alt="GenesisAgri"
                   fill
                   className="object-cover rounded-full"
+                  sizes="40px"
                 />
               </div>
               <span className="text-xl font-bold">
@@ -113,17 +172,17 @@ function Footer() {
               Quality agricultural products for sustainable farming since 1976.
             </p>
             <div className="flex gap-3">
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <Facebook size={18} />
+              <a href="#" className="text-gray-400 hover:text-white transition-colors text-lg" aria-label="Facebook">
+                📘
               </a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <Twitter size={18} />
+              <a href="#" className="text-gray-400 hover:text-white transition-colors text-lg" aria-label="Twitter">
+                🐦
               </a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <Instagram size={18} />
+              <a href="#" className="text-gray-400 hover:text-white transition-colors text-lg" aria-label="Instagram">
+                📸
               </a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <Youtube size={18} />
+              <a href="#" className="text-gray-400 hover:text-white transition-colors text-lg" aria-label="YouTube">
+                ▶️
               </a>
             </div>
           </div>
@@ -178,8 +237,6 @@ function Footer() {
 export default function HomePage() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-
-  // ✅ STATE FOR REAL PRODUCTS FROM API
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -187,49 +244,24 @@ export default function HomePage() {
   useEffect(() => {
     if (!isAutoPlaying) return;
     const interval = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
+      setCurrentSlide((prev) => (prev + 1) % 4);
     }, 5000);
     return () => clearInterval(interval);
   }, [isAutoPlaying]);
 
-  // ✅ FETCH REAL PRODUCTS FROM YOUR API
+  // Load mock products
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const res = await fetch('/api/products?limit=8');
-        if (!res.ok) throw new Error('Failed to fetch products');
-        const data = await res.json();
-        setProducts(data.products || []);
-      } catch (err) {
-        console.error('Error fetching products:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProducts();
+    // Simulate API loading delay
+    setTimeout(() => {
+      setProducts(mockProducts);
+      setLoading(false);
+    }, 500);
   }, []);
-
-  const goToPrevious = () => {
-    setCurrentSlide((prev) => (prev === 0 ? heroSlides.length - 1 : prev - 1));
-  };
-
-  const goToNext = () => {
-    setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
-  };
-
-  const goToSlide = (index: number) => {
-    setCurrentSlide(index);
-  };
-
-  const slide = heroSlides[currentSlide];
 
   return (
     <main className="min-h-screen">
-
-      {/* ✅ HERO SECTION - VIDEO BACKGROUND (Using your exact video file) */}
+      {/* HERO SECTION */}
       <section className="relative h-screen w-full overflow-hidden flex items-center justify-center">
-
-        {/* Video Background */}
         <video
           autoPlay
           loop
@@ -237,47 +269,32 @@ export default function HomePage() {
           playsInline
           className="absolute top-0 left-0 w-full h-full object-cover z-0"
         >
-          {/* ✅ Using your exact video file from public/banners/ */}
           <source src="/banners/Video-for-web-final.mp4" type="video/mp4" />
-
-          {/* Fallback image if video fails to load */}
           <Image
             src="/banners/images.jpeg"
             alt="Hero Fallback"
             fill
             className="object-cover"
+            sizes="100vw"
           />
         </video>
-
-        {/* Dark Overlay - Makes text readable */}
         <div className="absolute inset-0 bg-black/50 z-10" />
-
-        {/* Content Overlay - Centered */}
         <div className="relative z-20 max-w-4xl mx-auto px-4 sm:px-6 text-center">
-
-          {/* ✅ MINIMIZED BADGE: Smaller text, less padding */}
           <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-sm text-white px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider mb-4 sm:mb-5">
             <Sprout size={12} />
             Agricultural Company
           </div>
-
           <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-white leading-tight mb-3 sm:mb-4">
             <span className="text-green-400">Genesis</span> Agri Business
           </h1>
-
-          {/* ✅ MINIMIZED SUBTITLE: Smaller text */}
           <p className="text-sm sm:text-lg md:text-xl text-white/90 font-medium mb-3 sm:mb-4 max-w-2xl mx-auto">
             We have been producing quality crops for 50 years.
           </p>
-
-          {/* ✅ MINIMIZED DESCRIPTION: Smaller text, less spacing */}
           <p className="text-xs sm:text-sm text-white/80 max-w-xl mx-auto mb-6 leading-relaxed">
             Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy
             nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.
           </p>
-
-          {/* ✅ BUTTONS: More Info (Left), Shop Now (Right) */}
-          <div className="flex justify-between items-center max-w-sm mx-auto gap-4">
+          <div className="flex justify-center items-center gap-4">
             <Link
               href="/about"
               className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2.5 sm:px-6 sm:py-3 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg text-sm"
@@ -293,8 +310,6 @@ export default function HomePage() {
             </Link>
           </div>
         </div>
-
-        {/* Optional: Scroll indicator at the bottom */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 animate-bounce hidden md:block">
           <div className="w-6 h-10 border-2 border-white/30 rounded-full flex justify-center">
             <div className="w-1 h-3 bg-white/50 rounded-full mt-2 animate-pulse" />
@@ -313,7 +328,6 @@ export default function HomePage() {
               We provide quality agricultural products and services to help your farm grow
             </p>
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             {features.map((feature) => (
               <div
@@ -331,7 +345,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ✅ Products Section - REAL API DATA, 4 PER ROW, VERTICAL GRID */}
+      {/* Products Section */}
       <section className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4">
           <div className="mb-8 text-center">
@@ -340,7 +354,6 @@ export default function HomePage() {
             </h2>
             <p className="text-gray-500 mt-2">Quality agricultural products for your farm</p>
           </div>
-
           {loading ? (
             <div className="py-16 text-center text-gray-500">
               <div className="w-10 h-10 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -351,7 +364,6 @@ export default function HomePage() {
               <p>No products available</p>
             </div>
           ) : (
-            /* ✅ GRID: 4 per row, stacks vertically (NO SIDEWAYS SCROLL) */
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {products.map((product) => (
                 <ProductCard
@@ -379,10 +391,9 @@ export default function HomePage() {
               Trusted by <span className="text-green-600">Farmers</span> Worldwide
             </h2>
             <p className="text-gray-600 max-w-2xl mx-auto">
-              We've been serving the agricultural community for over five decades
+              Weve been serving the agricultural community for over five decades
             </p>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="bg-white p-8 rounded-xl shadow-sm border border-green-100">
               <div className="flex items-center gap-2 text-green-600 mb-4">
