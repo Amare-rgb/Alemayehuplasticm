@@ -1,0 +1,272 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  SELLER
+  ADMIN
+}
+
+enum ProductStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+enum ProductCondition {
+  NEW
+  USED
+  REFURBISHED
+}
+
+enum CategoryStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INACTIVE
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(USER)
+  avatar    String?
+  phone     String?  // Added phone field
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sellerProfile SellerProfile?
+  orders        Order[]
+  cartItems     CartItem[]
+  reviews       Review[]
+  addresses     Address[]
+  categories    Category[] @relation("CategoryCreator")
+  approvedCategories Category[] @relation("CategoryApprover")
+
+  @@map("users")
+}
+
+model SellerProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  shopName       String
+  shopDesc       String?
+  logo           String?
+  phone          String?
+  isVerified     Boolean  @default(false)
+  totalSales     Int      @default(0)
+  address        String?
+  banner         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@map("seller_profiles")
+}
+
+model Category {
+  id             String         @id @default(cuid())
+  name           String         @unique
+  slug           String         @unique
+  description    String?
+  image          String?
+  icon           String?
+  color          String?
+  parentId       String?
+  status         CategoryStatus @default(PENDING)
+  createdBy      String?
+  approvedBy     String?
+  approvedAt     DateTime?
+  rejectedAt     DateTime?
+  rejectionReason String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+  creator     User?      @relation("CategoryCreator", fields: [createdBy], references: [id])
+  approver    User?      @relation("CategoryApprover", fields: [approvedBy], references: [id])
+  products    Product[]  
+  subProducts Product[]  @relation("ProductSubCategory")
+
+  @@map("categories")
+}
+
+model Product {
+  id                  String          @id @default(cuid())
+  name                String
+  slug                String          @unique
+  description         String          @db.Text
+  price               Decimal         @db.Decimal(10, 2)
+  discountPrice       Decimal?        @db.Decimal(10, 2)
+  stock               Int             @default(0)
+  sku                 String          @unique
+  images              String[]
+  status              ProductStatus   @default(PENDING)
+  adminNote           String?
+  sellerId            String
+  categoryId          String
+  subCategoryId       String?
+  tags                String[]
+  warranty            String?
+  condition           ProductCondition @default(NEW)
+  videoUrl            String?
+  unitOfMeasurement   String          @default("pcs")  
+  sizes               String?          
+  colors              String?         
+  brand               String?
+  weight              Float?           
+  estimatedDelivery   String?
+  rejectionReason     String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  seller      SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  category    Category      @relation(fields: [categoryId], references: [id])
+  subCategory Category?     @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+  reviews     Review[]
+
+  @@index([sellerId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([sku])
+  @@map("products")
+}
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  items     CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  userId    String
+  cartId    String
+  productId String
+  quantity  Int     @default(1)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("cart_items")
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  userId          String
+  total           Decimal       @db.Decimal(10, 2)
+  status          OrderStatus   @default(PENDING)
+  paymentStatus   PaymentStatus @default(UNPAID)
+  addressId       String
+  paymentRef      String?
+  stripeSessionId String?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user    User        @relation(fields: [userId], references: [id])
+  address Address     @relation(fields: [addressId], references: [id])
+  items   OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Decimal @db.Decimal(10, 2)
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId])
+  @@map("reviews")
+}
+
+model Address {
+  id        String  @id @default(cuid())
+  userId    String
+  fullName  String
+  phone     String
+  street    String
+  city      String
+  state     String
+  zip       String
+  country   String  @default("CA")
+  isDefault Boolean @default(false)
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@map("addresses")
+}
+model BlogPost {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  content     String   @db.Text
+  excerpt     String?
+  image       String?
+  category    String   @default("Agriculture")
+  readTime    Int      @default(3)
+  published   Boolean  @default(true)
+  views       Int      @default(0)
+  authorId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author     User     @relation(fields: [authorId], references: [id])
+
+  @@index([authorId])
+  @@map("blog_posts")
+}
