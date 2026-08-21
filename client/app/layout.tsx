@@ -1,7 +1,9 @@
+// app/layout.tsx
 import type { Metadata } from 'next';
 import { Inter, Sora } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
 import { Navbar } from '@/components/layout/Navbar';
+import { Providers } from './providers';
 import './globals.css';
 
 const inter = Inter({ 
@@ -23,9 +25,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="bg-gray-50 text-gray-900 antialiased">
-        <Navbar />
-        {children}
-        <Toaster position="top-right" />
+        <Providers>
+          <Navbar />
+          {children}
+          <Toaster position="top-right" />
+        </Providers>
       </body>
     </html>
   );

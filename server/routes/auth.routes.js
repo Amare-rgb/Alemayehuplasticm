@@ -1,10 +1,15 @@
+// routes/auth.routes.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { generateToken } = require('../lib/auth');
 const { requireAuth } = require('../middleware/auth');
 const { setPending, getPending, deletePending } = require('../lib/pendingVerifications');
+
+// JWT Secret
+const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key';
 
 // Register
 router.post('/register', async (req, res) => {
@@ -46,7 +51,11 @@ router.post('/register', async (req, res) => {
     // In production, send verification email here
     console.log(`📧 Verification OTP for ${email}: ${otp}`);
 
-    res.json({ message: 'Verification code sent' });
+    res.json({ 
+      success: true,
+      message: 'Verification code sent',
+      email
+    });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Something went wrong' });
@@ -70,7 +79,10 @@ router.post('/verify-email', async (req, res) => {
     pending.verified = true;
     setPending(email, pending);
 
-    res.json({ message: 'Email verified successfully' });
+    res.json({ 
+      success: true,
+      message: 'Email verified successfully' 
+    });
   } catch (error) {
     console.error('Verification error:', error);
     res.status(500).json({ error: 'Verification failed' });
@@ -109,8 +121,13 @@ router.post('/complete-registration', async (req, res) => {
 
     deletePending(email);
 
+    // Generate token for auto-login
+    const token = generateToken(user.id, user.email, user.role);
+
     res.json({
+      success: true,
       message: 'Account created successfully',
+      token,
       user: {
         id: user.id,
         name: user.name,
@@ -124,27 +141,59 @@ router.post('/complete-registration', async (req, res) => {
   }
 });
 
-// Login
+// Login - FIXED VERSION
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log('🔐 Login attempt for:', email); // Debug log
+
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Email and password are required' 
+      });
+    }
+
+    // Find user
     const user = await prisma.user.findUnique({
-      where: { email }
+      where: { email: email.toLowerCase() }
     });
 
+    console.log('📊 User found:', user ? 'Yes' : 'No'); // Debug log
+
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ 
+        success: false,
+        error: 'Invalid credentials' 
+      });
     }
 
+    // Check if user has password (some OAuth users might not)
+    if (!user.password) {
+      return res.status(401).json({ 
+        success: false,
+        error: 'Account created with OAuth. Please use Google login.' 
+      });
+    }
+
+    // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
+    console.log('🔑 Password valid:', isValidPassword); // Debug log
+
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ 
+        success: false,
+        error: 'Invalid credentials' 
+      });
     }
 
+    // Generate token
     const token = generateToken(user.id, user.email, user.role);
 
+    // Return success response
     res.json({
+      success: true,
       message: 'Login successful',
       token,
       user: {
@@ -155,31 +204,50 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    console.error('❌ Login error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Login failed' 
+    });
   }
 });
 
-// Get Current User
+// Get Current User - FIXED VERSION
 router.get('/me', requireAuth, async (req, res) => {
   try {
+    // req.user is set by the requireAuth middleware
+    const userId = req.user.id;
+
     const user = await prisma.user.findUnique({
-      where: { id: req.session.user.id },
+      where: { id: userId },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
         phone: true,
-        createdAt: true
+        createdAt: true,
+        updatedAt: true
       }
     });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     res.json(user);
   } catch (error) {
     console.error('Error fetching user:', error);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// Logout
+router.post('/logout', async (req, res) => {
+  res.json({ 
+    success: true,
+    message: 'Logged out successfully' 
+  });
 });
 
 module.exports = router;

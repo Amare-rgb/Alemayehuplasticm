@@ -1,8 +1,11 @@
+// app/admin/layout.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
+import { useAuth } from '@/app/providers';
 import {
   LayoutDashboard,
   Package,
@@ -17,23 +20,8 @@ import {
   Search,
   ChevronDown,
   User,
-  Home,
-  TrendingUp,
   ShoppingCart,
-  Leaf,
-  Truck,
-  DollarSign,
-  Activity,
-  Plus,
-  Edit,
-  Trash2,
-  Eye,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Filter,
-  Download,
-  RefreshCw
+  Home,
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -44,8 +32,30 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  const { user, status, logout } = useAuth();
+
+  // Set mounted state
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Check authentication
+  useEffect(() => {
+    if (!isMounted) return;
+
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin');
+      return;
+    }
+
+    if (user?.role !== 'ADMIN') {
+      router.push('/');
+      return;
+    }
+  }, [user, status, router, isMounted]);
 
   // Navigation items
   const navItems = [
@@ -55,7 +65,6 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
     { name: 'Users', href: '/admin/users', icon: Users },
     { name: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
-    { name: 'Blog', href: '/admin/blog', icon: Leaf },
     { name: 'Settings', href: '/admin/settings', icon: Settings },
   ];
 
@@ -68,19 +77,32 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // Mock admin user
   const adminUser = {
-    name: 'Admin User',
-    email: 'admin@genesisagri.com',
-    avatar: '/avatars/admin.jpg',
-    role: 'Administrator'
+    name: user?.name || 'Admin User',
+    email: user?.email || 'admin@genesisagri.com',
+    role: user?.role || 'Administrator'
   };
 
   const handleLogout = () => {
-    // Clear token and redirect to login
-    localStorage.removeItem('token');
-    router.push('/login');
+    logout();
   };
+
+  // Show loading state while checking authentication
+  if (!isMounted || status === 'loading') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated or not admin
+  if (status === 'unauthenticated' || user?.role !== 'ADMIN') {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -92,14 +114,21 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
       >
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-lg bg-green-600 flex items-center justify-center">
-              <Leaf className="w-5 h-5 text-white" />
+          <Link href="/admin/dashboard" className="flex items-center space-x-2">
+            {/* Custom Logo - Replaced Leaf icon with your image */}
+            <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
+              <Image
+                src="/banners/images.jpeg"
+                alt="Genesis Agri"
+                width={32}
+                height={32}
+                className="w-full h-full object-cover"
+              />
             </div>
             {sidebarOpen && (
               <span className="text-lg font-semibold text-gray-800">Genesis Agri</span>
             )}
-          </div>
+          </Link>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
@@ -128,10 +157,22 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
             );
           })}
 
+          {/* Divider */}
+          <div className="border-t border-gray-200 my-4"></div>
+
+          {/* Return to Store */}
+          <Link
+            href="/"
+            className="flex items-center space-x-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all duration-200"
+          >
+            <Home className="w-5 h-5" />
+            {sidebarOpen && <span className="text-sm font-medium">Return to Store</span>}
+          </Link>
+
           {/* Logout button */}
           <button
             onClick={handleLogout}
-            className="flex items-center space-x-3 px-3 py-2.5 w-full rounded-lg text-red-600 hover:bg-red-50 transition-all duration-200 mt-4"
+            className="flex items-center space-x-3 px-3 py-2.5 w-full rounded-lg text-red-600 hover:bg-red-50 transition-all duration-200 mt-2"
           >
             <LogOut className="w-5 h-5" />
             {sidebarOpen && <span className="text-sm font-medium">Logout</span>}
@@ -141,23 +182,28 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
       {/* Main Content */}
       <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
-        {/* Top Header */}
-        <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
+        {/* Custom Admin Header - Different from Main Navbar */}
+        <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
           <div className="flex items-center justify-between h-16 px-6">
-            {/* Left side */}
-            <div className="flex items-center flex-1">
-              <div className="relative max-w-md w-full">
+            {/* Left side - Breadcrumb / Page title */}
+            <div className="flex items-center space-x-4">
+              <h2 className="text-lg font-semibold text-gray-800 hidden md:block">
+                {pathname?.split('/').pop()?.charAt(0).toUpperCase() + pathname?.split('/').pop()?.slice(1) || 'Dashboard'}
+              </h2>
+            </div>
+
+            {/* Right side - Admin specific header items */}
+            <div className="flex items-center space-x-4">
+              {/* Search - Admin specific */}
+              <div className="hidden md:block relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search products, orders, users..."
-                  className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  placeholder="Search in admin..."
+                  className="w-64 pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                 />
               </div>
-            </div>
 
-            {/* Right side */}
-            <div className="flex items-center space-x-4">
               {/* Notifications */}
               <div className="relative">
                 <button
@@ -201,14 +247,16 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
                 )}
               </div>
 
-              {/* Profile */}
+              {/* Admin Profile */}
               <div className="relative">
                 <button
                   onClick={() => setProfileOpen(!profileOpen)}
-                  className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-center space-x-3 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                 >
-                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                    <User className="w-5 h-5 text-green-600" />
+                  <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
+                    <span className="text-sm font-medium text-white">
+                      {adminUser.name?.charAt(0) || 'A'}
+                    </span>
                   </div>
                   <div className="hidden md:block text-left">
                     <p className="text-sm font-medium text-gray-800">{adminUser.name}</p>
@@ -219,7 +267,14 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
                 {/* Profile dropdown */}
                 {profileOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden z-50">
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden z-50">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <p className="text-sm font-medium text-gray-800">{adminUser.name}</p>
+                      <p className="text-xs text-gray-500">{adminUser.email}</p>
+                      <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700">
+                        {adminUser.role}
+                      </span>
+                    </div>
                     <Link
                       href="/admin/profile"
                       className="flex items-center space-x-2 px-4 py-2 hover:bg-gray-50 transition-colors"

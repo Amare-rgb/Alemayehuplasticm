@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 5000;
 // Import routes
 const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
+const adminDashboardRoutes = require('./routes/admin.dashboard'); // ← ADD THIS
 const blogRoutes = require('./routes/blog.routes');
 const cartRoutes = require('./routes/cart.routes');
 const categoriesRoutes = require('./routes/categories.routes');
@@ -20,7 +21,7 @@ const uploadRoutes = require('./routes/upload.routes');
 const webhookRoutes = require('./routes/webhooks.routes');
 
 // Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../uploads');
+const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -45,11 +46,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Static files
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
+// ============== ROUTES ==============
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/dashboard', adminDashboardRoutes); // ← ADD THIS
 app.use('/api/blog', blogRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/categories', categoriesRoutes);
@@ -69,15 +71,45 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Root route
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Genesis Agri API Server',
+    version: '1.0.0',
+    status: 'Running',
+    endpoints: {
+      auth: '/api/auth',
+      admin: '/api/admin',
+      adminDashboard: '/api/admin/dashboard', // ← ADD THIS
+      blog: '/api/blog',
+      cart: '/api/cart',
+      categories: '/api/categories',
+      checkout: '/api/checkout',
+      orders: '/api/orders',
+      products: '/api/products',
+      upload: '/api/upload',
+      webhooks: '/api/webhooks/stripe',
+      health: '/api/health'
+    }
+  });
+});
+
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  console.log('❌ Route not found:', req.method, req.url);
+  res.status(404).json({ 
+    success: false,
+    error: 'Route not found',
+    path: req.url,
+    method: req.method
+  });
 });
 
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
   res.status(500).json({
+    success: false,
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
@@ -86,17 +118,19 @@ app.use((err, req, res, next) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Genesis Agri Server running on http://localhost:${PORT}`);
-  console.log(`📁 Uploads directory: ${path.join(__dirname, '../uploads')}`);
-  console.log(`🔒 Environment: ${process.env.NODE_ENV}`);
+  console.log(`📁 Uploads directory: ${path.join(__dirname, 'uploads')}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`📈 Dashboard endpoint: http://localhost:${PORT}/api/admin/dashboard`);
 });
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
+process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully...');
   process.exit(0);
 });
 
-process.on('SIGINT', async () => {
+process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully...');
   process.exit(0);
 });

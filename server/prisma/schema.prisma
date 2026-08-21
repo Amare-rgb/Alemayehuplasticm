@@ -54,7 +54,7 @@ model User {
   password  String
   role      Role     @default(USER)
   avatar    String?
-  phone     String?  // Added phone field
+  phone     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -63,6 +63,7 @@ model User {
   cartItems     CartItem[]
   reviews       Review[]
   addresses     Address[]
+  blogPosts     BlogPost[]
   categories    Category[] @relation("CategoryCreator")
   approvedCategories Category[] @relation("CategoryApprover")
 
@@ -250,6 +251,7 @@ model Address {
 
   @@map("addresses")
 }
+
 model BlogPost {
   id          String   @id @default(cuid())
   title       String
@@ -265,7 +267,7 @@ model BlogPost {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  author     User     @relation(fields: [authorId], references: [id])
+  author     User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([authorId])
   @@map("blog_posts")
