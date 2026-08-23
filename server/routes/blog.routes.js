@@ -1,44 +1,118 @@
+// routes/blog.routes.js
 const express = require('express');
 const router = express.Router();
 const slugify = require('slugify');
 const prisma = require('../lib/prisma');
 const { requireAdmin } = require('../middleware/auth');
 const { getServerSession } = require('../lib/auth');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Configure multer for blog media (images and videos)
+const mediaStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../uploads/blog');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, `blog-${uniqueSuffix}${ext}`);
+  }
+});
+
+const mediaFileFilter = (req, file, cb) => {
+  const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg', 'image/svg+xml'];
+  const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'];
+  
+  if (allowedImageTypes.includes(file.mimetype) || allowedVideoTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image and video files are allowed'), false);
+  }
+};
+
+const uploadMedia = multer({
+  storage: mediaStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: mediaFileFilter
+});
 
 // Get all blog posts
 router.get('/', async (req, res) => {
   try {
-    const { published, limit = '12' } = req.query;
+    const { published, limit = '12', page = '1' } = req.query;
     const session = await getServerSession(req);
-    const isAdmin = session?.user?.role === 'ADMIN';
 
     const where = {};
     if (published === 'true') {
       where.published = true;
     }
 
-    const posts = await prisma.blogPost.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: parseInt(limit),
-      include: {
-        author: {
-          select: { name: true, email: true }
-        }
-      }
-    });
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    res.json({ posts });
+    const [posts, total] = await Promise.all([
+      prisma.blogPost.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+        include: {
+          author: {
+            select: { 
+              id: true,
+              name: true, 
+              email: true,
+              avatar: true
+            }
+          }
+        }
+      }),
+      prisma.blogPost.count({ where })
+    ]);
+
+    res.json({
+      posts,
+      total,
+      pages: Math.ceil(total / parseInt(limit)),
+      page: parseInt(page)
+    });
   } catch (error) {
     console.error('Error fetching blog posts:', error);
     res.status(500).json({ error: 'Failed to fetch blog posts' });
   }
 });
 
+// Upload blog media (image or video)
+router.post('/upload', requireAdmin, uploadMedia.single('media'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No media file uploaded' });
+    }
+
+    const mediaUrl = `/uploads/blog/${req.file.filename}`;
+    const mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+    
+    res.json({
+      success: true,
+      mediaUrl,
+      mediaType,
+      message: 'Media uploaded successfully'
+    });
+  } catch (error) {
+    console.error('Error uploading media:', error);
+    res.status(500).json({ error: 'Failed to upload media' });
+  }
+});
+
 // Create blog post
 router.post('/', requireAdmin, async (req, res) => {
   try {
-    const { title, content, excerpt, image, category, readTime } = req.body;
+    const { title, content, excerpt, image, video, category, readTime, published } = req.body;
 
     if (!title || !content) {
       return res.status(400).json({ error: 'Title and content are required' });
@@ -59,39 +133,72 @@ router.post('/', requireAdmin, async (req, res) => {
         slug,
         content,
         excerpt: excerpt || content.substring(0, 150),
-        image: image || '',
+        image: image || video || '',
         category: category || 'Agriculture',
         readTime: parseInt(readTime) || 3,
         authorId: req.session.user.id,
-        published: true,
+        published: published !== undefined ? published : true,
       },
+      include: {
+        author: {
+          select: { name: true, email: true, avatar: true }
+        }
+      }
     });
 
-    res.status(201).json({ post });
+    res.status(201).json({ 
+      success: true,
+      post,
+      message: 'Blog post created successfully'
+    });
   } catch (error) {
     console.error('Error creating blog post:', error);
     res.status(500).json({ error: 'Failed to create blog post' });
   }
 });
 
-// Get single blog post
-router.get('/:slug', async (req, res) => {
+// ✅ FIXED: Get single blog post - supports both ID and slug
+router.get('/:id', async (req, res) => {
   try {
-    const { slug } = req.params;
+    const { id } = req.params;
 
-    const post = await prisma.blogPost.findUnique({
-      where: { slug },
+    // Try to find by id first
+    let post = await prisma.blogPost.findUnique({
+      where: { id },
       include: {
         author: {
-          select: { name: true, email: true }
+          select: { 
+            id: true,
+            name: true, 
+            email: true,
+            avatar: true
+          }
         }
       }
     });
+
+    // If not found by id, try by slug
+    if (!post) {
+      post = await prisma.blogPost.findUnique({
+        where: { slug: id },
+        include: {
+          author: {
+            select: { 
+              id: true,
+              name: true, 
+              email: true,
+              avatar: true
+            }
+          }
+        }
+      });
+    }
 
     if (!post) {
       return res.status(404).json({ error: 'Blog post not found' });
     }
 
+    // Increment views
     await prisma.blogPost.update({
       where: { id: post.id },
       data: { views: { increment: 1 } }
@@ -105,33 +212,52 @@ router.get('/:slug', async (req, res) => {
 });
 
 // Update blog post
-router.put('/:slug', requireAdmin, async (req, res) => {
+router.put('/:id', requireAdmin, async (req, res) => {
   try {
-    const { slug } = req.params;
-    const { title, content, excerpt, image, category, readTime, published } = req.body;
+    const { id } = req.params;
+    const { title, content, excerpt, image, video, category, readTime, published } = req.body;
 
-    const existingPost = await prisma.blogPost.findUnique({
-      where: { slug }
+    // Try to find by id first
+    let existingPost = await prisma.blogPost.findUnique({
+      where: { id }
     });
+
+    // If not found by id, try by slug
+    if (!existingPost) {
+      existingPost = await prisma.blogPost.findUnique({
+        where: { slug: id }
+      });
+    }
 
     if (!existingPost) {
       return res.status(404).json({ error: 'Blog post not found' });
     }
 
+    const updateData = {};
+    if (title) updateData.title = title;
+    if (content) updateData.content = content;
+    if (excerpt !== undefined) updateData.excerpt = excerpt;
+    if (image !== undefined) updateData.image = image;
+    if (video !== undefined) updateData.image = video;
+    if (category) updateData.category = category;
+    if (readTime) updateData.readTime = parseInt(readTime);
+    if (published !== undefined) updateData.published = published;
+
     const updated = await prisma.blogPost.update({
       where: { id: existingPost.id },
-      data: {
-        title: title || existingPost.title,
-        content: content || existingPost.content,
-        excerpt: excerpt || existingPost.excerpt,
-        image: image !== undefined ? image : existingPost.image,
-        category: category || existingPost.category,
-        readTime: readTime || existingPost.readTime,
-        published: published !== undefined ? published : existingPost.published,
-      },
+      data: updateData,
+      include: {
+        author: {
+          select: { name: true, email: true, avatar: true }
+        }
+      }
     });
 
-    res.json({ post: updated });
+    res.json({ 
+      success: true,
+      post: updated,
+      message: 'Blog post updated successfully'
+    });
   } catch (error) {
     console.error('Error updating blog post:', error);
     res.status(500).json({ error: 'Failed to update blog post' });
@@ -139,23 +265,47 @@ router.put('/:slug', requireAdmin, async (req, res) => {
 });
 
 // Delete blog post
-router.delete('/:slug', requireAdmin, async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
-    const { slug } = req.params;
+    const { id } = req.params;
 
-    const existingPost = await prisma.blogPost.findUnique({
-      where: { slug }
+    // Try to find by id first
+    let existingPost = await prisma.blogPost.findUnique({
+      where: { id }
     });
+
+    // If not found by id, try by slug
+    if (!existingPost) {
+      existingPost = await prisma.blogPost.findUnique({
+        where: { slug: id }
+      });
+    }
 
     if (!existingPost) {
       return res.status(404).json({ error: 'Blog post not found' });
+    }
+
+    // Delete associated media file if exists
+    if (existingPost.image) {
+      const mediaPath = path.join(__dirname, '..', existingPost.image);
+      if (fs.existsSync(mediaPath)) {
+        try {
+          fs.unlinkSync(mediaPath);
+          console.log('🗑️ Deleted media file:', mediaPath);
+        } catch (unlinkError) {
+          console.warn('⚠️ Could not delete media file:', unlinkError.message);
+        }
+      }
     }
 
     await prisma.blogPost.delete({
       where: { id: existingPost.id }
     });
 
-    res.json({ success: true });
+    res.json({ 
+      success: true,
+      message: 'Blog post deleted successfully'
+    });
   } catch (error) {
     console.error('Error deleting blog post:', error);
     res.status(500).json({ error: 'Failed to delete blog post' });

@@ -1,3 +1,4 @@
+// server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -10,7 +11,7 @@ const PORT = process.env.PORT || 5000;
 // Import routes
 const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
-const adminDashboardRoutes = require('./routes/admin.dashboard'); // ← ADD THIS
+const adminDashboardRoutes = require('./routes/admin.dashboard');
 const blogRoutes = require('./routes/blog.routes');
 const cartRoutes = require('./routes/cart.routes');
 const categoriesRoutes = require('./routes/categories.routes');
@@ -19,17 +20,29 @@ const ordersRoutes = require('./routes/orders.routes');
 const productsRoutes = require('./routes/products.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const webhookRoutes = require('./routes/webhooks.routes');
+const usersRoutes = require('./routes/users.routes');
+const settingsRoutes = require('./routes/settings.routes');
+const profileRoutes = require('./routes/profile.routes'); // ✅ ADD THIS
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log(' Created uploads directory:', uploadsDir);
 }
 
 // Ensure products subdirectory exists
 const productsDir = path.join(uploadsDir, 'products');
 if (!fs.existsSync(productsDir)) {
   fs.mkdirSync(productsDir, { recursive: true });
+  console.log(' Created products directory:', productsDir);
+}
+
+// Ensure settings subdirectory exists
+const settingsDir = path.join(uploadsDir, 'settings');
+if (!fs.existsSync(settingsDir)) {
+  fs.mkdirSync(settingsDir, { recursive: true });
+  console.log(' Created settings directory:', settingsDir);
 }
 
 // Middleware
@@ -45,13 +58,19 @@ app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static files
+// ============== STATIC FILES ==============
+// Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+console.log(' Serving static files from:', path.join(__dirname, 'uploads'));
+
+// Also serve from root uploads path for compatibility
+app.use('/uploads/products', express.static(path.join(__dirname, 'uploads/products')));
+app.use('/uploads/settings', express.static(path.join(__dirname, 'uploads/settings')));
 
 // ============== ROUTES ==============
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/admin/dashboard', adminDashboardRoutes); // ← ADD THIS
+app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/blog', blogRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/categories', categoriesRoutes);
@@ -60,6 +79,9 @@ app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/webhooks/stripe', webhookRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/admin/settings', settingsRoutes);
+app.use('/api/profile', profileRoutes); // ✅ ADD THIS - Profile routes
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -80,7 +102,7 @@ app.get('/', (req, res) => {
     endpoints: {
       auth: '/api/auth',
       admin: '/api/admin',
-      adminDashboard: '/api/admin/dashboard', // ← ADD THIS
+      adminDashboard: '/api/admin/dashboard',
       blog: '/api/blog',
       cart: '/api/cart',
       categories: '/api/categories',
@@ -88,6 +110,9 @@ app.get('/', (req, res) => {
       orders: '/api/orders',
       products: '/api/products',
       upload: '/api/upload',
+      users: '/api/users',
+      profile: '/api/profile', // ✅ ADD THIS
+      settings: '/api/admin/settings',
       webhooks: '/api/webhooks/stripe',
       health: '/api/health'
     }
@@ -117,11 +142,17 @@ app.use((err, req, res, next) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Genesis Agri Server running on http://localhost:${PORT}`);
-  console.log(`📁 Uploads directory: ${path.join(__dirname, 'uploads')}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`📈 Dashboard endpoint: http://localhost:${PORT}/api/admin/dashboard`);
+  console.log(`Genesis Agri Server running on http://localhost:${PORT}`);
+  console.log(`Uploads directory: ${path.join(__dirname, 'uploads')}`);
+  console.log(`Products directory: ${path.join(__dirname, 'uploads/products')}`);
+  console.log(`Settings directory: ${path.join(__dirname, 'uploads/settings')}`);
+  console.log(`Environment: ${process.env.NODE_ENV}`);
+  console.log(`Health check: http://localhost:${PORT}/api/health`);
+  console.log(`Dashboard endpoint: http://localhost:${PORT}/api/admin/dashboard`);
+  console.log(`Users endpoint: http://localhost:${PORT}/api/users`);
+  console.log(`Profile endpoint: http://localhost:${PORT}/api/profile`); // ✅ ADD THIS
+  console.log(`Settings endpoint: http://localhost:${PORT}/api/admin/settings`);
+  console.log(`Test image URL: http://localhost:${PORT}/uploads/products/`);
 });
 
 // Graceful shutdown
