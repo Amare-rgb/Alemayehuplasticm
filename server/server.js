@@ -22,27 +22,28 @@ const uploadRoutes = require('./routes/upload.routes');
 const webhookRoutes = require('./routes/webhooks.routes');
 const usersRoutes = require('./routes/users.routes');
 const settingsRoutes = require('./routes/settings.routes');
-const profileRoutes = require('./routes/profile.routes'); // ✅ ADD THIS
+const profileRoutes = require('./routes/profile.routes');
+const sellerRoutes = require('./routes/seller.routes'); // ✅ ADD SELLER ROUTES
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log(' Created uploads directory:', uploadsDir);
+  console.log('✅ Created uploads directory:', uploadsDir);
 }
 
 // Ensure products subdirectory exists
 const productsDir = path.join(uploadsDir, 'products');
 if (!fs.existsSync(productsDir)) {
   fs.mkdirSync(productsDir, { recursive: true });
-  console.log(' Created products directory:', productsDir);
+  console.log('✅ Created products directory:', productsDir);
 }
 
 // Ensure settings subdirectory exists
 const settingsDir = path.join(uploadsDir, 'settings');
 if (!fs.existsSync(settingsDir)) {
   fs.mkdirSync(settingsDir, { recursive: true });
-  console.log(' Created settings directory:', settingsDir);
+  console.log('✅ Created settings directory:', settingsDir);
 }
 
 // Middleware
@@ -61,7 +62,7 @@ app.use(express.urlencoded({ extended: true }));
 // ============== STATIC FILES ==============
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-console.log(' Serving static files from:', path.join(__dirname, 'uploads'));
+console.log('✅ Serving static files from:', path.join(__dirname, 'uploads'));
 
 // Also serve from root uploads path for compatibility
 app.use('/uploads/products', express.static(path.join(__dirname, 'uploads/products')));
@@ -81,7 +82,8 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/webhooks/stripe', webhookRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/admin/settings', settingsRoutes);
-app.use('/api/profile', profileRoutes); // ✅ ADD THIS - Profile routes
+app.use('/api/profile', profileRoutes);
+app.use('/api/seller', sellerRoutes); // ✅ ADD SELLER ROUTES HERE
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -111,7 +113,8 @@ app.get('/', (req, res) => {
       products: '/api/products',
       upload: '/api/upload',
       users: '/api/users',
-      profile: '/api/profile', // ✅ ADD THIS
+      profile: '/api/profile',
+      seller: '/api/seller', // ✅ ADD SELLER ENDPOINT
       settings: '/api/admin/settings',
       webhooks: '/api/webhooks/stripe',
       health: '/api/health'
@@ -142,17 +145,29 @@ app.use((err, req, res, next) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Genesis Agri Server running on http://localhost:${PORT}`);
-  console.log(`Uploads directory: ${path.join(__dirname, 'uploads')}`);
-  console.log(`Products directory: ${path.join(__dirname, 'uploads/products')}`);
-  console.log(`Settings directory: ${path.join(__dirname, 'uploads/settings')}`);
-  console.log(`Environment: ${process.env.NODE_ENV}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
-  console.log(`Dashboard endpoint: http://localhost:${PORT}/api/admin/dashboard`);
-  console.log(`Users endpoint: http://localhost:${PORT}/api/users`);
-  console.log(`Profile endpoint: http://localhost:${PORT}/api/profile`); // ✅ ADD THIS
-  console.log(`Settings endpoint: http://localhost:${PORT}/api/admin/settings`);
-  console.log(`Test image URL: http://localhost:${PORT}/uploads/products/`);
+  console.log('Genesis Agri Server running on http://localhost:' + PORT);
+  console.log('Uploads directory: ' + path.join(__dirname, 'uploads'));
+  console.log('Products directory: ' + path.join(__dirname, 'uploads/products'));
+  console.log('Settings directory: ' + path.join(__dirname, 'uploads/settings'));
+  console.log('Environment: ' + process.env.NODE_ENV);
+  console.log('Health check: http://localhost:' + PORT + '/api/health');
+  console.log('Dashboard endpoint: http://localhost:' + PORT + '/api/admin/dashboard');
+  console.log('Users endpoint: http://localhost:' + PORT + '/api/users');
+  console.log('Profile endpoint: http://localhost:' + PORT + '/api/profile');
+  console.log('Seller endpoint: http://localhost:' + PORT + '/api/seller');
+  console.log(' Settings endpoint: http://localhost:' + PORT + '/api/admin/settings');
+  console.log('Test image URL: http://localhost:' + PORT + '/uploads/products/');
+  console.log('');
+  console.log(' All routes loaded successfully!');
+  console.log(' Available seller routes:');
+  console.log('   POST   /api/seller/register - Register as seller');
+  console.log('   GET    /api/seller/profile - Get seller profile');
+  console.log('   PUT    /api/seller/profile - Update seller profile');
+  console.log('   POST   /api/seller/products - Create product');
+  console.log('   GET    /api/seller/products - Get seller products');
+  console.log('   PUT    /api/seller/products/:id - Update product');
+  console.log('   DELETE /api/seller/products/:id - Delete product');
+  console.log('   GET    /api/seller/stats - Get seller statistics');
 });
 
 // Graceful shutdown

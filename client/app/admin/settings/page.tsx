@@ -3,49 +3,19 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import Image from 'next/image';
 import axios, { AxiosError } from 'axios';
 import {
   Settings,
   Save,
-  X,
   CheckCircle,
   AlertCircle,
   Info,
   XCircle,
-  User,
-  Mail,
-  Phone,
-  MapPin,
-  Globe,
-  Lock,
-  Bell,
   Shield,
-  Palette,
-  Type,
-  Image as ImageIcon,
-  Upload,
-  Trash2,
-  RefreshCw,
   Loader2,
   Store,
-  DollarSign,
-  Package,
-  ShoppingBag,
-  Users,
-  BarChart3,
-  CreditCard,
-  FileText,
-  HelpCircle,
-  LogOut,
-  ChevronRight,
-  ChevronDown,
   Eye,
   EyeOff,
-  Camera,
-  Building,
-  Clock
 } from 'lucide-react';
 
 // Create axios instance
@@ -164,49 +134,6 @@ const SettingSection: React.FC<SettingSectionProps> = ({ title, description, chi
   );
 };
 
-// Form Input Component
-interface FormInputProps {
-  label: string;
-  name: string;
-  type?: string;
-  value: string | number;
-  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
-  placeholder?: string;
-  required?: boolean;
-  helpText?: string;
-  disabled?: boolean;
-}
-
-const FormInput: React.FC<FormInputProps> = ({
-  label,
-  name,
-  type = 'text',
-  value,
-  onChange,
-  placeholder,
-  required = false,
-  helpText,
-  disabled = false
-}) => {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <input
-        type={type}
-        name={name}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        disabled={disabled}
-        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm disabled:bg-gray-50 disabled:text-gray-500"
-      />
-      {helpText && <p className="text-xs text-gray-400 mt-1">{helpText}</p>}
-    </div>
-  );
-};
-
 // Toggle Switch Component
 const ToggleSwitch: React.FC<{
   label: string;
@@ -237,18 +164,52 @@ const ToggleSwitch: React.FC<{
   );
 };
 
+// Define types for settings data
+interface SettingsData {
+  siteName: string;
+  siteDescription: string;
+  adminEmail: string;
+  adminPhone: string;
+  address: string;
+  timezone: string;
+  dateFormat: string;
+  storeName: string;
+  storeEmail: string;
+  storePhone: string;
+  storeAddress: string;
+  currency: string;
+  taxRate: number;
+  twoFactorAuth: boolean;
+  sessionTimeout: number;
+}
+
+interface PasswordData {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+// Type for API error response
+interface ApiErrorResponse {
+  error: string;
+}
+
 const SettingsPage: React.FC = () => {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const isMounted = useRef(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState('general');
   const [showPassword, setShowPassword] = useState(false);
+  const [passwordData, setPasswordData] = useState<PasswordData>({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
 
   // Form Data
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<SettingsData>({
     // General Settings
     siteName: 'Genesis Agri Business',
     siteDescription: 'Agriculture marketplace connecting farmers and buyers',
@@ -266,31 +227,14 @@ const SettingsPage: React.FC = () => {
     currency: 'KES',
     taxRate: 16,
 
-    // Logo
-    logo: '',
-    favicon: '',
-
     // Security
     twoFactorAuth: false,
     sessionTimeout: 60,
-
-    // Notifications
-    emailNotifications: true,
-    orderNotifications: true,
-    productNotifications: true,
-    userNotifications: true,
-    marketingEmails: false,
-
-    // Appearance
-    themeColor: '#22c55e',
-    darkMode: false,
   });
 
   const tabs = [
     { id: 'general', label: 'General', icon: Settings },
     { id: 'store', label: 'Store', icon: Store },
-    { id: 'appearance', label: 'Appearance', icon: Palette },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
   ];
 
@@ -305,11 +249,29 @@ const SettingsPage: React.FC = () => {
     setNotification(null);
   };
 
+  // Single handler for all input types using a generic event
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
-    setFormData(prev => ({
+    // Check if it's a number input
+    if (type === 'number') {
+      setFormData(prev => ({
+        ...prev,
+        [name]: parseFloat(value) || 0
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  // Separate handler for password inputs
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setPasswordData(prev => ({
       ...prev,
-      [name]: type === 'number' ? parseFloat(value) || 0 : value
+      [name]: value
     }));
   };
 
@@ -320,112 +282,54 @@ const SettingsPage: React.FC = () => {
     }));
   };
 
-  // ✅ FIXED: Fetch settings - using useCallback properly
-  const fetchSettings = useCallback(async () => {
+  // FIXED: Initialize data on mount - using useRef to avoid dependency issues
+  const initializeSettings = useRef(async () => {
     try {
-      setLoading(true);
       const token = localStorage.getItem('token');
       if (!token) {
-        showNotification('error', 'Authentication required');
-        router.push('/auth/signin');
+        if (isMounted.current) {
+          showNotification('error', 'Authentication required');
+          router.push('/auth/signin');
+        }
         setLoading(false);
         return;
       }
 
-      // Try to fetch settings from API
       try {
         const response = await api.get('/api/admin/settings', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (response.data) {
+        if (response.data && isMounted.current) {
           setFormData(prev => ({ ...prev, ...response.data }));
         }
       } catch (err) {
-        // If API doesn't exist, use defaults
-        console.log('Using default settings');
+        const error = err as AxiosError<ApiErrorResponse>;
+        if (error.response?.status === 401) {
+          router.push('/auth/signin');
+        } else {
+          console.log('Using default settings');
+        }
       }
     } catch (err) {
       console.error('Error fetching settings:', err);
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
-  }, [router]);
+  });
 
-  // ✅ FIXED: Use isMounted ref to prevent setState after unmount
-  const isMounted = useRef(true);
-  const isInitialMount = useRef(true);
-
-  // ✅ FIXED: Only fetch on initial mount
+  // FIXED: Use useEffect with stable dependencies
   useEffect(() => {
     isMounted.current = true;
     
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      fetchSettings();
-    }
+    // Call the initialization function
+    initializeSettings.current();
     
     return () => {
       isMounted.current = false;
     };
-  }, [fetchSettings]);
-
-  // Handle logo upload
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const file = files[0];
-    if (file.size > 2 * 1024 * 1024) {
-      showNotification('error', 'Logo size must be less than 2MB');
-      return;
-    }
-
-    setUploadingLogo(true);
-    
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        showNotification('error', 'Authentication required');
-        setUploadingLogo(false);
-        return;
-      }
-
-      const formDataUpload = new FormData();
-      formDataUpload.append('logo', file);
-
-      const response = await api.post('/api/admin/upload-logo', formDataUpload, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      if (response.data.success && response.data.logoUrl) {
-        setFormData(prev => ({
-          ...prev,
-          logo: response.data.logoUrl
-        }));
-        showNotification('success', 'Logo uploaded successfully');
-      } else {
-        showNotification('error', response.data.error || 'Failed to upload logo');
-      }
-    } catch (err) {
-      console.error('Error uploading logo:', err);
-      showNotification('error', 'Failed to upload logo');
-    } finally {
-      setUploadingLogo(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
-  const handleRemoveLogo = () => {
-    setFormData(prev => ({
-      ...prev,
-      logo: ''
-    }));
-  };
+  }, []); // Empty array - stable
 
   // Handle save settings
   const handleSave = async () => {
@@ -447,15 +351,81 @@ const SettingsPage: React.FC = () => {
       });
 
       if (response.data.success) {
-        showNotification('success', 'Settings saved successfully! 🎉');
+        showNotification('success', response.data.message || 'Settings saved successfully! 🎉');
       } else {
         showNotification('error', response.data.error || 'Failed to save settings');
       }
     } catch (err) {
-      console.error('Error saving settings:', err);
-      showNotification('error', 'Failed to save settings');
+      const error = err as AxiosError<ApiErrorResponse>;
+      console.error('Error saving settings:', error);
+      if (error.response?.status === 401) {
+        router.push('/auth/signin');
+      } else {
+        showNotification('error', error.response?.data?.error || 'Failed to save settings');
+      }
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Handle change password
+  const handleChangePassword = async () => {
+    // Validate passwords
+    if (!passwordData.currentPassword) {
+      showNotification('error', 'Please enter your current password');
+      return;
+    }
+
+    if (!passwordData.newPassword) {
+      showNotification('error', 'Please enter a new password');
+      return;
+    }
+
+    if (passwordData.newPassword.length < 8) {
+      showNotification('error', 'New password must be at least 8 characters');
+      return;
+    }
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      showNotification('error', 'Passwords do not match');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        showNotification('error', 'Authentication required');
+        router.push('/auth/signin');
+        return;
+      }
+
+      const response = await api.post('/api/admin/change-password', {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.data.success) {
+        showNotification('success', response.data.message || 'Password changed successfully');
+        setPasswordData({
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: ''
+        });
+      } else {
+        showNotification('error', response.data.error || 'Failed to change password');
+      }
+    } catch (err) {
+      const error = err as AxiosError<ApiErrorResponse>;
+      console.error('Error changing password:', error);
+      if (error.response?.status === 401) {
+        router.push('/auth/signin');
+      } else {
+        showNotification('error', error.response?.data?.error || 'Failed to change password');
+      }
     }
   };
 
@@ -477,7 +447,6 @@ const SettingsPage: React.FC = () => {
       });
 
       if (response.data.success) {
-        // Reset form data to defaults
         setFormData({
           siteName: 'Genesis Agri Business',
           siteDescription: 'Agriculture marketplace connecting farmers and buyers',
@@ -492,25 +461,17 @@ const SettingsPage: React.FC = () => {
           storeAddress: '123 Farm Road, Nairobi, Kenya',
           currency: 'KES',
           taxRate: 16,
-          logo: '',
-          favicon: '',
           twoFactorAuth: false,
           sessionTimeout: 60,
-          emailNotifications: true,
-          orderNotifications: true,
-          productNotifications: true,
-          userNotifications: true,
-          marketingEmails: false,
-          themeColor: '#22c55e',
-          darkMode: false,
         });
         showNotification('success', 'Settings reset to default successfully');
       } else {
         showNotification('error', response.data.error || 'Failed to reset settings');
       }
     } catch (err) {
-      console.error('Error resetting settings:', err);
-      showNotification('error', 'Failed to reset settings');
+      const error = err as AxiosError<ApiErrorResponse>;
+      console.error('Error resetting settings:', error);
+      showNotification('error', error.response?.data?.error || 'Failed to reset settings');
     }
   };
 
@@ -592,45 +553,75 @@ const SettingsPage: React.FC = () => {
               title="General Settings"
               description="Basic information about your application"
             >
-              <FormInput
-                label="Site Name"
-                name="siteName"
-                value={formData.siteName}
-                onChange={handleChange}
-                placeholder="Enter site name"
-                required
-              />
-              <FormInput
-                label="Site Description"
-                name="siteDescription"
-                value={formData.siteDescription}
-                onChange={handleChange}
-                placeholder="Enter site description"
-              />
-              <FormInput
-                label="Admin Email"
-                name="adminEmail"
-                type="email"
-                value={formData.adminEmail}
-                onChange={handleChange}
-                placeholder="admin@example.com"
-                required
-              />
-              <FormInput
-                label="Admin Phone"
-                name="adminPhone"
-                type="tel"
-                value={formData.adminPhone}
-                onChange={handleChange}
-                placeholder="+1 (555) 123-4567"
-              />
-              <FormInput
-                label="Address"
-                name="address"
-                value={formData.address}
-                onChange={handleChange}
-                placeholder="Enter business address"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Site Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="siteName"
+                  value={formData.siteName}
+                  onChange={handleChange}
+                  placeholder="Enter site name"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Site Description
+                </label>
+                <textarea
+                  name="siteDescription"
+                  value={formData.siteDescription}
+                  onChange={handleChange}
+                  placeholder="Enter site description"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm min-h-[100px]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Admin Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  name="adminEmail"
+                  value={formData.adminEmail}
+                  onChange={handleChange}
+                  placeholder="admin@example.com"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Admin Phone
+                </label>
+                <input
+                  type="tel"
+                  name="adminPhone"
+                  value={formData.adminPhone}
+                  onChange={handleChange}
+                  placeholder="+1 (555) 123-4567"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Address
+                </label>
+                <input
+                  type="text"
+                  name="address"
+                  value={formData.address}
+                  onChange={handleChange}
+                  placeholder="Enter business address"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -672,38 +663,62 @@ const SettingsPage: React.FC = () => {
               title="Store Settings"
               description="Configure your store information and preferences"
             >
-              <FormInput
-                label="Store Name"
-                name="storeName"
-                value={formData.storeName}
-                onChange={handleChange}
-                placeholder="Enter store name"
-                required
-              />
-              <FormInput
-                label="Store Email"
-                name="storeEmail"
-                type="email"
-                value={formData.storeEmail}
-                onChange={handleChange}
-                placeholder="store@example.com"
-                required
-              />
-              <FormInput
-                label="Store Phone"
-                name="storePhone"
-                type="tel"
-                value={formData.storePhone}
-                onChange={handleChange}
-                placeholder="+1 (555) 123-4567"
-              />
-              <FormInput
-                label="Store Address"
-                name="storeAddress"
-                value={formData.storeAddress}
-                onChange={handleChange}
-                placeholder="Enter store address"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Store Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="storeName"
+                  value={formData.storeName}
+                  onChange={handleChange}
+                  placeholder="Enter store name"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Store Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  name="storeEmail"
+                  value={formData.storeEmail}
+                  onChange={handleChange}
+                  placeholder="store@example.com"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Store Phone
+                </label>
+                <input
+                  type="tel"
+                  name="storePhone"
+                  value={formData.storePhone}
+                  onChange={handleChange}
+                  placeholder="+1 (555) 123-4567"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Store Address
+                </label>
+                <input
+                  type="text"
+                  name="storeAddress"
+                  value={formData.storeAddress}
+                  onChange={handleChange}
+                  placeholder="Enter store address"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -720,143 +735,21 @@ const SettingsPage: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                <FormInput
-                  label="Tax Rate (%)"
-                  name="taxRate"
-                  type="number"
-                  value={formData.taxRate}
-                  onChange={handleChange}
-                  placeholder="0"
-                  helpText="Default tax rate applied to products"
-                />
-              </div>
-            </SettingSection>
-          </TabPanel>
-
-          {/* Appearance Settings */}
-          <TabPanel active={activeTab === 'appearance'}>
-            <SettingSection
-              title="Appearance"
-              description="Customize the look and feel of your application"
-            >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Logo
-                </label>
-                <div className="flex items-center space-x-4">
-                  {formData.logo ? (
-                    <div className="relative w-32 h-32 border border-gray-200 rounded-lg overflow-hidden group">
-                      <Image
-                        src={formData.logo.startsWith('http') ? formData.logo : `${API_URL}${formData.logo}`}
-                        alt="Logo"
-                        fill
-                        className="object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleRemoveLogo}
-                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-32 h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-green-500 transition-colors cursor-pointer group"
-                    >
-                      <div className="text-center">
-                        {uploadingLogo ? (
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto" />
-                        ) : (
-                          <>
-                            <Upload className="w-8 h-8 text-gray-400 mx-auto group-hover:text-green-500 transition-colors" />
-                            <span className="text-xs text-gray-500 group-hover:text-green-500 transition-colors block mt-1">
-                              Upload Logo
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Tax Rate (%)
+                  </label>
                   <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
-                    className="hidden"
-                  />
-                </div>
-                <p className="text-xs text-gray-400 mt-2">Recommended size: 200x200px, Max 2MB</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Theme Color
-                </label>
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="color"
-                    name="themeColor"
-                    value={formData.themeColor}
+                    type="number"
+                    name="taxRate"
+                    value={formData.taxRate}
                     onChange={handleChange}
-                    className="w-12 h-12 rounded-lg border border-gray-200 cursor-pointer"
+                    placeholder="0"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
                   />
-                  <input
-                    type="text"
-                    name="themeColor"
-                    value={formData.themeColor}
-                    onChange={handleChange}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                  />
+                  <p className="text-xs text-gray-400 mt-1">Default tax rate applied to products</p>
                 </div>
               </div>
-
-              <ToggleSwitch
-                label="Dark Mode"
-                description="Enable dark theme for the application"
-                checked={formData.darkMode}
-                onChange={() => handleToggle('darkMode')}
-              />
-            </SettingSection>
-          </TabPanel>
-
-          {/* Notifications Settings */}
-          <TabPanel active={activeTab === 'notifications'}>
-            <SettingSection
-              title="Notification Preferences"
-              description="Manage your notification settings"
-            >
-              <ToggleSwitch
-                label="Email Notifications"
-                description="Receive email notifications for important updates"
-                checked={formData.emailNotifications}
-                onChange={() => handleToggle('emailNotifications')}
-              />
-              <ToggleSwitch
-                label="Order Notifications"
-                description="Get notified about new orders and order updates"
-                checked={formData.orderNotifications}
-                onChange={() => handleToggle('orderNotifications')}
-              />
-              <ToggleSwitch
-                label="Product Notifications"
-                description="Receive alerts about product listings and updates"
-                checked={formData.productNotifications}
-                onChange={() => handleToggle('productNotifications')}
-              />
-              <ToggleSwitch
-                label="User Notifications"
-                description="Get notified about user registrations and activities"
-                checked={formData.userNotifications}
-                onChange={() => handleToggle('userNotifications')}
-              />
-              <ToggleSwitch
-                label="Marketing Emails"
-                description="Receive promotional emails and newsletters"
-                checked={formData.marketingEmails}
-                onChange={() => handleToggle('marketingEmails')}
-              />
             </SettingSection>
           </TabPanel>
 
@@ -867,39 +760,66 @@ const SettingsPage: React.FC = () => {
               description="Configure security preferences for your account"
             >
               <div className="space-y-4">
-                <FormInput
-                  label="Current Password"
-                  name="currentPassword"
-                  type={showPassword ? 'text' : 'password'}
-                  value=""
-                  onChange={() => {}}
-                  placeholder="Enter current password"
-                />
-                <FormInput
-                  label="New Password"
-                  name="newPassword"
-                  type={showPassword ? 'text' : 'password'}
-                  value=""
-                  onChange={() => {}}
-                  placeholder="Enter new password"
-                  helpText="Minimum 8 characters"
-                />
-                <FormInput
-                  label="Confirm Password"
-                  name="confirmPassword"
-                  type={showPassword ? 'text' : 'password'}
-                  value=""
-                  onChange={() => {}}
-                  placeholder="Confirm new password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="flex items-center space-x-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  <span>{showPassword ? 'Hide Passwords' : 'Show Passwords'}</span>
-                </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Current Password
+                  </label>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    name="currentPassword"
+                    value={passwordData.currentPassword}
+                    onChange={handlePasswordChange}
+                    placeholder="Enter current password"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    New Password
+                  </label>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    name="newPassword"
+                    value={passwordData.newPassword}
+                    onChange={handlePasswordChange}
+                    placeholder="Enter new password"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Minimum 8 characters</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Confirm Password
+                  </label>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    name="confirmPassword"
+                    value={passwordData.confirmPassword}
+                    onChange={handlePasswordChange}
+                    placeholder="Confirm new password"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="flex items-center space-x-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    <span>{showPassword ? 'Hide Passwords' : 'Show Passwords'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleChangePassword}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    Change Password
+                  </button>
+                </div>
               </div>
 
               <div className="pt-4 border-t border-gray-200">

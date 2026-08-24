@@ -3,41 +3,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const bcrypt = require('bcryptjs');
-
-// Configure multer for logo upload
-const logoStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads/settings');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `logo-${uniqueSuffix}${ext}`);
-  }
-});
-
-const logoFileFilter = (req, file, cb) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg', 'image/svg+xml'];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Only image files are allowed'), false);
-  }
-};
-
-const uploadLogo = multer({
-  storage: logoStorage,
-  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
-  fileFilter: logoFileFilter
-});
 
 // Get settings
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
@@ -190,47 +156,6 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Upload logo
-router.post('/upload-logo', requireAuth, requireAdmin, uploadLogo.single('logo'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No logo file uploaded' });
-    }
-
-    const logoUrl = `/uploads/settings/${req.file.filename}`;
-    
-    // Update settings with new logo
-    let settings = await prisma.settings.findFirst();
-    if (settings) {
-      // Delete old logo if exists
-      if (settings.logo) {
-        const oldLogoPath = path.join(__dirname, '..', settings.logo);
-        if (fs.existsSync(oldLogoPath)) {
-          try {
-            fs.unlinkSync(oldLogoPath);
-          } catch (err) {
-            console.warn('Could not delete old logo:', err);
-          }
-        }
-      }
-
-      await prisma.settings.update({
-        where: { id: settings.id },
-        data: { logo: logoUrl }
-      });
-    }
-
-    res.json({
-      success: true,
-      logoUrl,
-      message: 'Logo uploaded successfully'
-    });
-  } catch (error) {
-    console.error('Error uploading logo:', error);
-    res.status(500).json({ error: 'Failed to upload logo' });
-  }
-});
-
 // Change password
 router.post('/change-password', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -244,8 +169,9 @@ router.post('/change-password', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'New password must be at least 8 characters' });
     }
 
+    // Get user from database
     const user = await prisma.user.findUnique({
-      where: { id: req.session.user.id }
+      where: { id: req.user.id }
     });
 
     if (!user) {
@@ -262,7 +188,7 @@ router.post('/change-password', requireAuth, requireAdmin, async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     await prisma.user.update({
-      where: { id: req.session.user.id },
+      where: { id: req.user.id },
       data: { password: hashedPassword }
     });
 
@@ -309,18 +235,6 @@ router.post('/reset', requireAuth, requireAdmin, async (req, res) => {
     let settings = await prisma.settings.findFirst();
     
     if (settings) {
-      // Delete logo if exists
-      if (settings.logo) {
-        const logoPath = path.join(__dirname, '..', settings.logo);
-        if (fs.existsSync(logoPath)) {
-          try {
-            fs.unlinkSync(logoPath);
-          } catch (err) {
-            console.warn('Could not delete logo:', err);
-          }
-        }
-      }
-
       await prisma.settings.update({
         where: { id: settings.id },
         data: defaultSettings
