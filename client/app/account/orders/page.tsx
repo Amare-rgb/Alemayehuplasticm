@@ -20,8 +20,11 @@ interface Order {
   items: OrderItem[]
 }
 
+export const dynamic = 'force-dynamic'
+
 export default function AccountOrdersPage() {
-  const { data: session, status } = useSession()
+  const sessionRes = useSession() || {}
+  const { data: session, status } = sessionRes
   const router = useRouter()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)

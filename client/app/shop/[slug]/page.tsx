@@ -9,8 +9,7 @@ import AddToCartButton from '@/components/cart/AddToCartButton'
 import ProductGallery from '@/components/pyement/ProductGallery'
 import Picture from '@/components/ui/Picture'
 import dynamic from 'next/dynamic'
-const BuyNowForm = dynamic(() => import('@/components/pyement/BuyNowForm'), { ssr: false })
-import { Decimal } from '@prisma/client/runtime/library'
+const BuyNowForm = dynamic(() => import('@/components/pyement/BuyNowForm'))
 import {
   Shield,
   Truck,
@@ -33,6 +32,7 @@ type ReviewBase = {
   user?: { name?: string } | null
 }
 
+type Decimal = any
 type ReviewWithUser = ReviewBase
 
 type RelatedItem = {

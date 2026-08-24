@@ -17,7 +17,8 @@ const CartContext = createContext<CartContextValue | undefined>(undefined)
 const STORAGE_KEY = 'shophub_cart_v1'
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { data: session } = useSession()
+  const sessionRes = useSession() || {}
+  const { data: session } = sessionRes
   const [items, setItems] = useState<CartItem[]>([])
 
   useEffect(() => {

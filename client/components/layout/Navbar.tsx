@@ -4,8 +4,18 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Leaf, Menu, X, ShoppingCart, User, Search, ShieldAlert, LogOut } from 'lucide-react';
+import { Menu, X, ShoppingCart, User, ShieldAlert, LogOut, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/app/providers';
+
+function BrandMark() {
+  return (
+    <span className="brand-mark" aria-hidden="true">
+      <span className="leaf leaf-one" />
+      <span className="leaf leaf-two" />
+      <span className="stem" />
+    </span>
+  );
+}
 
 export const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -13,8 +23,8 @@ export const Navbar = () => {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Directly check if current route starts with /admin (No useEffect or setState needed!)
   const isAdminRoute = pathname?.startsWith('/admin') || false;
+  const isHome = pathname === '/';
 
   const handleLogout = () => {
     logout();
@@ -24,146 +34,209 @@ export const Navbar = () => {
   const isAdmin = user?.role === 'ADMIN';
   const isAuthenticated = status === 'authenticated';
 
-  // Don't show navbar on admin routes
   if (isAdminRoute) {
     return null;
   }
 
+  const closeMenu = () => setIsOpen(false);
+
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <Link href="/" className="flex items-center space-x-2">
-            <Leaf className="w-8 h-8 text-green-600" />
-            <span className="text-xl font-bold text-gray-900">Genesis Agri</span>
+    <header className={isHome ? "absolute left-0 top-0 z-50 w-full text-white" : "sticky top-0 z-50 w-full text-white bg-[var(--green-950)] shadow-lg"}>
+      <nav className="mx-auto flex min-h-[92px] w-[min(1180px,calc(100%-48px))] items-center justify-between border-b border-white/20">
+        {/* Brand / Logo */}
+        <Link
+          href="/"
+          className="flex items-center gap-3"
+          onClick={closeMenu}
+        >
+          <BrandMark />
+
+          <span className="grid gap-[5px] leading-none">
+            <strong className="text-[18px] tracking-[0.16em]">
+              GENESIS
+            </strong>
+
+            <small className="text-[8px] tracking-[0.22em] opacity-75">
+              AGRO-BUSINESS
+            </small>
+          </span>
+        </Link>
+
+        {/* Desktop navigation */}
+        <div className="hidden items-center gap-7 text-[13px] font-semibold lg:flex">
+          <Link
+            href="/"
+            className="opacity-100 transition hover:opacity-100"
+          >
+            Home
           </Link>
 
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-8">
-            <Link href="/shop" className="text-gray-700 hover:text-green-600 transition-colors">
-              Shop
-            </Link>
-            <Link href="/about" className="text-gray-700 hover:text-green-600 transition-colors">
-              About
-            </Link>
-            <Link href="/blog" className="text-gray-700 hover:text-green-600 transition-colors">
-              Blog
-            </Link>
-            <Link href="/contact" className="text-gray-700 hover:text-green-600 transition-colors">
-              Contact
-            </Link>
-            
-            {/* Admin Dashboard Link - only show if user is admin */}
-            {isAdmin && (
-              <Link 
-                href="/admin/dashboard" 
-                className="flex items-center gap-1 bg-green-50 text-green-700 border border-green-200 px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-green-100 transition-colors"
-              >
-                <ShieldAlert className="w-4 h-4" />
-                Dashboard
-              </Link>
-            )}
-          </div>
+          <Link
+            href="/#products"
+            className="opacity-80 transition hover:opacity-100"
+          >
+            Our Products
+          </Link>
 
-          {/* Right side */}
-          <div className="flex items-center space-x-4">
-            <button className="p-2 text-gray-500 hover:text-gray-700 transition-colors">
-              <Search className="w-5 h-5" />
-            </button>
-            <Link href="/cart" className="p-2 text-gray-500 hover:text-gray-700 transition-colors">
-              <ShoppingCart className="w-5 h-5" />
-            </Link>
-            
-            {/* Auth buttons */}
-            {isAuthenticated ? (
-              <div className="flex items-center space-x-3">
-                <Link 
-                  href="/profile" 
-                  className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
-                >
-                  <User className="w-5 h-5" />
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  className="p-2 text-red-500 hover:text-red-700 transition-colors"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </div>
-            ) : (
-              <Link 
-                href="/auth/signin" 
-                className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-              >
-                Sign In
-              </Link>
-            )}
-            
-            <button
-              onClick={() => setIsOpen(!isOpen)}
-              className="md:hidden p-2 text-gray-500 hover:text-gray-700 transition-colors"
+          <Link
+            href="/#tana-farm"
+            className="opacity-80 transition hover:opacity-100"
+          >
+            Tana Farm
+          </Link>
+
+          <Link
+            href="/about"
+            className="opacity-80 transition hover:opacity-100"
+          >
+            About Us
+          </Link>
+
+          <Link
+            href="/contact"
+            className="opacity-80 transition hover:opacity-100"
+          >
+            Contact
+          </Link>
+
+          {isAdmin && (
+            <Link
+              href="/admin/dashboard"
+              className="flex items-center gap-1.5 bg-[#19472d] text-[var(--lime)] border border-[var(--lime)]/30 px-3 py-1.5 rounded text-xs font-semibold hover:bg-[#28633e] transition"
             >
-              {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
-          </div>
+              <ShieldAlert className="w-4 h-4" />
+              Dashboard
+            </Link>
+          )}
         </div>
 
-        {/* Mobile Navigation */}
-        {isOpen && (
-          <div className="md:hidden py-4 border-t border-gray-200">
-            <div className="flex flex-col space-y-3">
-              <Link href="/shop" className="text-gray-700 hover:text-green-600 transition-colors px-3 py-2">
-                Shop
+        {/* Right side controls */}
+        <div className="flex items-center gap-4">
+          <Link
+            href="/cart"
+            className="p-1.5 text-white/80 hover:text-white transition relative"
+            aria-label="Shopping Cart"
+          >
+            <ShoppingCart className="w-5 h-5" />
+          </Link>
+
+          {isAuthenticated ? (
+            <div className="flex items-center gap-2">
+              <Link
+                href="/profile"
+                className="p-1.5 text-white/80 hover:text-white transition"
+                aria-label="Profile"
+              >
+                <User className="w-5 h-5" />
               </Link>
-              <Link href="/about" className="text-gray-700 hover:text-green-600 transition-colors px-3 py-2">
-                About
-              </Link>
-              <Link href="/blog" className="text-gray-700 hover:text-green-600 transition-colors px-3 py-2">
-                Blog
-              </Link>
-              <Link href="/contact" className="text-gray-700 hover:text-green-600 transition-colors px-3 py-2">
-                Contact
-              </Link>
-              
-              {/* Admin Dashboard Link for Mobile - only show if user is admin */}
-              {isAdmin && (
-                <Link 
-                  href="/admin/dashboard" 
-                  className="flex items-center gap-2 bg-green-50 text-green-700 border border-green-200 px-3 py-2 rounded-lg font-semibold transition-colors"
-                >
-                  <ShieldAlert className="w-5 h-5" />
-                  Dashboard
-                </Link>
-              )}
-              
-              {isAuthenticated ? (
-                <>
-                  <Link 
-                    href="/profile" 
-                    className="text-gray-700 hover:text-green-600 transition-colors px-3 py-2"
-                  >
-                    Profile
-                  </Link>
-                  <button
-                    onClick={handleLogout}
-                    className="text-red-600 hover:text-red-700 transition-colors px-3 py-2 text-left"
-                  >
-                    Logout
-                  </button>
-                </>
-              ) : (
-                <Link 
-                  href="/auth/signin" 
-                  className="bg-green-600 text-white px-3 py-2 rounded-lg text-center hover:bg-green-700 transition-colors"
-                >
-                  Sign In
-                </Link>
-              )}
+              <button
+                onClick={handleLogout}
+                className="p-1.5 text-red-400 hover:text-red-300 transition"
+                aria-label="Logout"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
             </div>
-          </div>
-        )}
-      </div>
-    </nav>
+          ) : (
+            <Link
+              href="/auth/signin"
+              className="hidden sm:inline-block text-xs text-white/90 hover:text-white font-medium border border-white/30 px-3 py-1.5 rounded"
+            >
+              Sign In
+            </Link>
+          )}
+
+          <Link
+            href="/shop"
+            className="flex items-center gap-3 rounded-[2px] bg-[var(--lime)] px-4 py-3 text-[13px] font-bold text-[var(--green-950)] transition hover:-translate-y-0.5"
+          >
+            Shop Fresh
+            <ArrowRight size={17} />
+          </Link>
+
+          {/* Mobile button */}
+          <button
+            type="button"
+            aria-label="Toggle navigation"
+            aria-expanded={isOpen}
+            onClick={() => setIsOpen(!isOpen)}
+            className="lg:hidden text-white"
+          >
+            {isOpen ? <X size={27} /> : <Menu size={27} />}
+          </button>
+        </div>
+      </nav>
+
+      {/* Mobile navigation */}
+      {isOpen && (
+        <div className="absolute left-4 right-4 top-[78px] flex flex-col gap-2 bg-[var(--green-950)] p-5 shadow-2xl lg:hidden z-50">
+          {[
+            ["Home", "/"],
+            ["Our Products", "/#products"],
+            ["Tana Farm", "/#tana-farm"],
+            ["About Us", "/about"],
+            ["Contact", "/contact"],
+          ].map(([label, href]) => (
+            <Link
+              key={href}
+              href={href}
+              onClick={closeMenu}
+              className="border-b border-white/10 py-3 text-sm text-white/85"
+            >
+              {label}
+            </Link>
+          ))}
+
+          {isAdmin && (
+            <Link
+              href="/admin/dashboard"
+              onClick={closeMenu}
+              className="border-b border-white/10 py-3 text-sm text-[var(--lime)] font-semibold flex items-center gap-2"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              Dashboard
+            </Link>
+          )}
+
+          {isAuthenticated ? (
+            <>
+              <Link
+                href="/profile"
+                onClick={closeMenu}
+                className="border-b border-white/10 py-3 text-sm text-white/85"
+              >
+                Profile
+              </Link>
+              <button
+                onClick={() => {
+                  closeMenu();
+                  handleLogout();
+                }}
+                className="border-b border-white/10 py-3 text-sm text-red-400 text-left"
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <Link
+              href="/auth/signin"
+              onClick={closeMenu}
+              className="border-b border-white/10 py-3 text-sm text-white/85"
+            >
+              Sign In
+            </Link>
+          )}
+
+          <Link
+            href="/shop"
+            onClick={closeMenu}
+            className="mt-2 flex items-center justify-between bg-[var(--lime)] px-4 py-3 text-sm font-bold text-[var(--green-950)]"
+          >
+            Shop Fresh
+            <ArrowRight size={17} />
+          </Link>
+        </div>
+      )}
+    </header>
   );
 };
