@@ -1,3 +1,4 @@
+// routes/products.routes.js
 const express = require('express');
 const router = express.Router();
 const slugify = require('slugify');
@@ -64,6 +65,9 @@ router.get('/', async (req, res) => {
           category: {
             select: { id: true, name: true, slug: true, description: true, image: true, parentId: true }
           },
+          subCategory: {
+            select: { id: true, name: true, slug: true }
+          },
           seller: {
             select: {
               shopName: true,
@@ -83,6 +87,7 @@ router.get('/', async (req, res) => {
       ...product,
       price: Number(product.price),
       discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
+      pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
       salePrice: product.discountPrice ? Number(product.discountPrice) : null,
       averageRating: product.reviews.length > 0
         ? product.reviews.reduce((acc, review) => acc + review.rating, 0) / product.reviews.length
@@ -105,8 +110,15 @@ router.get('/', async (req, res) => {
 // Get seller's products
 router.get('/seller', requireAuth, async (req, res) => {
   try {
+    // Get user ID from session - handle both formats
+    const userId = req.session.user?.userId || req.session.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
     const seller = await prisma.sellerProfile.findUnique({
-      where: { userId: req.session.user.id }
+      where: { userId: userId }
     });
 
     if (!seller) {
@@ -129,10 +141,26 @@ router.get('/seller', requireAuth, async (req, res) => {
   }
 });
 
-// Create product
-router.post('/', requireSeller, async (req, res) => {
+// Create product - FIXED with stock handling
+router.post('/', requireAuth, async (req, res) => {
   try {
     const body = req.body;
+    
+    // Get user ID from session - handle both formats
+    const userId = req.session.user?.userId || req.session.user?.id;
+    
+    console.log('👤 User from session:', req.session.user);
+    console.log('👤 Extracted userId:', userId);
+    console.log('📦 Received body:', body);
+    
+    // Check if user exists in session
+    if (!userId) {
+      console.error('❌ No user ID in session:', req.session);
+      return res.status(401).json({ 
+        error: 'User not authenticated. Please login again.',
+        code: 'USER_NOT_AUTHENTICATED'
+      });
+    }
 
     // Handle sale price mapping
     let discountPriceValue = body.discountPrice;
@@ -143,12 +171,24 @@ router.post('/', requireSeller, async (req, res) => {
       discountPriceValue = null;
     }
 
+    // ✅ FIXED: Properly handle stock value
+    let stockValue = 0;
+    if (body.stock !== undefined && body.stock !== null && body.stock !== '') {
+      stockValue = typeof body.stock === 'string' ? parseInt(body.stock, 10) : body.stock;
+    }
+    // If stock is not provided, default to 10 (instead of 0)
+    if (stockValue === 0 && body.stock === undefined) {
+      stockValue = 10;
+    }
+
+    console.log('📦 Stock value:', stockValue);
+
     const productData = {
       name: body.name,
       description: body.description,
       price: typeof body.price === 'string' ? parseFloat(body.price) : body.price,
       discountPrice: discountPriceValue,
-      stock: typeof body.stock === 'string' ? parseInt(body.stock) : (body.stock || 0),
+      stock: stockValue, // ✅ Fixed: Use the properly parsed stock value
       sku: body.sku || `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       images: Array.isArray(body.images) && body.images.length > 0 ? body.images : ['/banners/images.jpeg'],
       tags: Array.isArray(body.tags) ? body.tags : [],
@@ -161,28 +201,39 @@ router.post('/', requireSeller, async (req, res) => {
       weight: body.weight ? (typeof body.weight === 'string' ? parseFloat(body.weight) : body.weight) : null,
       estimatedDelivery: body.estimatedDelivery || null,
       unitOfMeasurement: body.unitOfMeasurement || 'pcs',
+      durationTime: body.durationTime || '1h',
+      pricePerUnit: body.pricePerUnit ? (typeof body.pricePerUnit === 'string' ? parseFloat(body.pricePerUnit) : body.pricePerUnit) : null,
     };
 
     // Get or create seller profile
     let seller = await prisma.sellerProfile.findUnique({
-      where: { userId: req.session.user.id }
+      where: { userId: userId }
     });
 
+    // If no seller profile exists, create one for the user
     if (!seller) {
-      if (req.session.user.role === 'ADMIN') {
-        seller = await prisma.sellerProfile.create({
-          data: {
-            userId: req.session.user.id,
-            shopName: 'Genesis Agri Store',
-            shopDesc: 'Official Genesis Agri Store',
-            isVerified: true,
-          }
-        });
-      } else {
-        return res.status(404).json({
-          error: 'Seller profile not found. Please complete your seller profile first.'
+      console.log('📝 No seller profile found, creating one for user:', userId);
+      
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+      
+      if (!user) {
+        return res.status(404).json({ 
+          error: 'User not found. Please ensure you are logged in correctly.',
+          code: 'USER_NOT_FOUND'
         });
       }
+      
+      seller = await prisma.sellerProfile.create({
+        data: {
+          userId: userId,
+          shopName: `${user.name || 'User'}'s Shop`,
+          shopDesc: 'Seller profile',
+          isVerified: true,
+        }
+      });
+      console.log('✅ Seller profile created:', seller.id);
     }
 
     // Check SKU
@@ -252,18 +303,25 @@ router.post('/', requireSeller, async (req, res) => {
       }
     });
 
+    console.log('✅ Product created with stock:', product.stock);
+
     res.status(201).json({
       success: true,
       product: {
         ...product,
         price: Number(product.price),
         discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
+        pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
       },
       message: isAdmin ? 'Product created and published!' : 'Product submitted for admin approval'
     });
   } catch (error) {
     console.error('Product creation error:', error);
-    res.status(500).json({ error: 'Failed to create product' });
+    res.status(500).json({ 
+      error: 'Failed to create product',
+      details: error.message,
+      code: 'PRODUCT_CREATION_FAILED'
+    });
   }
 });
 
@@ -301,6 +359,7 @@ router.get('/:id', async (req, res) => {
       ...product,
       price: Number(product.price),
       discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
+      pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
     });
   } catch (error) {
     console.error('Error fetching product:', error);
@@ -314,6 +373,13 @@ router.put('/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
     const body = req.body;
 
+    // Get user ID from session - handle both formats
+    const userId = req.session.user?.userId || req.session.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
     const existingProduct = await prisma.product.findUnique({
       where: { id },
       include: { seller: true }
@@ -326,7 +392,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     // Check ownership
     if (req.session.user.role !== 'ADMIN') {
       const seller = await prisma.sellerProfile.findUnique({
-        where: { userId: req.session.user.id }
+        where: { userId: userId }
       });
       if (existingProduct.sellerId !== seller?.id) {
         return res.status(403).json({ error: 'Forbidden' });
@@ -342,7 +408,13 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (body.discountPrice !== undefined) {
       updateData.discountPrice = body.discountPrice ? parseFloat(body.discountPrice) : null;
     }
-    if (body.stock !== undefined) updateData.stock = parseInt(body.stock, 10);
+    if (body.pricePerUnit !== undefined) {
+      updateData.pricePerUnit = body.pricePerUnit ? parseFloat(body.pricePerUnit) : null;
+    }
+    // ✅ FIXED: Properly handle stock update
+    if (body.stock !== undefined) {
+      updateData.stock = typeof body.stock === 'string' ? parseInt(body.stock, 10) : body.stock;
+    }
     if (body.images !== undefined) updateData.images = body.images;
     if (body.tags !== undefined) updateData.tags = Array.isArray(body.tags) ? body.tags : [];
     if (body.condition !== undefined) updateData.condition = body.condition;
@@ -350,6 +422,10 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (body.warranty !== undefined) updateData.warranty = body.warranty || null;
     if (body.videoUrl !== undefined) updateData.videoUrl = body.videoUrl || null;
     if (body.unitOfMeasurement !== undefined) updateData.unitOfMeasurement = body.unitOfMeasurement;
+    if (body.durationTime !== undefined) updateData.durationTime = body.durationTime || '1h';
+    if (body.weight !== undefined) {
+      updateData.weight = body.weight ? (typeof body.weight === 'string' ? parseFloat(body.weight) : body.weight) : null;
+    }
 
     if (body.status !== undefined && req.session.user.role === 'ADMIN') {
       updateData.status = body.status;
@@ -365,11 +441,19 @@ router.put('/:id', requireAuth, async (req, res) => {
       if (cat) updateData.categoryId = cat.id;
     }
 
+    if (body.subCategoryId) {
+      const subCat = await prisma.category.findFirst({
+        where: { OR: [{ id: body.subCategoryId }, { slug: body.subCategoryId }] },
+      });
+      if (subCat) updateData.subCategoryId = subCat.id;
+    }
+
     const updated = await prisma.product.update({
       where: { id },
       data: updateData,
       include: {
         category: true,
+        subCategory: true,
         seller: { select: { shopName: true } },
       },
     });
@@ -380,6 +464,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         ...updated,
         price: Number(updated.price),
         discountPrice: updated.discountPrice ? Number(updated.discountPrice) : null,
+        pricePerUnit: updated.pricePerUnit ? Number(updated.pricePerUnit) : null,
       },
       message: 'Product updated successfully',
     });
@@ -394,6 +479,13 @@ router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Get user ID from session - handle both formats
+    const userId = req.session.user?.userId || req.session.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
     const existingProduct = await prisma.product.findUnique({
       where: { id },
       include: { seller: true }
@@ -405,7 +497,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
     if (req.session.user.role !== 'ADMIN') {
       const seller = await prisma.sellerProfile.findUnique({
-        where: { userId: req.session.user.id }
+        where: { userId: userId }
       });
       if (existingProduct.sellerId !== seller?.id) {
         return res.status(403).json({ error: 'Forbidden' });

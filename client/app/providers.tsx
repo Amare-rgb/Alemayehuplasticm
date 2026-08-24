@@ -32,6 +32,8 @@ interface User {
   name: string;
   email: string;
   role: string;
+  avatar?: string | null;
+  phone?: string | null;
 }
 
 interface AuthContextType {
@@ -58,37 +60,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
   const router = useRouter();
-  const isMounted = useRef(false);
+  const initialized = useRef(false);
 
-  // Check auth function
-  const checkAuth = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setStatus('unauthenticated');
-        setUser(null);
-        return;
-      }
-
-      const response = await api.get<User>('/api/auth/me');
-      setUser(response.data);
-      setStatus('authenticated');
-    } catch (error) {
-      localStorage.removeItem('token');
-      setUser(null);
-      setStatus('unauthenticated');
-    }
-  };
-
-  // Use a ref to track mounted state instead of state
+  // Initialize auth - runs only once
   useEffect(() => {
-    isMounted.current = true;
-    checkAuth();
-    
-    return () => {
-      isMounted.current = false;
+    // Skip if already initialized
+    if (initialized.current) return;
+    initialized.current = true;
+
+    const initAuth = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setStatus('unauthenticated');
+          setUser(null);
+          return;
+        }
+
+        const response = await api.get<User>('/api/auth/me');
+        setUser(response.data);
+        setStatus('authenticated');
+      } catch (error) {
+        localStorage.removeItem('token');
+        setUser(null);
+        setStatus('unauthenticated');
+      }
     };
-  }, []);
+
+    initAuth();
+  }, []); // Empty dependency array - runs once on mount
 
   const login = async (email: string, password: string): Promise<void> => {
     try {
@@ -138,8 +138,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const value = {
+    user,
+    status,
+    login,
+    logout,
+    register,
+  };
+
   return (
-    <AuthContext.Provider value={{ user, status, login, logout, register }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

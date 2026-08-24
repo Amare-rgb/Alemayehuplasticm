@@ -5,6 +5,9 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
+// Import enums from Prisma client
+const { OrderStatus, PaymentStatus, ProductStatus, Role } = require('@prisma/client');
+
 // GET /api/admin/dashboard - Main dashboard stats
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -17,15 +20,15 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       totalOrders,
       totalCustomers,
       pendingOrders,
-      completedOrders,
+      deliveredOrders,
       recentOrders,
       weeklySales
     ] = await Promise.all([
-      // Total Revenue from completed orders
+      // Total Revenue from delivered/paid orders
       prisma.order.aggregate({
         where: { 
-          status: 'COMPLETED',
-          paymentStatus: 'PAID'
+          status: OrderStatus.DELIVERED,
+          paymentStatus: PaymentStatus.PAID
         },
         _sum: { 
           total: true 
@@ -35,7 +38,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       // Total Products (approved)
       prisma.product.count({
         where: { 
-          status: 'APPROVED' 
+          status: ProductStatus.APPROVED 
         }
       }),
       
@@ -45,21 +48,21 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       // Total Customers (users with role USER)
       prisma.user.count({
         where: { 
-          role: 'USER' 
+          role: Role.USER 
         }
       }),
       
       // Pending Orders
       prisma.order.count({
         where: { 
-          status: 'PENDING' 
+          status: OrderStatus.PENDING 
         }
       }),
       
-      // Completed Orders
+      // Delivered Orders
       prisma.order.count({
         where: { 
-          status: 'COMPLETED' 
+          status: OrderStatus.DELIVERED 
         }
       }),
       
@@ -91,7 +94,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
         }
       }),
       
-      // Weekly Sales Data (last 7 days) - Using correct table name "orders"
+      // Weekly Sales Data (last 7 days)
       prisma.$queryRaw`
         SELECT 
           DATE("createdAt") as date,
@@ -99,7 +102,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
           SUM(total) as revenue
         FROM "orders"
         WHERE "createdAt" >= NOW() - INTERVAL '7 days'
-          AND status = 'COMPLETED'
+          AND status = 'DELIVERED'
           AND "paymentStatus" = 'PAID'
         GROUP BY DATE("createdAt")
         ORDER BY date ASC
@@ -135,7 +138,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
         orders: totalOrders,
         customers: totalCustomers,
         pendingOrders: pendingOrders,
-        completedOrders: completedOrders
+        deliveredOrders: deliveredOrders
       },
       recentOrders: formattedRecentOrders,
       weeklySales: weeklySales.map(day => ({
@@ -201,14 +204,16 @@ router.get('/overview', requireAuth, requireAdmin, async (req, res) => {
     });
 
     const totalRevenue = orders
-      .filter(o => o.status === 'COMPLETED' && o.paymentStatus === 'PAID')
+      .filter(o => o.status === OrderStatus.DELIVERED && o.paymentStatus === PaymentStatus.PAID)
       .reduce((sum, o) => sum + Number(o.total), 0);
 
     const orderStats = {
       total: orders.length,
-      completed: orders.filter(o => o.status === 'COMPLETED').length,
-      pending: orders.filter(o => o.status === 'PENDING').length,
-      cancelled: orders.filter(o => o.status === 'CANCELLED').length
+      delivered: orders.filter(o => o.status === OrderStatus.DELIVERED).length,
+      pending: orders.filter(o => o.status === OrderStatus.PENDING).length,
+      processing: orders.filter(o => o.status === OrderStatus.PROCESSING).length,
+      shipped: orders.filter(o => o.status === OrderStatus.SHIPPED).length,
+      cancelled: orders.filter(o => o.status === OrderStatus.CANCELLED).length
     };
 
     res.json({
@@ -252,7 +257,7 @@ router.get('/recent-activity', requireAuth, requireAdmin, async (req, res) => {
       take: limit,
       orderBy: { createdAt: 'desc' },
       where: {
-        role: 'USER'
+        role: Role.USER
       },
       select: {
         id: true,

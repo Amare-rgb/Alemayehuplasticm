@@ -1,41 +1,64 @@
+// routes/orders.routes.js
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
-// Get orders
+// Get orders with transaction/payment details
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, paymentStatus, search, page = 1, limit = 10 } = req.query;
     const isAdmin = req.session.user.role === 'ADMIN';
 
     const where = {};
+    
     if (!isAdmin) {
       where.userId = req.session.user.id;
     }
     if (status && status !== 'ALL') {
       where.status = status;
     }
+    if (paymentStatus && paymentStatus !== 'ALL') {
+      where.paymentStatus = paymentStatus;
+    }
+    if (search) {
+      where.OR = [
+        { id: { contains: search, mode: 'insensitive' } },
+        { user: { name: { contains: search, mode: 'insensitive' } } },
+        { user: { email: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
 
-    const orders = await prisma.order.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true, phone: true }
-        },
-        items: {
-          include: {
-            product: { select: { id: true, name: true, images: true, slug: true, price: true } },
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, phone: true }
           },
+          items: {
+            include: {
+              product: { select: { id: true, name: true, images: true, slug: true, price: true } },
+            },
+          },
+          address: true,
         },
-        address: true,
-      },
-    });
+      }),
+      prisma.order.count({ where }),
+    ]);
 
     const serialized = orders.map(o => ({
       ...o,
       total: Number(o.total),
+      paymentMethod: o.paymentMethod || null,
+      paymentRef: o.paymentRef || null,
+      stripeSessionId: o.stripeSessionId || null,
       items: o.items.map(it => ({
         ...it,
         price: Number(it.price),
@@ -49,7 +72,17 @@ router.get('/', requireAuth, async (req, res) => {
       })),
     }));
 
-    res.json(serialized);
+    // Return paginated response for admin, array for regular users
+    if (isAdmin) {
+      res.json({
+        orders: serialized,
+        total,
+        pages: Math.ceil(total / parseInt(limit)),
+        page: parseInt(page),
+      });
+    } else {
+      res.json(serialized);
+    }
   } catch (error) {
     console.error('Error fetching orders:', error);
     res.status(500).json({ error: 'Failed to fetch orders' });
@@ -59,7 +92,7 @@ router.get('/', requireAuth, async (req, res) => {
 // Create order
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { addressId } = req.body;
+    const { addressId, paymentMethod, paymentRef } = req.body;
 
     const cartItems = await prisma.cartItem.findMany({
       where: { userId: req.session.user.id },
@@ -117,6 +150,8 @@ router.post('/', requireAuth, async (req, res) => {
           total,
           status: 'PENDING',
           paymentStatus: 'PAID',
+          paymentMethod: paymentMethod || 'Credit Card',
+          paymentRef: paymentRef || null,
           items: {
             create: cartItems.map(item => ({
               productId: item.productId,
@@ -124,6 +159,17 @@ router.post('/', requireAuth, async (req, res) => {
               price: item.product.discountPrice ?? item.product.price,
             })),
           },
+        },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, phone: true }
+          },
+          items: {
+            include: {
+              product: { select: { id: true, name: true, images: true, slug: true, price: true } },
+            },
+          },
+          address: true,
         },
       });
 

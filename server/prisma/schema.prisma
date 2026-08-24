@@ -144,6 +144,8 @@ model Product {
   weight              Float?           
   estimatedDelivery   String?
   rejectionReason     String?
+  durationTime        String?         @default("1h")
+  pricePerUnit        Decimal?        @db.Decimal(10, 2)
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
@@ -271,4 +273,37 @@ model BlogPost {
 
   @@index([authorId])
   @@map("blog_posts")
+}
+
+// ✅ ADDED: Settings Model
+model Settings {
+  id                  String   @id @default(cuid())
+  siteName            String   @default("Genesis Agri Business")
+  siteDescription     String?  @default("Agriculture marketplace connecting farmers and buyers")
+  adminEmail          String   @default("admin@genesisagri.com")
+  adminPhone          String?  @default("+1 (555) 123-4567")
+  address             String?  @default("123 Farm Road, Nairobi, Kenya")
+  timezone            String   @default("Africa/Nairobi")
+  dateFormat          String   @default("MM/DD/YYYY")
+  storeName           String   @default("Genesis Agri Business")
+  storeEmail          String   @default("info@genesisagri.com")
+  storePhone          String?  @default("+1 (555) 123-4567")
+  storeAddress        String?  @default("123 Farm Road, Nairobi, Kenya")
+  currency            String   @default("KES")
+  taxRate             Float    @default(16)
+  logo                String?  
+  favicon             String?  
+  twoFactorAuth       Boolean  @default(false)
+  sessionTimeout      Int      @default(60)
+  emailNotifications  Boolean  @default(true)
+  orderNotifications  Boolean  @default(true)
+  productNotifications Boolean @default(true)
+  userNotifications   Boolean  @default(true)
+  marketingEmails     Boolean  @default(false)
+  themeColor          String   @default("#22c55e")
+  darkMode            Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("settings")
 }
