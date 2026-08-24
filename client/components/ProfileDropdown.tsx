@@ -131,7 +131,7 @@ export function ProfileDropdown() {
             {/* Your Lists Section */}
             <div className="py-2">
               <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Your Lists</p>
-              {profileMenuItems.yourLists.map((item: { name: string; icon: JSX.Element; href: string }, idx: number) => (
+              {profileMenuItems.yourLists.map((item: { name: string; icon: React.ReactNode; href: string }, idx: number) => (
                 <Link
                   key={idx}
                   href={item.href}
@@ -147,7 +147,7 @@ export function ProfileDropdown() {
             {/* Your Account Section */}
             <div className="border-t border-gray-100 py-2">
               <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Your Account</p>
-              {profileMenuItems.yourAccount.map((item: { name: string; icon: JSX.Element; href: string }, idx: number) => (
+              {profileMenuItems.yourAccount.map((item: { name: string; icon: React.ReactNode; href: string }, idx: number) => (
                 <Link
                   key={idx}
                   href={item.href}

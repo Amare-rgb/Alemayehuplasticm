@@ -1,67 +1,125 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
-  }
+:root {
+  --green-950: #0b2419;
+  --green-900: #123523;
+  --green-800: #19472d;
+  --green-700: #28633e;
+  --green-500: #72a84d;
+  --lime: #b9d873;
+  --cream: #f6f3e9;
+  --cream-dark: #eae5d7;
+  --white: #ffffff;
+  --ink: #142119;
+  --muted: #69736b;
+  --line: rgba(20, 33, 25, .12);
+  --serif: "Playfair Display", Georgia, serif;
+  --sans: "DM Sans", Arial, sans-serif;
+  --shadow: 0 25px 60px rgba(18, 53, 35, .12);
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-  }
+  --background: 45 40% 94%;
+  --foreground: 145 25% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 145 25% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 145 25% 10%;
+  --primary: 153 55% 12%;
+  --primary-foreground: 79 56% 65%;
+  --secondary: 45 30% 88%;
+  --secondary-foreground: 153 55% 12%;
+  --muted-fg: 135 5% 43%;
+  --accent: 79 56% 65%;
+  --accent-foreground: 153 55% 12%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 145 15% 85%;
+  --input: 145 15% 85%;
+  --ring: 153 55% 12%;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: 153 55% 8%;
+  --foreground: 45 40% 94%;
+  --card: 153 55% 10%;
+  --card-foreground: 45 40% 94%;
+  --popover: 153 55% 10%;
+  --popover-foreground: 45 40% 94%;
+  --primary: 79 56% 65%;
+  --primary-foreground: 153 55% 8%;
+  --secondary: 153 35% 18%;
+  --secondary-foreground: 45 40% 94%;
+  --border: 153 35% 20%;
+  --input: 153 35% 20%;
+  --ring: 79 56% 65%;
 }
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: rgba(20, 33, 25, 0.12);
   }
   
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: var(--cream);
+    color: var(--ink);
+    font-family: var(--sans);
   }
 
   html {
+    scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
-    -moz-text-size-adjust: 100%;
     text-size-adjust: 100%;
+  }
+
+  h1, h2, h3, h4, .font-serif-heading {
+    font-family: var(--serif);
+  }
+}
+
+/* Genesis custom Leaf Brand Mark */
+.brand-mark {
+  position: relative;
+  width: 28px;
+  height: 32px;
+  display: inline-block;
+}
+.brand-mark .leaf {
+  position: absolute;
+  width: 15px;
+  height: 22px;
+  background: var(--lime);
+  border-radius: 100% 0 100% 0;
+  transform: rotate(-25deg);
+}
+.brand-mark .leaf-one { left: 2px; top: 0; }
+.brand-mark .leaf-two { right: 0; top: 6px; transform: rotate(55deg); opacity: 0.85; }
+.brand-mark .stem {
+  position: absolute;
+  width: 2px;
+  height: 26px;
+  background: var(--lime);
+  left: 13px;
+  top: 5px;
+  transform: rotate(24deg);
+  transform-origin: bottom;
+}
+
+/* Subtle reveal keyframes & animations */
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

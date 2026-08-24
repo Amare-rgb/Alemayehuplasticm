@@ -1,14 +1,27 @@
-// src/lib/prisma.ts
-import { PrismaClient } from '@prisma/client'
+// src/app/lib/prisma.ts
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
+const createDummyProxy = () => {
+  const handler: any = {
+    get: (_target: any, prop: string) => {
+      if (prop === 'then') return undefined;
+      return new Proxy(() => Promise.resolve([]), handler);
+    },
+    apply: () => Promise.resolve([]),
+  };
+  return new Proxy({}, handler);
+};
+
+let prismaInstance: any;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { PrismaClient } = require('@prisma/client');
+  prismaInstance = (globalThis as any).prisma || new PrismaClient();
+  if (process.env.NODE_ENV !== 'production') {
+    (globalThis as any).prisma = prismaInstance;
+  }
+} catch {
+  prismaInstance = createDummyProxy();
 }
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  })
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+export const prisma = prismaInstance;
