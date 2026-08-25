@@ -36,9 +36,7 @@ export default function AboutPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-green-950/90 via-black/70 to-green-950/80" />
 
         <div className="relative z-10 max-w-4xl mx-auto px-4 text-center text-white py-16">
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-green-500/20 backdrop-blur-md rounded-full text-xs font-semibold uppercase tracking-wider text-green-300 border border-green-400/30 mb-4">
-            <Sprout size={14} /> Since 1976 • 50 Years of Excellence
-          </span>
+          
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-4 leading-tight">
             About <span className="text-green-400">Genesis Agri Business</span>
           </h1>
