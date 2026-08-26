@@ -5,7 +5,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { useAuth } from '../providers';
 import {
   LayoutDashboard,
   Package,
@@ -23,11 +22,29 @@ import {
   FileText,
 } from 'lucide-react';
 
+// Define types
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  phone?: string;
+  avatar?: string;
+}
+
 interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   section: string;
+}
+
+interface Notification {
+  id: number;
+  title: string;
+  message: string;
+  time: string;
+  read: boolean;
 }
 
 export default function AdminLayout({
@@ -39,13 +56,17 @@ export default function AdminLayout({
   const [notificationsOpen, setNotificationsOpen] = useState<boolean>(false);
   const [profileOpen, setProfileOpen] = useState<boolean>(false);
   const [isMounted, setIsMounted] = useState<boolean>(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
   const pathname = usePathname();
   const router = useRouter();
-  const { user, status, logout } = useAuth();
-
+  
+  // Use refs to prevent re-renders and re-checks
   const isMountedRef = useRef<boolean>(false);
+  const isAuthCheckedRef = useRef<boolean>(false);
+  const redirectingRef = useRef<boolean>(false);
 
-  // Set mounted state
+  // Set mounted state - only once
   useEffect(() => {
     if (!isMountedRef.current) {
       isMountedRef.current = true;
@@ -53,20 +74,61 @@ export default function AdminLayout({
     }
   }, []);
 
-  // Check authentication
+  // Check authentication - ONLY ONCE on mount
   useEffect(() => {
-    if (!isMounted) return;
-
-    if (status === 'unauthenticated') {
-      router.push('/auth/signin');
+    // Skip if already checked or not mounted or already redirecting
+    if (isAuthCheckedRef.current || !isMounted || redirectingRef.current) {
       return;
     }
 
-    if (user?.role !== 'ADMIN') {
-      router.push('/');
-      return;
-    }
-  }, [user, status, router, isMounted]);
+    const checkAuth = (): void => {
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
+
+      console.log('🔍 Admin Layout - Initial auth check...');
+      console.log('Token exists:', !!token);
+
+      if (!token) {
+        console.log('❌ No token found, redirecting to login...');
+        redirectingRef.current = true;
+        router.replace('/auth/signin');
+        setLoading(false);
+        return;
+      }
+
+      if (userData) {
+        try {
+          const parsedUser: User = JSON.parse(userData);
+          console.log('👤 User role:', parsedUser.role);
+          
+          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
+            console.log('❌ Not an admin, redirecting to home...');
+            redirectingRef.current = true;
+            router.replace('/');
+            setLoading(false);
+            return;
+          }
+          
+          setUser(parsedUser);
+          isAuthCheckedRef.current = true;
+          setLoading(false);
+        } catch (error) {
+          console.error('Error parsing user data:', error);
+          redirectingRef.current = true;
+          router.replace('/auth/signin');
+          setLoading(false);
+        }
+      } else {
+        console.log('❌ No user data found');
+        redirectingRef.current = true;
+        router.replace('/auth/signin');
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMounted]); // Remove router from dependencies
 
   // Navigation items
   const navItems: NavItem[] = [
@@ -80,24 +142,32 @@ export default function AdminLayout({
   ];
 
   // Mock notifications
-  const notifications = [
+  const notifications: Notification[] = [
     { id: 1, title: 'New Order #1234', message: 'John Doe placed a new order', time: '5 min ago', read: false },
     { id: 2, title: 'Product Low Stock', message: 'Organic Tomatoes is running low', time: '1 hour ago', read: false },
     { id: 3, title: 'New Farmer Registered', message: 'Sarah Smith joined as a farmer', time: '3 hours ago', read: true },
     { id: 4, title: 'Payment Received', message: 'Payment of $450.00 received', time: '5 hours ago', read: true },
   ];
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount: number = notifications.filter((n: Notification) => !n.read).length;
 
   // Safe user data
-  const adminUser = {
+  const adminUser: User = {
+    id: user?.id ?? '',
     name: user?.name ?? 'Admin User',
     email: user?.email ?? 'admin@genesisagri.com',
     role: user?.role ?? 'Administrator'
   };
 
   const handleLogout = (): void => {
-    logout();
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('authToken');
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem('userRole');
+    isAuthCheckedRef.current = false;
+    router.push('/auth/signin');
   };
 
   // Group nav items by section
@@ -121,12 +191,12 @@ export default function AdminLayout({
     if (!pathname) return 'Dashboard';
     const segments = pathname.split('/');
     const lastSegment = segments[segments.length - 1];
-    if (!lastSegment) return 'Dashboard';
+    if (!lastSegment || lastSegment === 'admin') return 'Dashboard';
     return lastSegment.charAt(0).toUpperCase() + lastSegment.slice(1);
   };
 
   // Show loading state
-  if (!isMounted || status === 'loading') {
+  if (loading || !isMounted) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -138,7 +208,7 @@ export default function AdminLayout({
   }
 
   // Don't render if not authenticated or not admin
-  if (status === 'unauthenticated' || user?.role !== 'ADMIN') {
+  if (!user || user.role?.toUpperCase() !== 'ADMIN') {
     return null;
   }
 
@@ -150,30 +220,37 @@ export default function AdminLayout({
           sidebarOpen ? 'w-64' : 'w-20'
         }`}
       >
-        {/* Logo */}
-        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
-          <Link href="/admin/dashboard" className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
-              <Image
-                src="/banners/images.jpeg"
-                alt="Genesis Agri Business"
-                width={32}
-                height={32}
-                className="w-full h-full object-cover"
-              />
-            </div>
-            {sidebarOpen && (
-              <span className="text-xs font-semibold text-gray-800">Genesis Agri Business</span>
-            )}
-          </Link>
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
-            aria-label="Toggle sidebar"
-          >
-            {sidebarOpen ? <X className="w-5 h-5 text-gray-500" /> : <Menu className="w-5 h-5 text-gray-500" />}
-          </button>
-        </div>
+        {/* Logo - FIXED with actual image */}
+       
+
+{/* Logo - FIXED with full text */}
+{/* Logo - FIXED with larger font */}
+<div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
+  <Link href="/admin/dashboard" className="flex items-center space-x-2">
+    <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
+      <Image
+        src="/banners/images.jpeg"
+        alt="Genesis Agri Business"
+        width={32}
+        height={32}
+        className="w-full h-full object-cover"
+        unoptimized
+      />
+    </div>
+    {sidebarOpen && (
+      <span className="text-sm font-semibold text-gray-800 whitespace-nowrap">
+        Genesis Agri Business
+      </span>
+    )}
+  </Link>
+  <button
+    onClick={() => setSidebarOpen(!sidebarOpen)}
+    className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+    aria-label="Toggle sidebar"
+  >
+    {sidebarOpen ? <X className="w-5 h-5 text-gray-500" /> : <Menu className="w-5 h-5 text-gray-500" />}
+  </button>
+</div>
 
         {/* Navigation */}
         <nav className="p-4 space-y-4 overflow-y-auto h-[calc(100vh-4rem)]">
@@ -185,7 +262,8 @@ export default function AdminLayout({
                 </p>
               )}
               <div className="space-y-1">
-                {groupedNavItems[section]?.map((item) => {
+                {groupedNavItems[section]?.map((item: NavItem) => {
+                  const IconComponent = item.icon;
                   const isActive = pathname === item.href || pathname?.startsWith(item.href + '/') || false;
                   return (
                     <Link
@@ -195,11 +273,12 @@ export default function AdminLayout({
                         isActive
                           ? 'bg-green-50 text-green-700'
                           : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                      }`}
+                      } ${!sidebarOpen ? 'justify-center' : ''}`}
                     >
+                      <IconComponent className="w-5 h-5 flex-shrink-0" />
                       {sidebarOpen && <span className="text-sm font-medium">{item.name}</span>}
                       {!sidebarOpen && (
-                        <span className="text-xs font-medium w-full text-center">{item.name.charAt(0)}</span>
+                        <span className="text-xs font-medium sr-only">{item.name}</span>
                       )}
                     </Link>
                   );
@@ -218,11 +297,8 @@ export default function AdminLayout({
               sidebarOpen ? 'justify-start' : 'justify-center'
             }`}
           >
-            {sidebarOpen ? (
-              <span className="text-sm font-medium">Return to Store</span>
-            ) : (
-              <span className="text-xs font-medium">R</span>
-            )}
+            <span className={`text-sm font-medium ${!sidebarOpen ? 'sr-only' : ''}`}>Return to Store</span>
+            {!sidebarOpen && <span className="text-xs font-medium">🏪</span>}
           </Link>
 
           {/* Logout button */}
@@ -232,11 +308,9 @@ export default function AdminLayout({
               sidebarOpen ? 'justify-start' : 'justify-center'
             }`}
           >
-            {sidebarOpen ? (
-              <span className="text-sm font-medium">Logout</span>
-            ) : (
-              <span className="text-xs font-medium">L</span>
-            )}
+            <LogOut className="w-5 h-5 flex-shrink-0" />
+            {sidebarOpen && <span className="text-sm font-medium ml-3">Logout</span>}
+            {!sidebarOpen && <span className="text-xs font-medium sr-only">Logout</span>}
           </button>
         </nav>
       </aside>
@@ -284,7 +358,7 @@ export default function AdminLayout({
                       <h3 className="font-semibold text-gray-800">Notifications</h3>
                     </div>
                     <div className="max-h-96 overflow-y-auto">
-                      {notifications.map((notif) => (
+                      {notifications.map((notif: Notification) => (
                         <div
                           key={notif.id}
                           className={`p-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
@@ -320,7 +394,7 @@ export default function AdminLayout({
                   </div>
                   <div className="hidden md:block text-left">
                     <p className="text-sm font-medium text-gray-800">{adminUser.name}</p>
-                    <p className="text-xs text-gray-500">{adminUser.role}</p>
+                    <p className="text-xs text-gray-500 capitalize">{adminUser.role?.toLowerCase()}</p>
                   </div>
                   <ChevronDown className="w-4 h-4 text-gray-400 hidden md:block" />
                 </button>
@@ -330,8 +404,8 @@ export default function AdminLayout({
                     <div className="px-4 py-3 border-b border-gray-200">
                       <p className="text-sm font-medium text-gray-800">{adminUser.name}</p>
                       <p className="text-xs text-gray-500">{adminUser.email}</p>
-                      <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700">
-                        {adminUser.role}
+                      <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700 capitalize">
+                        {adminUser.role?.toLowerCase()}
                       </span>
                     </div>
                     <Link

@@ -348,7 +348,7 @@ export default function HomePage() {
             <Eyebrow>THE GENESIS DIFFERENCE</Eyebrow>
 
             <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-              Good food shouldn't
+              Good food shouldnt
               <br />
               <em className="font-semibold text-[var(--green-700)]">
                 cost more

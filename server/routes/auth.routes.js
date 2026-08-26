@@ -1,221 +1,188 @@
 // routes/auth.routes.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { generateToken } = require('../lib/auth');
 const { requireAuth } = require('../middleware/auth');
-const { setPending, getPending, deletePending } = require('../lib/pendingVerifications');
 
-// JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key';
-
-// Register
+// ============================================
+// REGISTER - Simple registration without OTP
+// POST /api/auth/register
+// ============================================
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role = 'USER', shopName } = req.body;
+    const { name, email, password, role = 'USER' } = req.body;
 
+    // Validate input
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Name, email, and password are required'
+      });
+    }
+
+    // Check for reserved accounts
     const RESERVED_ACCOUNTS = [
       'adminpa@gmail.com',
-      'selerpa@gmail.com',
-      'admin@shophub.com',
-      'seller@shophub.com',
+      // Add other reserved emails here
     ];
 
     if (RESERVED_ACCOUNTS.includes(email.toLowerCase())) {
       return res.status(403).json({
-        error: 'This email is reserved. Please contact an administrator or use the provided login credentials.'
+        success: false,
+        error: 'This email is reserved. Please contact an administrator.'
       });
     }
 
-    const exists = await prisma.user.findUnique({ where: { email } });
-    if (exists) {
-      return res.status(400).json({ error: 'Email already registered' });
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const hashed = await bcrypt.hash(password, 12);
-
-    setPending(email, {
-      email,
-      name,
-      role,
-      shopName: shopName || null,
-      password: hashed,
-      otp,
-      createdAt: Date.now(),
-      verified: false,
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
     });
 
-    // In production, send verification email here
-    console.log(`📧 Verification OTP for ${email}: ${otp}`);
-
-    res.json({ 
-      success: true,
-      message: 'Verification code sent',
-      email
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'Something went wrong' });
-  }
-});
-
-// Verify Email
-router.post('/verify-email', async (req, res) => {
-  try {
-    const { email, code } = req.body;
-    const pending = getPending(email);
-
-    if (!pending) {
-      return res.status(400).json({ error: 'No pending registration found' });
-    }
-
-    if (pending.otp !== code) {
-      return res.status(400).json({ error: 'Invalid verification code' });
-    }
-
-    pending.verified = true;
-    setPending(email, pending);
-
-    res.json({ 
-      success: true,
-      message: 'Email verified successfully' 
-    });
-  } catch (error) {
-    console.error('Verification error:', error);
-    res.status(500).json({ error: 'Verification failed' });
-  }
-});
-
-// Complete Registration
-router.post('/complete-registration', async (req, res) => {
-  try {
-    const { email } = req.body;
-    const pending = getPending(email);
-
-    if (!pending || !pending.verified) {
+    if (existingUser) {
       return res.status(400).json({
-        error: 'Email not verified. Please verify your email first.'
+        success: false,
+        error: 'Email already registered'
       });
     }
 
+    // Hash password with stronger salt
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create user
     const user = await prisma.user.create({
       data: {
-        name: pending.name,
-        email: pending.email,
-        password: pending.password,
-        role: pending.role,
-        ...(pending.role === 'SELLER' && pending.shopName
-          ? {
-              sellerProfile: {
-                create: {
-                  shopName: pending.shopName,
-                },
-              },
-            }
-          : {}),
+        name,
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        role: role.toUpperCase() // Ensure role is uppercase
       },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true
+      }
     });
-
-    deletePending(email);
 
     // Generate token for auto-login
     const token = generateToken(user.id, user.email, user.role);
 
-    res.json({
+    res.status(201).json({
       success: true,
       message: 'Account created successfully',
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
+      user
     });
   } catch (error) {
-    console.error('Complete registration error:', error);
-    res.status(500).json({ error: 'Failed to create account' });
+    console.error('❌ Registration error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Registration failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
-// Login - FIXED VERSION
+// ============================================
+// LOGIN - FIXED VERSION
+// POST /api/auth/login
+// ============================================
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    console.log('🔐 Login attempt for:', email); // Debug log
+    console.log('📧 Login attempt for:', email);
 
     if (!email || !password) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'Email and password are required' 
+        error: 'Email and password are required'
       });
     }
 
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
+    // Find user - case insensitive
+    const user = await prisma.user.findFirst({
+      where: {
+        email: {
+          equals: email.toLowerCase(),
+          mode: 'insensitive'
+        }
+      }
     });
 
-    console.log('📊 User found:', user ? 'Yes' : 'No'); // Debug log
+    console.log('👤 User found:', user ? 'Yes' : 'No');
+    if (user) {
+      console.log('📧 User email:', user.email);
+      console.log('🔑 Role:', user.role);
+      console.log('🔐 Has password:', user.password ? 'Yes' : 'No');
+    }
 
     if (!user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Invalid credentials' 
+        error: 'Invalid credentials. User not found.'
       });
     }
 
-    // Check if user has password (some OAuth users might not)
+    // Check if user has password (OAuth users might not)
     if (!user.password) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Account created with OAuth. Please use Google login.' 
+        error: 'Account created with OAuth. Please use Google login.'
       });
     }
 
-    // Verify password
+    // Verify password with detailed logging
+    console.log('🔐 Verifying password...');
     const isValidPassword = await bcrypt.compare(password, user.password);
-    console.log('🔑 Password valid:', isValidPassword); // Debug log
+    console.log('✅ Password valid:', isValidPassword);
 
     if (!isValidPassword) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Invalid credentials' 
+        error: 'Invalid credentials. Wrong password.'
       });
     }
 
     // Generate token
     const token = generateToken(user.id, user.email, user.role);
+    console.log('🎫 Token generated successfully');
 
-    // Return success response
+    // Return user data (excluding password)
+    const { password: _, ...userData } = user;
+
+    // Log successful login
+    console.log('✅ Login successful for:', user.email);
+
     res.json({
       success: true,
       message: 'Login successful',
       token,
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
+        ...userData,
+        role: userData.role // Ensure role is included
       }
     });
   } catch (error) {
     console.error('❌ Login error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Login failed' 
+      error: 'Login failed. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
-// Get Current User - FIXED VERSION
+// ============================================
+// GET CURRENT USER
+// GET /api/auth/me
+// ============================================
 router.get('/me', requireAuth, async (req, res) => {
   try {
-    // req.user is set by the requireAuth middleware
     const userId = req.user.id;
 
     const user = await prisma.user.findUnique({
@@ -226,28 +193,303 @@ router.get('/me', requireAuth, async (req, res) => {
         email: true,
         role: true,
         phone: true,
+        avatar: true,
+        createdAt: true,
+        updatedAt: true,
+        // Include seller profile if exists
+        sellerProfile: {
+          select: {
+            id: true,
+            shopName: true,
+            shopDesc: true,
+            isVerified: true,
+            totalSales: true,
+            phone: true,
+            address: true,
+            logo: true,
+            banner: true
+          }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error('❌ Error fetching user:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+});
+
+// ============================================
+// LOGOUT
+// POST /api/auth/logout
+// ============================================
+router.post('/logout', async (req, res) => {
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
+  });
+});
+
+// ============================================
+// CHANGE PASSWORD
+// POST /api/auth/change-password
+// ============================================
+router.post('/change-password', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'Current password and new password are required'
+      });
+    }
+
+    // Get user
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!user || !user.password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot change password for this account'
+      });
+    }
+
+    // Verify current password
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Current password is incorrect'
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update password
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword }
+    });
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('❌ Password change error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to change password'
+    });
+  }
+});
+
+// ============================================
+// UPDATE PROFILE
+// PUT /api/auth/profile
+// ============================================
+router.put('/profile', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { name, phone, avatar } = req.body;
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        name,
+        phone,
+        avatar
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        phone: true,
+        avatar: true,
         createdAt: true,
         updatedAt: true
       }
     });
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(user);
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: updatedUser
+    });
   } catch (error) {
-    console.error('Error fetching user:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('❌ Profile update error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update profile'
+    });
   }
 });
 
-// Logout
-router.post('/logout', async (req, res) => {
-  res.json({ 
-    success: true,
-    message: 'Logged out successfully' 
-  });
+// ============================================
+// FORGOT PASSWORD - Simple version
+// POST /api/auth/forgot-password
+// ============================================
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is required'
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // In production, send password reset email
+    console.log(`📧 Password reset requested for: ${email}`);
+
+    res.json({
+      success: true,
+      message: 'Password reset instructions sent to your email'
+    });
+  } catch (error) {
+    console.error('❌ Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process request'
+    });
+  }
+});
+
+// ============================================
+// RESET PASSWORD
+// POST /api/auth/reset-password
+// ============================================
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email and new password are required'
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update password
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword }
+    });
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('❌ Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reset password'
+    });
+  }
+});
+
+// ============================================
+// ADMIN: Create admin user (for setup)
+// POST /api/auth/create-admin
+// ============================================
+router.post('/create-admin', async (req, res) => {
+  try {
+    const { email, password, name = 'Admin User' } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email and password are required'
+      });
+    }
+
+    // Check if user exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        error: 'User already exists'
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create admin user
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        role: 'ADMIN'
+      }
+    });
+
+    // Remove password from response
+    const { password: _, ...userData } = user;
+
+    res.status(201).json({
+      success: true,
+      message: 'Admin user created successfully',
+      user: userData
+    });
+  } catch (error) {
+    console.error('❌ Admin creation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create admin user'
+    });
+  }
 });
 
 module.exports = router;

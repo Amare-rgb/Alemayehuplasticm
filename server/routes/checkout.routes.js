@@ -1,45 +1,56 @@
+// routes/checkout.routes.js
 const express = require('express');
 const router = express.Router();
-const Stripe = require('stripe');
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 
-const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';
-const stripe = STRIPE_KEY ? new Stripe(STRIPE_KEY) : null;
-
-// Create checkout session
+// ============================================
+// CREATE CHECKOUT (No Stripe)
+// POST /api/checkout
+// ============================================
 router.post('/', requireAuth, async (req, res) => {
   try {
-    if (!stripe) {
-      return res.status(500).json({ error: 'Stripe not configured' });
-    }
-
+    const userId = req.user.id;
     const { productId, quantity = 1 } = req.body;
 
     let items = [];
 
+    // Single product checkout
     if (productId) {
-      const p = await prisma.product.findUnique({ where: { id: productId } });
-      if (!p) return res.status(404).json({ error: 'Product not found' });
+      const product = await prisma.product.findUnique({ 
+        where: { id: productId } 
+      });
+      
+      if (!product) {
+        return res.status(404).json({ 
+          success: false,
+          error: 'Product not found' 
+        });
+      }
 
-      const finalPrice = p.discountPrice && p.discountPrice > 0 && p.discountPrice < p.price
-        ? Number(p.discountPrice)
-        : Number(p.price);
+      const finalPrice = product.discountPrice && product.discountPrice > 0 && product.discountPrice < product.price
+        ? Number(product.discountPrice)
+        : Number(product.price);
 
       items.push({
-        productId: p.id,
-        name: p.name,
+        productId: product.id,
+        name: product.name,
         price: finalPrice,
-        qty: quantity,
-        image: p.images?.[0]
+        quantity: quantity,
+        image: product.images?.[0] || null
       });
-    } else {
+    } 
+    // Cart checkout
+    else {
       const cart = await prisma.cart.findUnique({
-        where: { userId: req.session.user.id }
+        where: { userId: userId }
       });
 
       if (!cart) {
-        return res.status(400).json({ error: 'Cart is empty' });
+        return res.status(400).json({
+          success: false,
+          error: 'Cart not found'
+        });
       }
 
       const cartItems = await prisma.cartItem.findMany({
@@ -48,60 +59,427 @@ router.post('/', requireAuth, async (req, res) => {
       });
 
       if (!cartItems || cartItems.length === 0) {
-        return res.status(400).json({ error: 'Cart is empty' });
+        return res.status(400).json({
+          success: false,
+          error: 'Cart is empty'
+        });
       }
 
-      items = cartItems.map(ci => {
-        const finalPrice = ci.product.discountPrice && ci.product.discountPrice > 0 && ci.product.discountPrice < ci.product.price
-          ? Number(ci.product.discountPrice)
-          : Number(ci.product.price);
+      items = cartItems.map(cartItem => {
+        const finalPrice = cartItem.product.discountPrice && 
+          cartItem.product.discountPrice > 0 && 
+          cartItem.product.discountPrice < cartItem.product.price
+          ? Number(cartItem.product.discountPrice)
+          : Number(cartItem.product.price);
 
         return {
-          productId: ci.productId,
-          name: ci.product.name,
+          productId: cartItem.productId,
+          name: cartItem.product.name,
           price: finalPrice,
-          qty: ci.quantity,
-          image: ci.product.images?.[0]
+          quantity: cartItem.quantity,
+          image: cartItem.product.images?.[0] || null
         };
       });
     }
 
-    const line_items = items.map(i => ({
-      price_data: {
-        currency: 'eur',
-        product_data: {
-          name: i.name,
-          ...(i.image ? { images: [i.image] } : {}),
-        },
-        unit_amount: Math.round(i.price * 100),
-      },
-      quantity: i.qty,
-    }));
+    // Calculate total
+    const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-    const metadata = {
-      userId: req.session.user.id,
-      items: JSON.stringify(items.map(i => ({ productId: i.productId, qty: i.qty, price: i.price })))
-    };
-
-    const checkout = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'payment',
-      line_items,
-      success_url: `${process.env.CLIENT_URL || 'http://localhost:3000'}/order/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:3000'}/cart`,
-      metadata,
+    // Get user's default address
+    const defaultAddress = await prisma.address.findFirst({
+      where: { 
+        userId: userId,
+        isDefault: true 
+      }
     });
 
-    res.json({ url: checkout.url });
+    if (!defaultAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please add a shipping address before checkout'
+      });
+    }
+
+    // Create order
+    const order = await prisma.order.create({
+      data: {
+        userId: userId,
+        total: total,
+        status: 'PENDING',
+        paymentStatus: 'UNPAID',
+        addressId: defaultAddress.id,
+        items: {
+          create: items.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price
+          }))
+        }
+      },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                name: true,
+                images: true
+              }
+            }
+          }
+        },
+        address: true,
+        user: {
+          select: {
+            name: true,
+            email: true,
+            phone: true
+          }
+        }
+      }
+    });
+
+    // Clear cart items after order creation
+    if (!productId) {
+      await prisma.cartItem.deleteMany({
+        where: { userId: userId }
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Order created successfully',
+      data: {
+        order,
+        items: items
+      }
+    });
+
   } catch (error) {
-    console.error('Checkout error:', error);
-    res.status(500).json({ error: error.message || 'Checkout failed' });
+    console.error('❌ Checkout error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create order',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
-// Checkout status
+// ============================================
+// GET CHECKOUT STATUS
+// GET /api/checkout
+// ============================================
 router.get('/', (req, res) => {
-  res.json({ configured: !!STRIPE_KEY });
+  res.json({
+    success: true,
+    configured: true,
+    message: 'Checkout is configured for manual order processing',
+    paymentMethods: ['Cash on Delivery', 'Bank Transfer'],
+    status: 'available'
+  });
+});
+
+// ============================================
+// GET CHECKOUT SUMMARY
+// GET /api/checkout/summary
+// ============================================
+router.get('/summary', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Get user's cart
+    const cart = await prisma.cart.findUnique({
+      where: { userId: userId },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                discountPrice: true,
+                images: true,
+                stock: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!cart || cart.items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cart is empty'
+      });
+    }
+
+    // Calculate totals
+    let subtotal = 0;
+    const items = cart.items.map(item => {
+      const price = item.product.discountPrice && 
+        item.product.discountPrice > 0 && 
+        item.product.discountPrice < item.product.price
+        ? Number(item.product.discountPrice)
+        : Number(item.product.price);
+      
+      subtotal += price * item.quantity;
+      
+      return {
+        productId: item.productId,
+        name: item.product.name,
+        price: price,
+        quantity: item.quantity,
+        image: item.product.images?.[0] || null,
+        stock: item.product.stock
+      };
+    });
+
+    // Get user's addresses
+    const addresses = await prisma.address.findMany({
+      where: { userId: userId },
+      orderBy: { isDefault: 'desc' }
+    });
+
+    // Calculate tax (assuming 16% tax)
+    const taxRate = 0.16;
+    const tax = subtotal * taxRate;
+    const total = subtotal + tax;
+
+    res.json({
+      success: true,
+      data: {
+        items,
+        subtotal: subtotal,
+        tax: tax,
+        taxRate: taxRate,
+        total: total,
+        addresses: addresses,
+        paymentMethods: ['Cash on Delivery', 'Bank Transfer']
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Checkout summary error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get checkout summary'
+    });
+  }
+});
+
+// ============================================
+// COMPLETE ORDER (Manual Payment)
+// POST /api/checkout/complete/:orderId
+// ============================================
+router.post('/complete/:orderId', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { orderId } = req.params;
+    const { paymentMethod, paymentRef } = req.body;
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            product: true
+          }
+        }
+      }
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found'
+      });
+    }
+
+    if (order.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized'
+      });
+    }
+
+    if (order.status !== 'PENDING') {
+      return res.status(400).json({
+        success: false,
+        error: 'Order cannot be completed'
+      });
+    }
+
+    // Update order status
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'PROCESSING',
+        paymentStatus: 'PAID',
+        paymentRef: paymentRef || 'Manual payment'
+      },
+      include: {
+        items: {
+          include: {
+            product: true
+          }
+        },
+        address: true
+      }
+    });
+
+    // Update product stock
+    for (const item of updatedOrder.items) {
+      await prisma.product.update({
+        where: { id: item.productId },
+        data: {
+          stock: { decrement: item.quantity }
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Order completed successfully',
+      data: updatedOrder
+    });
+
+  } catch (error) {
+    console.error('❌ Complete order error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to complete order'
+    });
+  }
+});
+
+// ============================================
+// GET ORDER BY ID
+// GET /api/checkout/order/:orderId
+// ============================================
+router.get('/order/:orderId', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { orderId } = req.params;
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                images: true,
+                seller: {
+                  include: {
+                    user: {
+                      select: {
+                        name: true,
+                        email: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        address: true,
+        user: {
+          select: {
+            name: true,
+            email: true,
+            phone: true
+          }
+        }
+      }
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found'
+      });
+    }
+
+    if (order.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: order
+    });
+
+  } catch (error) {
+    console.error('❌ Get order error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get order'
+    });
+  }
+});
+
+// ============================================
+// CANCEL ORDER
+// POST /api/checkout/cancel/:orderId
+// ============================================
+router.post('/cancel/:orderId', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { orderId } = req.params;
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId }
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found'
+      });
+    }
+
+    if (order.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized'
+      });
+    }
+
+    if (order.status === 'DELIVERED') {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot cancel delivered order'
+      });
+    }
+
+    const cancelledOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'CANCELLED',
+        paymentStatus: 'REFUNDED'
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Order cancelled successfully',
+      data: cancelledOrder
+    });
+
+  } catch (error) {
+    console.error('❌ Cancel order error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to cancel order'
+    });
+  }
 });
 
 module.exports = router;

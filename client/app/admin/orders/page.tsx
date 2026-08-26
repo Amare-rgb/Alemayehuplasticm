@@ -47,14 +47,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
+// Add token to requests - FIXED: Use 'authToken' instead of 'token'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Types
 interface Address {
@@ -269,7 +288,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
 
     setUpdating(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
         setUpdating(false);
@@ -314,7 +333,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-      {/* Notification inside modal */}
       {notification && (
         <div className="fixed top-4 right-4 z-50">
           <div className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${
@@ -336,7 +354,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
       )}
 
       <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Order Details</h2>
@@ -351,7 +368,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Status Update Section */}
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
             <div className="flex flex-wrap items-center gap-4">
               <div>
@@ -383,9 +399,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
             </div>
           </div>
 
-          {/* Order Info Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Customer Info */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
                 <User className="w-4 h-4 text-gray-500" />
@@ -409,7 +423,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
               </div>
             </div>
 
-            {/* Shipping Address */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
                 <MapPin className="w-4 h-4 text-gray-500" />
@@ -429,7 +442,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
               </div>
             </div>
 
-            {/* Order Summary */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
                 <Package className="w-4 h-4 text-gray-500" />
@@ -457,7 +469,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
               </div>
             </div>
 
-            {/* Payment Info */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
                 <DollarSign className="w-4 h-4 text-gray-500" />
@@ -481,7 +492,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
             </div>
           </div>
 
-          {/* Order Items */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
               <h3 className="text-sm font-semibold text-gray-700">Order Items</h3>
@@ -649,12 +659,12 @@ const OrdersPage: React.FC = () => {
 
   const statuses = ['ALL', 'PENDING', 'PROCESSING', 'SHIPPED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
 
-  // Fetch orders - moved outside useEffect
+  // Fetch orders
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -677,7 +687,6 @@ const OrdersPage: React.FC = () => {
 
       console.log('📊 Orders loaded:', response.data);
       
-      // Handle both array and paginated response
       let ordersData = response.data;
       if (response.data && response.data.orders) {
         ordersData = response.data.orders;
@@ -701,7 +710,8 @@ const OrdersPage: React.FC = () => {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
           showNotification('error', axiosError.response?.data?.error || 'Failed to fetch orders');
@@ -716,11 +726,10 @@ const OrdersPage: React.FC = () => {
     }
   }, [selectedStatus, pageSize, router]);
 
-  // ✅ FIXED: Use a separate effect for initial data loading
+  // ✅ FIXED: Initial load - only runs once
   useEffect(() => {
     isMounted.current = true;
     
-    // Only fetch on initial mount
     if (isInitialMount.current) {
       isInitialMount.current = false;
       fetchOrders();
@@ -729,15 +738,42 @@ const OrdersPage: React.FC = () => {
     return () => {
       isMounted.current = false;
     };
-  }, [fetchOrders]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - only runs once
 
-  // ✅ FIXED: Separate effect for status changes (not on initial mount)
+  // ✅ FIXED: Status changes - uses a ref to track initialization
   useEffect(() => {
     // Skip on initial mount to avoid double fetch
     if (isInitialMount.current) return;
     
     fetchOrders();
-  }, [selectedStatus, fetchOrders]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStatus]);
+
+  // Handle search change - NO setState in effect
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1);
+  };
+
+  // Handle status filter change - NO setState in effect
+  const handleStatusChange = (value: string) => {
+    setSelectedStatus(value);
+    setCurrentPage(1);
+  };
+
+  // Handle clear filters - NO setState in effect
+  const handleClearFilters = () => {
+    setSelectedStatus('ALL');
+    setSearchQuery('');
+    setCurrentPage(1);
+  };
+
+  // Handle refresh
+  const handleRefresh = () => {
+    showNotification('info', 'Refreshing orders...');
+    fetchOrders();
+  };
 
   // Filter orders based on search
   const filteredOrders = orders.filter(order => {
@@ -767,7 +803,6 @@ const OrdersPage: React.FC = () => {
   const completedOrders = orders.filter(o => o.status === 'COMPLETED').length;
   const cancelledOrders = orders.filter(o => o.status === 'CANCELLED' || o.status === 'REJECTED').length;
 
-  // Handle order click to view details
   const handleViewOrder = (order: Order) => {
     setSelectedOrder(order);
     setIsModalOpen(true);
@@ -786,7 +821,6 @@ const OrdersPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Notification */}
       {notification && (
         <Notification
           type={notification.type}
@@ -795,7 +829,6 @@ const OrdersPage: React.FC = () => {
         />
       )}
 
-      {/* Order Detail Modal */}
       <OrderDetailModal
         order={selectedOrder}
         isOpen={isModalOpen}
@@ -803,7 +836,6 @@ const OrdersPage: React.FC = () => {
         onStatusUpdate={fetchOrders}
       />
 
-      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Orders</h1>
@@ -812,10 +844,7 @@ const OrdersPage: React.FC = () => {
         </div>
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => {
-              showNotification('info', 'Refreshing orders...');
-              fetchOrders();
-            }}
+            onClick={handleRefresh}
             className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -824,7 +853,6 @@ const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Total</p>
@@ -852,7 +880,6 @@ const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Search and Filters */}
       <div className="flex flex-col md:flex-row md:items-center gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -860,10 +887,7 @@ const OrdersPage: React.FC = () => {
             type="text"
             placeholder="Search orders by ID, customer, email, or phone..."
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
+            onChange={handleSearchChange}
             className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
           />
         </div>
@@ -879,17 +903,13 @@ const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Dropdown */}
       {showFilters && (
         <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="text-sm font-medium text-gray-700">Status</label>
             <select
               value={selectedStatus}
-              onChange={(e) => {
-                setSelectedStatus(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => handleStatusChange(e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
               {statuses.map(status => (
@@ -901,11 +921,7 @@ const OrdersPage: React.FC = () => {
           </div>
           <div className="flex items-end">
             <button
-              onClick={() => {
-                setSelectedStatus('ALL');
-                setSearchQuery('');
-                setCurrentPage(1);
-              }}
+              onClick={handleClearFilters}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               Clear Filters
@@ -914,7 +930,6 @@ const OrdersPage: React.FC = () => {
         </div>
       )}
 
-      {/* Orders Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           {paginatedOrders.length > 0 ? (
@@ -1005,7 +1020,6 @@ const OrdersPage: React.FC = () => {
           )}
         </div>
         
-        {/* Pagination */}
         {totalFiltered > pageSize && (
           <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
             <p className="text-sm text-gray-500">

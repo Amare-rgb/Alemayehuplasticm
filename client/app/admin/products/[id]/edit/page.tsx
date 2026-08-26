@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import axios, { AxiosError } from 'axios';
 import {
   ArrowLeft,
@@ -17,13 +18,12 @@ import {
   CheckCircle,
   XCircle,
   Info,
-  DollarSign,
-  Tag,
-  Layers,
+ 
   Weight,
-  ShoppingBag,
+  
   FolderPlus,
-  Clock
+  Clock,
+  Calendar
 } from 'lucide-react';
 
 // Create axios instance
@@ -37,14 +37,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
+// Add token to requests - FIXED: Use 'authToken'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 interface ProductFormData {
   name: string;
@@ -105,9 +124,14 @@ const durationOptions = [
   { value: '24h', label: '24 Hours' },
   { value: '2d', label: '2 Days' },
   { value: '3d', label: '3 Days' },
+  { value: '5d', label: '5 Days' },
   { value: '7d', label: '7 Days' },
+  { value: '10d', label: '10 Days' },
   { value: '14d', label: '14 Days' },
+  { value: '21d', label: '21 Days' },
   { value: '30d', label: '30 Days' },
+  { value: '60d', label: '60 Days' },
+  { value: '90d', label: '90 Days' },
 ];
 
 // Notification Component
@@ -248,7 +272,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         setError('Authentication required');
         setLoading(false);
@@ -303,7 +327,6 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
       if (axios.isAxiosError(err)) {
         const errorMsg = err.response?.data?.error || 
                          err.response?.data?.message || 
-                         err.response?.data?.errors?.[0]?.msg ||
                          `Failed to create ${isSubCategory ? 'subcategory' : 'category'}`;
         setError(errorMsg);
       } else {
@@ -415,7 +438,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
   );
 };
 
-// SKU Generator function (pure function)
+// SKU Generator function
 const generateSKU = () => {
   const prefix = 'PRD';
   const timestamp = Date.now().toString().slice(-6);
@@ -437,6 +460,11 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
   const [newSku, setNewSku] = useState<string>('');
+  
+  // ✅ FIXED: Authentication state
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
     description: '',
@@ -460,14 +488,53 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   const hasFetchedCategories = useRef(false);
   const hasFetchedSubCategories = useRef(false);
   const hasFetchedProduct = useRef(false);
+  const skuSet = useRef(false);
 
-  // Generate SKU using useMemo (runs once on mount)
-  const initialSKU = useMemo(() => {
-    return generateSKU();
-  }, []);
+  // ✅ FIXED: Authentication check on mount
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
+      
+      console.log('🔍 Edit Product Page - Checking auth...');
+      console.log('Token exists:', !!token);
+      
+      if (!token) {
+        console.log('❌ No token found, redirecting to login...');
+        router.replace('/auth/signin');
+        setAuthLoading(false);
+        return;
+      }
+      
+      if (userData) {
+        try {
+          const parsedUser = JSON.parse(userData);
+          console.log('👤 User role:', parsedUser.role);
+          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
+            console.log('❌ Not an admin, redirecting to home...');
+            router.replace('/');
+            setAuthLoading(false);
+            return;
+          }
+          setIsAuthenticated(true);
+        } catch (error) {
+          console.error('Error parsing user data:', error);
+          router.replace('/auth/signin');
+        }
+      } else {
+        console.log('❌ No user data found');
+        router.replace('/auth/signin');
+      }
+      setAuthLoading(false);
+    };
+    
+    checkAuth();
+  }, [router]);
+
+  // Generate SKU using useMemo
+  const initialSKU = useMemo(() => generateSKU(), []);
 
   // Set SKU once on mount using useEffect with a ref to prevent cascade
-  const skuSet = useRef(false);
   useEffect(() => {
     if (!skuSet.current) {
       setNewSku(initialSKU);
@@ -562,14 +629,14 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
 
   // Fetch categories on mount
   useEffect(() => {
-    if (!hasFetchedCategories.current) {
+    if (!hasFetchedCategories.current && isAuthenticated) {
       hasFetchedCategories.current = true;
       const loadCategories = async () => {
         await fetchCategories();
       };
       loadCategories();
     }
-  }, [fetchCategories]);
+  }, [fetchCategories, isAuthenticated]);
 
   // Fetch subcategories when parent category changes
   useEffect(() => {
@@ -587,13 +654,13 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   // Fetch product data
   useEffect(() => {
     const fetchData = async () => {
-      if (!productId || hasFetchedProduct.current) return;
+      if (!productId || hasFetchedProduct.current || !isAuthenticated) return;
       
       try {
         setLoading(true);
         setError(null);
         
-        const token = localStorage.getItem('token');
+        const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
         if (!token) {
           showNotification('error', 'Authentication required. Please login again.');
           router.push('/auth/signin');
@@ -647,7 +714,8 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
             showNotification('error', 'Product not found. Please check the product ID.');
           } else if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
             showNotification('error', 'Authentication failed. Please login again.');
-            localStorage.removeItem('token');
+            localStorage.removeItem('authToken');
+            sessionStorage.removeItem('authToken');
             router.push('/auth/signin');
           } else {
             showNotification('error', axiosError.response?.data?.error || `Failed to load product (Status: ${axiosError.response?.status})`);
@@ -663,7 +731,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     };
 
     fetchData();
-  }, [productId, router]);
+  }, [productId, router, isAuthenticated]);
 
   // Handle image upload
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -679,7 +747,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     setUploadingImage(true);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -778,7 +846,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     }
   };
 
-  // Function to generate new SKU (for button click)
+  // Function to generate new SKU
   const handleGenerateSKU = () => {
     const newGeneratedSKU = generateSKU();
     setNewSku(newGeneratedSKU);
@@ -792,7 +860,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     setError(null);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -802,7 +870,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
       const submitData = {
         name: formData.name,
         description: formData.description,
-        price: parseFloat(formData.price),
+        price: parseFloat(formData.price) || 0,
         discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : null,
         sku: formData.sku || newSku,
         categoryId: formData.categoryId,
@@ -834,7 +902,8 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
           showNotification('error', axiosError.response?.data?.error || `Failed to update product (Status: ${axiosError.response?.status})`);
@@ -855,6 +924,49 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
       maximumFractionDigits: 2,
     }).format(amount || 0);
   };
+
+  // Image component with fallback
+  const ProductImage: React.FC<{ src: string | null; alt: string; index: number }> = ({ src, alt, index }) => {
+    const [imgSrc, setImgSrc] = useState(src);
+    const [hasError, setHasError] = useState(false);
+
+    if (!src || hasError) {
+      return (
+        <div className="w-full h-full flex items-center justify-center bg-gray-100">
+          <ImageIcon className="w-8 h-8 text-gray-400" />
+        </div>
+      );
+    }
+
+    return (
+      <Image
+        src={src}
+        alt={alt}
+        width={200}
+        height={200}
+        className="w-full h-full object-cover"
+        onError={() => setHasError(true)}
+        unoptimized={src?.startsWith('http')}
+      />
+    );
+  };
+
+  // Show loading state
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
 
   if (loading) {
     return (
@@ -1089,7 +1201,12 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
 
                 {/* Duration Time */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration Time</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    <div className="flex items-center space-x-2">
+                      <Clock className="w-4 h-4 text-gray-500" />
+                      <span>Duration Time</span>
+                    </div>
+                  </label>
                   <select
                     name="durationTime"
                     value={formData.durationTime || '1h'}
@@ -1102,6 +1219,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                       </option>
                     ))}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">Select how long this product listing will be active</p>
                 </div>
 
                 {/* Weight & Unit */}
@@ -1232,12 +1350,12 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex items-center space-x-2 px-6 py-2.5 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  className="flex items-center space-x-2 px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
                 >
                   {saving ? (
-                    <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <Save className="w-4 h-4 text-green-600" />
+                    <Save className="w-4 h-4" />
                   )}
                   <span>{saving ? 'Saving...' : 'Save Changes'}</span>
                 </button>
@@ -1259,30 +1377,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   const imageUrl = getImageUrl(img);
                   return (
                     <div key={index} className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group">
-                      {imageUrl ? (
-                        <img 
-                          src={imageUrl}
-                          alt={`Product ${index + 1}`}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            console.error('❌ Image failed to load:', imageUrl);
-                            const target = e.target as HTMLImageElement;
-                            if (img.startsWith('/uploads/')) {
-                              const altUrl = `${API_URL}${img.substring(1)}`;
-                              target.src = altUrl;
-                            } else {
-                              target.src = '/placeholder-image.png';
-                            }
-                          }}
-                          onLoad={() => {
-                            console.log('✅ Image loaded:', imageUrl);
-                          }}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-400">
-                          <ImageIcon className="w-8 h-8" />
-                        </div>
-                      )}
+                      <ProductImage src={imageUrl} alt={`Product ${index + 1}`} index={index} />
                       <button
                         type="button"
                         onClick={() => handleRemoveImage(index)}
@@ -1321,6 +1416,31 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                 <p className="text-xs text-gray-400 mt-2 text-center">Click to upload images (max 5MB)</p>
               )}
               <p className="text-xs text-gray-400 mt-1 text-center">Default image will be used if none uploaded</p>
+            </div>
+
+            {/* Duration Info Card */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center space-x-2 mb-4">
+                <Calendar className="w-4 h-4 text-purple-600" />
+                <h3 className="font-semibold text-gray-900 text-sm">Duration Info</h3>
+              </div>
+              <div className="space-y-3">
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <div className="flex items-center space-x-2">
+                    <Info className="w-4 h-4 text-purple-600" />
+                    <p className="text-xs text-purple-700">
+                      The duration determines how long this product will be active.
+                      After the duration ends, the product will be automatically archived.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Duration:</span>
+                  <span className="font-medium text-gray-900">
+                    {durationOptions.find(d => d.value === formData.durationTime)?.label || 'Not set'}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Product Summary Card */}

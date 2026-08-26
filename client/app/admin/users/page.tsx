@@ -47,14 +47,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
+// Add token to requests - FIXED: Use 'authToken' instead of 'token'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Types
 interface SellerProfile {
@@ -211,7 +230,6 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
         </div>
 
         <div className="p-6 space-y-6">
-          {/* User Info */}
           <div className="flex items-center space-x-4">
             <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-xl font-bold">
               {user.name.charAt(0).toUpperCase()}
@@ -231,9 +249,6 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
             </div>
           </div>
 
-          {/* ❌ REMOVED Update User Section */}
-
-          {/* Details Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
@@ -329,7 +344,7 @@ const UsersPage: React.FC = () => {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
 
   const isMounted = useRef(true);
@@ -384,12 +399,12 @@ const UsersPage: React.FC = () => {
 
   const roles = ['ALL', 'ADMIN', 'SELLER', 'USER'];
 
-  // Fetch users
+  // ✅ FIXED: fetchUsers function
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
       
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -438,7 +453,8 @@ const UsersPage: React.FC = () => {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
           showNotification('error', axiosError.response?.data?.error || 'Failed to fetch users');
@@ -453,6 +469,7 @@ const UsersPage: React.FC = () => {
     }
   }, [selectedRole, searchQuery, currentPage, pageSize, router]);
 
+  // ✅ FIXED: Initial load - only runs once
   useEffect(() => {
     isMounted.current = true;
     
@@ -464,12 +481,37 @@ const UsersPage: React.FC = () => {
     return () => {
       isMounted.current = false;
     };
-  }, [fetchUsers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - only runs once
 
+  // ✅ FIXED: Handle role and search changes
   useEffect(() => {
     if (isInitialMount.current) return;
     fetchUsers();
-  }, [selectedRole, searchQuery, currentPage, fetchUsers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRole, searchQuery, currentPage]);
+
+  // ✅ FIXED: Handler functions - no setState in effects
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const handleRoleChange = (value: string) => {
+    setSelectedRole(value);
+    setCurrentPage(1);
+  };
+
+  const handleClearFilters = () => {
+    setSelectedRole('ALL');
+    setSearchQuery('');
+    setCurrentPage(1);
+  };
+
+  const handleRefresh = () => {
+    showNotification('info', 'Refreshing users...');
+    fetchUsers();
+  };
 
   // Stats - Only Total Users
   const totalUsers = users.length;
@@ -485,7 +527,7 @@ const UsersPage: React.FC = () => {
     if (!confirm(`Are you sure you want to delete user "${name}"? This action cannot be undone.`)) return;
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -526,7 +568,6 @@ const UsersPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Notification */}
       {notification && (
         <Notification
           type={notification.type}
@@ -535,14 +576,12 @@ const UsersPage: React.FC = () => {
         />
       )}
 
-      {/* User Detail Modal */}
       <UserDetailModal
         user={selectedUser}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
       />
 
-      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Users</h1>
@@ -551,7 +590,6 @@ const UsersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards - Only Total Users */}
       <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Total Users</p>
@@ -559,7 +597,6 @@ const UsersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Search and Filters */}
       <div className="flex flex-col md:flex-row md:items-center gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -567,10 +604,7 @@ const UsersPage: React.FC = () => {
             type="text"
             placeholder="Search users by name, email, or phone..."
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
+            onChange={handleSearchChange}
             className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
           />
         </div>
@@ -584,10 +618,7 @@ const UsersPage: React.FC = () => {
             <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
           <button
-            onClick={() => {
-              showNotification('info', 'Refreshing users...');
-              fetchUsers();
-            }}
+            onClick={handleRefresh}
             className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -596,17 +627,13 @@ const UsersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Dropdown */}
       {showFilters && (
         <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="text-sm font-medium text-gray-700">Role</label>
             <select
               value={selectedRole}
-              onChange={(e) => {
-                setSelectedRole(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => handleRoleChange(e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
               {roles.map(role => (
@@ -618,11 +645,7 @@ const UsersPage: React.FC = () => {
           </div>
           <div className="flex items-end">
             <button
-              onClick={() => {
-                setSelectedRole('ALL');
-                setSearchQuery('');
-                setCurrentPage(1);
-              }}
+              onClick={handleClearFilters}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               Clear Filters
@@ -631,7 +654,6 @@ const UsersPage: React.FC = () => {
         </div>
       )}
 
-      {/* Users Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           {users.length > 0 ? (
@@ -747,7 +769,6 @@ const UsersPage: React.FC = () => {
           )}
         </div>
         
-        {/* Pagination */}
         {total > pageSize && (
           <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
             <p className="text-sm text-gray-500">

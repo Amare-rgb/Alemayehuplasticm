@@ -40,14 +40,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
+// Add token to requests - FIXED: Use 'authToken' instead of 'token'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Types
 interface TransactionUser {
@@ -433,7 +452,7 @@ const TransactionsPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
 
   const isMounted = useRef(true);
@@ -511,12 +530,12 @@ const TransactionsPage: React.FC = () => {
   const orderStatuses = ['ALL', 'PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
   const paymentStatuses = ['ALL', 'PAID', 'UNPAID', 'REFUNDED'];
 
-  // Fetch transactions from orders API
+  // ✅ FIXED: fetchTransactions function
   const fetchTransactions = useCallback(async () => {
     try {
       setLoading(true);
       
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -567,7 +586,8 @@ const TransactionsPage: React.FC = () => {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
           showNotification('error', axiosError.response?.data?.error || 'Failed to fetch transactions');
@@ -582,6 +602,7 @@ const TransactionsPage: React.FC = () => {
     }
   }, [selectedStatus, selectedPaymentStatus, searchQuery, currentPage, pageSize, router]);
 
+  // ✅ FIXED: Initial load - only runs once
   useEffect(() => {
     isMounted.current = true;
     
@@ -593,12 +614,43 @@ const TransactionsPage: React.FC = () => {
     return () => {
       isMounted.current = false;
     };
-  }, [fetchTransactions]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - only runs once
 
+  // ✅ FIXED: Handle filter and search changes
   useEffect(() => {
     if (isInitialMount.current) return;
     fetchTransactions();
-  }, [selectedStatus, selectedPaymentStatus, searchQuery, currentPage, fetchTransactions]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStatus, selectedPaymentStatus, searchQuery, currentPage]);
+
+  // ✅ FIXED: Handler functions - no setState in effects
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const handleStatusChange = (value: string) => {
+    setSelectedStatus(value);
+    setCurrentPage(1);
+  };
+
+  const handlePaymentStatusChange = (value: string) => {
+    setSelectedPaymentStatus(value);
+    setCurrentPage(1);
+  };
+
+  const handleClearFilters = () => {
+    setSelectedStatus('ALL');
+    setSelectedPaymentStatus('ALL');
+    setSearchQuery('');
+    setCurrentPage(1);
+  };
+
+  const handleRefresh = () => {
+    showNotification('info', 'Refreshing transactions...');
+    fetchTransactions();
+  };
 
   const totalTransactions = transactions.length;
   const totalRevenue = transactions.reduce((sum, t) => sum + (t.total || 0), 0);
@@ -645,10 +697,7 @@ const TransactionsPage: React.FC = () => {
         </div>
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => {
-              showNotification('info', 'Refreshing transactions...');
-              fetchTransactions();
-            }}
+            onClick={handleRefresh}
             className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -690,10 +739,7 @@ const TransactionsPage: React.FC = () => {
             type="text"
             placeholder="Search by order ID, customer name, or email..."
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
+            onChange={handleSearchChange}
             className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
           />
         </div>
@@ -715,10 +761,7 @@ const TransactionsPage: React.FC = () => {
             <label className="text-sm font-medium text-gray-700">Order Status</label>
             <select
               value={selectedStatus}
-              onChange={(e) => {
-                setSelectedStatus(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => handleStatusChange(e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
               {orderStatuses.map(status => (
@@ -732,10 +775,7 @@ const TransactionsPage: React.FC = () => {
             <label className="text-sm font-medium text-gray-700">Payment Status</label>
             <select
               value={selectedPaymentStatus}
-              onChange={(e) => {
-                setSelectedPaymentStatus(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => handlePaymentStatusChange(e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
               {paymentStatuses.map(status => (
@@ -747,12 +787,7 @@ const TransactionsPage: React.FC = () => {
           </div>
           <div className="flex items-end">
             <button
-              onClick={() => {
-                setSelectedStatus('ALL');
-                setSelectedPaymentStatus('ALL');
-                setSearchQuery('');
-                setCurrentPage(1);
-              }}
+              onClick={handleClearFilters}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               Clear Filters

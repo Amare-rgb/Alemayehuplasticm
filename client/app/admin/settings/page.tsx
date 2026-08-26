@@ -29,14 +29,35 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// Helper: single source of truth for reading the stored token.
+// Keeps the interceptor and every call site in this file in sync
+// (previously loadSettingsData() checked fewer keys than the interceptor did).
+const getStoredToken = (): string | null => {
+  return (
+    localStorage.getItem('authToken') ||
+    sessionStorage.getItem('authToken') ||
+    localStorage.getItem('token')
+  );
+};
+
 // Add token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = getStoredToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for better error handling - BUT DON'T REDIRECT HERE
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Just log the error, don't redirect - let the component handle it
+    console.error('API Error:', error.response?.status, error.response?.data);
+    return Promise.reject(error);
+  }
+);
 
 // Notification Component
 interface NotificationProps {
@@ -194,9 +215,28 @@ interface ApiErrorResponse {
   error: string;
 }
 
+const defaultSettings: SettingsData = {
+  siteName: 'Genesis Agri Business',
+  siteDescription: 'Agriculture marketplace connecting farmers and buyers',
+  adminEmail: 'admin@genesisagri.com',
+  adminPhone: '+1 (555) 123-4567',
+  address: '123 Farm Road, Nairobi, Kenya',
+  timezone: 'Africa/Nairobi',
+  dateFormat: 'MM/DD/YYYY',
+  storeName: 'Genesis Agri Business',
+  storeEmail: 'info@genesisagri.com',
+  storePhone: '+1 (555) 123-4567',
+  storeAddress: '123 Farm Road, Nairobi, Kenya',
+  currency: 'KES',
+  taxRate: 16,
+  twoFactorAuth: false,
+  sessionTimeout: 60,
+};
+
 const SettingsPage: React.FC = () => {
   const router = useRouter();
   const isMounted = useRef(true);
+  const hasInitialized = useRef(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
@@ -208,29 +248,8 @@ const SettingsPage: React.FC = () => {
     confirmPassword: ''
   });
 
-  // Form Data
-  const [formData, setFormData] = useState<SettingsData>({
-    // General Settings
-    siteName: 'Genesis Agri Business',
-    siteDescription: 'Agriculture marketplace connecting farmers and buyers',
-    adminEmail: 'admin@genesisagri.com',
-    adminPhone: '+1 (555) 123-4567',
-    address: '123 Farm Road, Nairobi, Kenya',
-    timezone: 'Africa/Nairobi',
-    dateFormat: 'MM/DD/YYYY',
-
-    // Store Settings
-    storeName: 'Genesis Agri Business',
-    storeEmail: 'info@genesisagri.com',
-    storePhone: '+1 (555) 123-4567',
-    storeAddress: '123 Farm Road, Nairobi, Kenya',
-    currency: 'KES',
-    taxRate: 16,
-
-    // Security
-    twoFactorAuth: false,
-    sessionTimeout: 60,
-  });
+  // Form Data - initialized with default settings
+  const [formData, setFormData] = useState<SettingsData>(defaultSettings);
 
   const tabs = [
     { id: 'general', label: 'General', icon: Settings },
@@ -249,10 +268,9 @@ const SettingsPage: React.FC = () => {
     setNotification(null);
   };
 
-  // Single handler for all input types using a generic event
+  // Single handler for all input types
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
-    // Check if it's a number input
     if (type === 'number') {
       setFormData(prev => ({
         ...prev,
@@ -282,63 +300,87 @@ const SettingsPage: React.FC = () => {
     }));
   };
 
-  // FIXED: Initialize data on mount - using useRef to avoid dependency issues
-  const initializeSettings = useRef(async () => {
+  // loadSettingsData - NO REDIRECT ON 401, just use defaults
+  const loadSettingsData = useCallback(async () => {
+    setLoading(true);
+
     try {
-      const token = localStorage.getItem('token');
+      const token = getStoredToken();
+
+      // If no token, just use default settings and show a notification
       if (!token) {
-        if (isMounted.current) {
-          showNotification('error', 'Authentication required');
-          router.push('/auth/signin');
-        }
-        setLoading(false);
+        console.log('⚠️ No token found, using default settings');
+        setFormData(defaultSettings);
+        showNotification('info', 'Using default settings');
         return;
       }
 
-      try {
-        const response = await api.get('/api/admin/settings', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.data && isMounted.current) {
-          setFormData(prev => ({ ...prev, ...response.data }));
-        }
-      } catch (err) {
-        const error = err as AxiosError<ApiErrorResponse>;
-        if (error.response?.status === 401) {
-          router.push('/auth/signin');
-        } else {
-          console.log('Using default settings');
-        }
+      console.log('🔍 Fetching settings from API...');
+
+      const response = await api.get('/api/admin/settings', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      console.log('📦 Settings API Response:', response.data);
+
+      if (response.data && isMounted.current) {
+        // The API returns settings directly
+        const settingsData = response.data;
+
+        // Merge with default settings to ensure all fields exist
+        setFormData(prev => ({
+          ...defaultSettings,
+          ...prev,
+          ...settingsData
+        }));
+        console.log('✅ Settings loaded successfully');
       }
     } catch (err) {
-      console.error('Error fetching settings:', err);
+      const error = err as AxiosError<ApiErrorResponse>;
+      console.error('❌ Error fetching settings:', error);
+
+      // On any error, use default settings - DON'T redirect
+      console.log('⚠️ Using default settings due to error');
+      setFormData(defaultSettings);
+      showNotification('info', 'Using default settings');
     } finally {
       if (isMounted.current) {
         setLoading(false);
       }
     }
-  });
+  }, []);
 
-  // FIXED: Use useEffect with stable dependencies
+  // Effect: fetch settings exactly once, but keep `isMounted` correct across
+  // every mount/cleanup cycle (React 18 StrictMode runs this effect twice in
+  // dev). `hasInitialized` gates the actual fetch so it only fires once;
+  // `isMounted` is re-armed on every run so the in-flight request's `finally`
+  // block can still find it `true` and clear the loading state. Previously
+  // `isMounted.current = true` lived inside the `hasInitialized` guard, so
+  // the second StrictMode mount skipped re-arming it, the original request
+  // resolved against a permanently-false `isMounted`, `setLoading(false)`
+  // never ran, and the page was stuck on the loading spinner.
   useEffect(() => {
     isMounted.current = true;
-    
-    // Call the initialization function
-    initializeSettings.current();
-    
+
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      loadSettingsData();
+    }
+
     return () => {
       isMounted.current = false;
     };
-  }, []); // Empty array - stable
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle save settings
   const handleSave = async () => {
     setSaving(true);
-    
+
     try {
-      const token = localStorage.getItem('token');
+      const token = getStoredToken();
       if (!token) {
-        showNotification('error', 'Authentication required');
+        showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
         setSaving(false);
         return;
@@ -359,6 +401,7 @@ const SettingsPage: React.FC = () => {
       const error = err as AxiosError<ApiErrorResponse>;
       console.error('Error saving settings:', error);
       if (error.response?.status === 401) {
+        showNotification('error', 'Authentication failed. Please login again.');
         router.push('/auth/signin');
       } else {
         showNotification('error', error.response?.data?.error || 'Failed to save settings');
@@ -370,7 +413,6 @@ const SettingsPage: React.FC = () => {
 
   // Handle change password
   const handleChangePassword = async () => {
-    // Validate passwords
     if (!passwordData.currentPassword) {
       showNotification('error', 'Please enter your current password');
       return;
@@ -392,7 +434,7 @@ const SettingsPage: React.FC = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getStoredToken();
       if (!token) {
         showNotification('error', 'Authentication required');
         router.push('/auth/signin');
@@ -432,9 +474,9 @@ const SettingsPage: React.FC = () => {
   // Handle reset settings
   const handleReset = async () => {
     if (!confirm('Are you sure you want to reset all settings to default?')) return;
-    
+
     try {
-      const token = localStorage.getItem('token');
+      const token = getStoredToken();
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -447,23 +489,7 @@ const SettingsPage: React.FC = () => {
       });
 
       if (response.data.success) {
-        setFormData({
-          siteName: 'Genesis Agri Business',
-          siteDescription: 'Agriculture marketplace connecting farmers and buyers',
-          adminEmail: 'admin@genesisagri.com',
-          adminPhone: '+1 (555) 123-4567',
-          address: '123 Farm Road, Nairobi, Kenya',
-          timezone: 'Africa/Nairobi',
-          dateFormat: 'MM/DD/YYYY',
-          storeName: 'Genesis Agri Business',
-          storeEmail: 'info@genesisagri.com',
-          storePhone: '+1 (555) 123-4567',
-          storeAddress: '123 Farm Road, Nairobi, Kenya',
-          currency: 'KES',
-          taxRate: 16,
-          twoFactorAuth: false,
-          sessionTimeout: 60,
-        });
+        setFormData(defaultSettings);
         showNotification('success', 'Settings reset to default successfully');
       } else {
         showNotification('error', response.data.error || 'Failed to reset settings');
@@ -475,6 +501,7 @@ const SettingsPage: React.FC = () => {
     }
   };
 
+  // Show loading state
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -488,7 +515,6 @@ const SettingsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Notification */}
       {notification && (
         <Notification
           type={notification.type}
@@ -497,7 +523,6 @@ const SettingsPage: React.FC = () => {
         />
       )}
 
-      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Settings</h1>
@@ -522,7 +547,6 @@ const SettingsPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Tabs */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="border-b border-gray-200">
           <nav className="flex overflow-x-auto px-4 py-2 space-x-1" aria-label="Tabs">
@@ -547,7 +571,6 @@ const SettingsPage: React.FC = () => {
         </div>
 
         <div className="p-6">
-          {/* General Settings */}
           <TabPanel active={activeTab === 'general'}>
             <SettingSection
               title="General Settings"
@@ -657,7 +680,6 @@ const SettingsPage: React.FC = () => {
             </SettingSection>
           </TabPanel>
 
-          {/* Store Settings */}
           <TabPanel active={activeTab === 'store'}>
             <SettingSection
               title="Store Settings"
@@ -753,7 +775,6 @@ const SettingsPage: React.FC = () => {
             </SettingSection>
           </TabPanel>
 
-          {/* Security Settings */}
           <TabPanel active={activeTab === 'security'}>
             <SettingSection
               title="Security Settings"
@@ -851,7 +872,6 @@ const SettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Bottom Actions */}
       <div className="flex items-center justify-between">
         <button
           onClick={handleReset}

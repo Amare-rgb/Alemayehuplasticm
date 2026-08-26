@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@/app/providers';
 import { useRouter } from 'next/navigation';
 import axios, { AxiosError } from 'axios';
 import {
@@ -18,6 +17,59 @@ import {
   Eye,
 } from 'lucide-react';
 
+// Define types
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+interface OrderItem {
+  product: {
+    name: string;
+  };
+  quantity: number;
+}
+
+interface Order {
+  id: string;
+  user: {
+    name: string;
+    email: string;
+  };
+  items: OrderItem[];
+  total: number;
+  status: string;
+  createdAt: string;
+  paymentMethod: string;
+}
+
+interface WeeklySale {
+  date: string;
+  orders: number;
+  revenue: number;
+}
+
+interface StatsData {
+  stats: {
+    revenue: number;
+    products: number;
+    orders: number;
+    customers: number;
+    pendingOrders: number;
+    deliveredOrders: number;
+  };
+  recentOrders: Order[];
+  weeklySales: WeeklySale[];
+}
+
+interface StatsCardProps {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+}
+
 // Create axios instance
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
@@ -28,54 +80,33 @@ const api = axios.create({
 
 // Add token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Define interfaces matching your API response
-interface StatsData {
-  stats: {
-    revenue: number;
-    products: number;
-    orders: number;
-    customers: number;
-    pendingOrders: number;
-    deliveredOrders: number;
-  };
-  recentOrders: Array<{
-    id: string;
-    user: {
-      name: string;
-      email: string;
-    };
-    items: Array<{
-      product: {
-        name: string;
-      };
-      quantity: number;
-    }>;
-    total: number;
-    status: string;
-    createdAt: string;
-    paymentMethod: string;
-  }>;
-  weeklySales: Array<{
-    date: string;
-    orders: number;
-    revenue: number;
-  }>;
-}
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
-interface StatsCardProps {
-  title: string;
-  value: string | number;
-  subtitle?: string;
-}
-
-// Stats Card Component - Compact version
+// Stats Card Component
 const StatsCard: React.FC<StatsCardProps> = ({
   title,
   value,
@@ -95,11 +126,11 @@ const StatsCard: React.FC<StatsCardProps> = ({
 };
 
 export default function DashboardPage() {
-  const { user, status } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<StatsData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -109,10 +140,51 @@ export default function DashboardPage() {
     };
   }, []);
 
+  // FIXED: Use a ref to track initialization instead of state
+  const hasInitializedRef = useRef(false);
+
+  // Check authentication and get user data
+  const getAuthenticatedUser = useCallback((): User | null => {
+    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+    const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
+    
+    console.log('🔍 Checking auth - Token exists:', !!token);
+    
+    if (!token) {
+      console.log('❌ No token found');
+      return null;
+    }
+
+    if (!userData) {
+      console.log('❌ No user data found');
+      return null;
+    }
+
+    try {
+      const parsedUser = JSON.parse(userData) as User;
+      console.log('👤 User role:', parsedUser.role);
+      
+      if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
+        console.log('❌ Not an admin');
+        return null;
+      }
+      
+      return parsedUser;
+    } catch (e) {
+      console.error('Error parsing user data:', e);
+      return null;
+    }
+  }, []);
+
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       console.log('🔍 Fetching dashboard data from API...');
+      
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
       
       const response = await api.get('/api/admin/dashboard');
       console.log('📊 API Response:', response.data);
@@ -131,11 +203,14 @@ export default function DashboardPage() {
       
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{ error: string }>;
-        setError(axiosError.response?.data?.error || 'Failed to fetch dashboard data');
-        
         if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
-          router.push('/auth/signin');
+          console.log('❌ Unauthorized, redirecting to login...');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
+          window.location.replace('/auth/signin');
+          return;
         }
+        setError(axiosError.response?.data?.error || 'Failed to fetch dashboard data');
       } else {
         setError(err instanceof Error ? err.message : 'An unexpected error occurred');
       }
@@ -144,35 +219,35 @@ export default function DashboardPage() {
         setLoading(false);
       }
     }
-  }, [router]);
+  }, []);
 
+  // FIXED: Use a setTimeout to defer state updates outside the effect
   useEffect(() => {
-    let isMounted = true;
+    // Prevent multiple initializations
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
 
-    if (status === 'unauthenticated') {
-      router.push('/auth/signin');
+    // Check authentication
+    const authenticatedUser = getAuthenticatedUser();
+    
+    if (!authenticatedUser) {
+      console.log('❌ Authentication failed, redirecting...');
+      window.location.replace('/auth/signin');
       return;
     }
 
-    if (user && user.role !== 'ADMIN') {
-      router.push('/');
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      if (isMounted && status === 'authenticated') {
-        fetchDashboardData();
-      }
-    }, 100);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-    };
-  }, [user, status, router, fetchDashboardData]);
+    // FIXED: Use setTimeout to move state updates out of the effect
+    // This breaks the synchronous setState call in the effect
+    setTimeout(() => {
+      setUser(authenticatedUser);
+      fetchDashboardData();
+    }, 0);
+    
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - only runs once on mount
 
   const getStatusColor = (status: string) => {
-    const colors = {
+    const colors: Record<string, string> = {
       DELIVERED: 'bg-green-100 text-green-700',
       COMPLETED: 'bg-green-100 text-green-700',
       PENDING: 'bg-yellow-100 text-yellow-700',
@@ -180,11 +255,11 @@ export default function DashboardPage() {
       SHIPPED: 'bg-blue-100 text-blue-700',
       CANCELLED: 'bg-red-100 text-red-700',
     };
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-700';
+    return colors[status] || 'bg-gray-100 text-gray-700';
   };
 
   const getStatusIcon = (status: string) => {
-    const icons = {
+    const icons: Record<string, React.ReactNode> = {
       DELIVERED: <CheckCircle className="w-4 h-4" />,
       COMPLETED: <CheckCircle className="w-4 h-4" />,
       PENDING: <Clock className="w-4 h-4" />,
@@ -192,7 +267,7 @@ export default function DashboardPage() {
       SHIPPED: <Activity className="w-4 h-4" />,
       CANCELLED: <XCircle className="w-4 h-4" />,
     };
-    return icons[status as keyof typeof icons] || null;
+    return icons[status] || null;
   };
 
   const formatDate = (dateString: string) => {
@@ -203,7 +278,6 @@ export default function DashboardPage() {
     });
   };
 
-  // Format currency to ETB (Ethiopian Birr)
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -213,7 +287,7 @@ export default function DashboardPage() {
     }).format(amount || 0);
   };
 
-  if (status === 'loading' || loading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
@@ -258,21 +332,9 @@ export default function DashboardPage() {
 
   const { stats, recentOrders, weeklySales } = data;
 
-  // Debug: Log the data being displayed
-  console.log('📊 Displaying Dashboard Data:', {
-    revenue: stats.revenue,
-    products: stats.products,
-    orders: stats.orders,
-    customers: stats.customers,
-    pendingOrders: stats.pendingOrders,
-    deliveredOrders: stats.deliveredOrders,
-    recentOrdersCount: recentOrders?.length || 0,
-    weeklySalesCount: weeklySales?.length || 0
-  });
-
   return (
     <div className="space-y-6">
-      {/* Page Header - Buttons on the right side with minimized font */}
+      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
@@ -296,7 +358,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats Cards - Compact grid with smaller gaps */}
+      {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatsCard
           title="Total Revenue"
@@ -316,7 +378,7 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Order Status Summary - Compact cards */}
+      {/* Order Status Summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
@@ -350,7 +412,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Weekly Sales Chart - Compact */}
+        {/* Weekly Sales Chart */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-gray-900 text-sm">Weekly Sales</h3>
@@ -391,7 +453,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Orders Table - Compact */}
+      {/* Recent Orders Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div>
@@ -441,10 +503,10 @@ export default function DashboardPage() {
                       #{order.id.slice(0, 8)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
-                      {order.user.name || order.user.email}
+                      {order.user?.name || order.user?.email || 'Unknown'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
-                      {order.items.map((item) => item.product.name).join(', ')}
+                      {order.items?.map((item) => item.product?.name).join(', ') || 'N/A'}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
                       {formatCurrency(order.total)}
@@ -456,7 +518,7 @@ export default function DashboardPage() {
                         )}`}
                       >
                         {getStatusIcon(order.status)}
-                        <span className="capitalize">{order.status.toLowerCase()}</span>
+                        <span className="capitalize">{order.status?.toLowerCase() || 'unknown'}</span>
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500">

@@ -1,4 +1,5 @@
 // prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,9 +9,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ❌ SELLER እዚህ ጠፍቷል (USER እና ADMIN ብቻ ቀረ)
 enum Role {
   USER
-  SELLER
   ADMIN
 }
 
@@ -34,12 +35,6 @@ enum PaymentStatus {
   REFUNDED
 }
 
-enum ProductCondition {
-  NEW
-  USED
-  REFURBISHED
-}
-
 enum CategoryStatus {
   PENDING
   APPROVED
@@ -58,55 +53,49 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sellerProfile SellerProfile?
-  orders        Order[]
-  cartItems     CartItem[]
-  reviews       Review[]
-  addresses     Address[]
-  blogPosts     BlogPost[]
-  categories    Category[] @relation("CategoryCreator")
+  adminProfile AdminProfile?
+
+  orders             Order[]
+  cartItems          CartItem[]
+  reviews            Review[]
+  addresses          Address[]
+  blogPosts          BlogPost[]
+  categories         Category[] @relation("CategoryCreator")
   approvedCategories Category[] @relation("CategoryApprover")
 
   @@map("users")
 }
 
-model SellerProfile {
-  id             String   @id @default(cuid())
-  userId         String   @unique
-  shopName       String
-  shopDesc       String?
-  logo           String?
-  phone          String?
-  isVerified     Boolean  @default(false)
-  totalSales     Int      @default(0)
-  address        String?
-  banner         String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+model AdminProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  permissions String[]
+  department  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  products Product[]
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("seller_profiles")
+  @@map("admin_profiles")
 }
 
 model Category {
-  id             String         @id @default(cuid())
-  name           String         @unique
-  slug           String         @unique
-  description    String?
-  image          String?
-  icon           String?
-  color          String?
-  parentId       String?
-  status         CategoryStatus @default(PENDING)
-  createdBy      String?
-  approvedBy     String?
-  approvedAt     DateTime?
-  rejectedAt     DateTime?
+  id              String         @id @default(cuid())
+  name            String         @unique
+  slug            String         @unique
+  description     String?
+  image           String?
+  icon            String?
+  color           String?
+  parentId        String?
+  status          CategoryStatus @default(PENDING)
+  createdBy       String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
   rejectionReason String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children    Category[] @relation("CategoryTree")
@@ -119,44 +108,40 @@ model Category {
 }
 
 model Product {
-  id                  String          @id @default(cuid())
-  name                String
-  slug                String          @unique
-  description         String          @db.Text
-  price               Decimal         @db.Decimal(10, 2)
-  discountPrice       Decimal?        @db.Decimal(10, 2)
-  stock               Int             @default(0)
-  sku                 String          @unique
-  images              String[]
-  status              ProductStatus   @default(PENDING)
-  adminNote           String?
-  sellerId            String
-  categoryId          String
-  subCategoryId       String?
-  tags                String[]
-  warranty            String?
-  condition           ProductCondition @default(NEW)
-  videoUrl            String?
-  unitOfMeasurement   String          @default("pcs")  
-  sizes               String?          
-  colors              String?         
-  brand               String?
-  weight              Float?           
-  estimatedDelivery   String?
-  rejectionReason     String?
-  durationTime        String?         @default("1h")
-  pricePerUnit        Decimal?        @db.Decimal(10, 2)
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  id                String        @id @default(cuid())
+  name              String
+  slug              String        @unique
+  description       String        @db.Text
+  price             Decimal       @db.Decimal(10, 2)
+  discountPrice     Decimal?      @db.Decimal(10, 2)
+  stock             Int           @default(0)
+  sku               String        @unique
+  images            String[]
+  status            ProductStatus @default(PENDING)
+  adminNote         String?
+  categoryId        String
+  subCategoryId     String?
+  tags              String[]
+  warranty          String?
+  videoUrl          String?
+  unitOfMeasurement String        @default("pcs")  
+  sizes             String?         
+  colors            String?         
+  brand             String?
+  weight            Float?           
+  estimatedDelivery String?
+  rejectionReason   String?
+  durationTime      String?       @default("1h")
+  pricePerUnit      Decimal?      @db.Decimal(10, 2)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
-  seller      SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
-  category    Category      @relation(fields: [categoryId], references: [id])
-  subCategory Category?     @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
+  category    Category    @relation(fields: [categoryId], references: [id])
+  subCategory Category?   @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
   cartItems   CartItem[]
   orderItems  OrderItem[]
   reviews     Review[]
 
-  @@index([sellerId])
   @@index([categoryId])
   @@index([status])
   @@index([sku])
@@ -174,11 +159,11 @@ model Cart {
 }
 
 model CartItem {
-  id        String  @id @default(cuid())
+  id        String @id @default(cuid())
   userId    String
   cartId    String
   productId String
-  quantity  Int     @default(1)
+  quantity  Int    @default(1)
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
@@ -201,8 +186,8 @@ model Order {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  user    User        @relation(fields: [userId], references: [id])
-  address Address     @relation(fields: [addressId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  address Address @relation(fields: [addressId], references: [id])
   items   OrderItem[]
 
   @@map("orders")
@@ -255,55 +240,54 @@ model Address {
 }
 
 model BlogPost {
-  id          String   @id @default(cuid())
-  title       String
-  slug        String   @unique
-  content     String   @db.Text
-  excerpt     String?
-  image       String?
-  category    String   @default("Agriculture")
-  readTime    Int      @default(3)
-  published   Boolean  @default(true)
-  views       Int      @default(0)
-  authorId    String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  title     String
+  slug      String   @unique
+  content   String   @db.Text
+  excerpt   String?
+  image     String?
+  category  String   @default("Agriculture")
+  readTime  Int      @default(3)
+  published Boolean  @default(true)
+  views     Int      @default(0)
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  author     User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([authorId])
   @@map("blog_posts")
 }
 
-// ✅ ADDED: Settings Model
 model Settings {
-  id                  String   @id @default(cuid())
-  siteName            String   @default("Genesis Agri Business")
-  siteDescription     String?  @default("Agriculture marketplace connecting farmers and buyers")
-  adminEmail          String   @default("admin@genesisagri.com")
-  adminPhone          String?  @default("+1 (555) 123-4567")
-  address             String?  @default("123 Farm Road, Nairobi, Kenya")
-  timezone            String   @default("Africa/Nairobi")
-  dateFormat          String   @default("MM/DD/YYYY")
-  storeName           String   @default("Genesis Agri Business")
-  storeEmail          String   @default("info@genesisagri.com")
-  storePhone          String?  @default("+1 (555) 123-4567")
-  storeAddress        String?  @default("123 Farm Road, Nairobi, Kenya")
-  currency            String   @default("KES")
-  taxRate             Float    @default(16)
-  logo                String?  
-  favicon             String?  
-  twoFactorAuth       Boolean  @default(false)
-  sessionTimeout      Int      @default(60)
-  emailNotifications  Boolean  @default(true)
-  orderNotifications  Boolean  @default(true)
-  productNotifications Boolean @default(true)
-  userNotifications   Boolean  @default(true)
-  marketingEmails     Boolean  @default(false)
-  themeColor          String   @default("#22c55e")
-  darkMode            Boolean  @default(false)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  siteName             String   @default("Genesis Agri Business")
+  siteDescription      String?  @default("Agriculture marketplace connecting farmers and buyers")
+  adminEmail           String   @default("admin@genesisagri.com")
+  adminPhone           String?  @default("+1 (555) 123-4567")
+  address              String?  @default("123 Farm Road, Nairobi, Kenya")
+  timezone             String   @default("Africa/Nairobi")
+  dateFormat           String   @default("MM/DD/YYYY")
+  storeName            String   @default("Genesis Agri Business")
+  storeEmail           String   @default("info@genesisagri.com")
+  storePhone           String?  @default("+1 (555) 123-4567")
+  storeAddress         String?  @default("123 Farm Road, Nairobi, Kenya")
+  currency             String   @default("KES")
+  taxRate              Float    @default(16)
+  logo                 String?  
+  favicon              String?  
+  twoFactorAuth        Boolean  @default(false)
+  sessionTimeout       Int      @default(60)
+  emailNotifications   Boolean  @default(true)
+  orderNotifications   Boolean  @default(true)
+  productNotifications Boolean  @default(true)
+  userNotifications    Boolean  @default(true)
+  marketingEmails      Boolean  @default(false)
+  themeColor           String   @default("#22c55e")
+  darkMode             Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@map("settings")
 }

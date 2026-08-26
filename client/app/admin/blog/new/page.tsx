@@ -1,15 +1,14 @@
 // app/admin/blog/new/page.tsx
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import axios, { AxiosError } from 'axios';
 import {
   ArrowLeft,
-  Save,
-  X,
+ 
   Image as ImageIcon,
   Upload,
   CheckCircle,
@@ -18,21 +17,16 @@ import {
   XCircle,
   Trash2,
   Eye,
-  Calendar,
-  Clock,
-  Tag,
-  User,
+  
   FileText,
   Plus,
   Minus,
   Loader2,
   Settings,
-  Video,
-  Play,
+  
   Film,
   Link2,
-  
-  Globe
+ 
 } from 'lucide-react';
 
 // Create axios instance
@@ -46,14 +40,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
+// Add token to requests - FIXED: Use 'authToken'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Notification Component
 interface NotificationProps {
@@ -143,6 +156,10 @@ const NewBlogPostPage: React.FC = () => {
   const [showVideoUrlInput, setShowVideoUrlInput] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
 
+  // ✅ FIXED: Authentication state
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   const [formData, setFormData] = useState({
     title: '',
     content: '',
@@ -168,6 +185,47 @@ const NewBlogPostPage: React.FC = () => {
     'Farm Equipment',
     'Irrigation'
   ];
+
+  // ✅ FIXED: Authentication check on mount
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
+      
+      console.log('🔍 New Blog Post - Checking auth...');
+      console.log('Token exists:', !!token);
+      
+      if (!token) {
+        console.log('❌ No token found, redirecting to login...');
+        router.replace('/auth/signin');
+        setAuthLoading(false);
+        return;
+      }
+      
+      if (userData) {
+        try {
+          const parsedUser = JSON.parse(userData);
+          console.log('👤 User role:', parsedUser.role);
+          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
+            console.log('❌ Not an admin, redirecting to home...');
+            router.replace('/');
+            setAuthLoading(false);
+            return;
+          }
+          setIsAuthenticated(true);
+        } catch (error) {
+          console.error('Error parsing user data:', error);
+          router.replace('/auth/signin');
+        }
+      } else {
+        console.log('❌ No user data found');
+        router.replace('/auth/signin');
+      }
+      setAuthLoading(false);
+    };
+    
+    checkAuth();
+  }, [router]);
 
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
@@ -210,7 +268,7 @@ const NewBlogPostPage: React.FC = () => {
     setUploadingMedia(true);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
         setUploadingMedia(false);
@@ -218,11 +276,12 @@ const NewBlogPostPage: React.FC = () => {
       }
 
       const formDataUpload = new FormData();
-      formDataUpload.append('media', file);
+      formDataUpload.append('image', file); // Use 'image' field for both images and videos
 
       console.log('📤 Uploading media...', file.name, file.size);
       
-      const response = await api.post('/api/blog/upload', formDataUpload, {
+      // Try using the /api/upload endpoint instead of /api/blog/upload
+      const response = await api.post('/api/upload', formDataUpload, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
@@ -231,17 +290,26 @@ const NewBlogPostPage: React.FC = () => {
 
       console.log('📊 Upload response:', response.data);
 
-      if (response.data.success && response.data.mediaUrl) {
+      let mediaUrl = null;
+      if (response.data && response.data.url) {
+        mediaUrl = response.data.url;
+      } else if (response.data && response.data.imageUrl) {
+        mediaUrl = response.data.imageUrl;
+      } else if (response.data && response.data.image) {
+        mediaUrl = response.data.image;
+      }
+
+      if (mediaUrl) {
         const fieldName = isVideo ? 'video' : 'image';
         setFormData(prev => ({
           ...prev,
-          [fieldName]: response.data.mediaUrl
+          [fieldName]: mediaUrl
         }));
         setMediaType(isVideo ? 'video' : 'image');
         setShowVideoUrlInput(false);
         showNotification('success', `${isVideo ? 'Video' : 'Image'} uploaded successfully`);
       } else {
-        showNotification('error', response.data.error || 'Failed to upload media');
+        showNotification('error', 'Failed to get media URL from server');
       }
     } catch (err) {
       console.error('Error uploading media:', err);
@@ -303,7 +371,7 @@ const NewBlogPostPage: React.FC = () => {
     setLoading(true);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -358,7 +426,8 @@ const NewBlogPostPage: React.FC = () => {
         const axiosError = err as AxiosError<{ error: string; message?: string }>;
         if (axiosError.response?.status === 401) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
           const errorMsg = axiosError.response?.data?.error || 
@@ -510,6 +579,7 @@ const NewBlogPostPage: React.FC = () => {
                   parent.appendChild(fallback);
                 }
               }}
+              unoptimized={displayUrl.startsWith('http')}
             />
             <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full flex items-center space-x-1">
               <ImageIcon className="w-3 h-3" />
@@ -527,6 +597,23 @@ const NewBlogPostPage: React.FC = () => {
       </div>
     );
   };
+
+  // Show auth loading state
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="space-y-6">

@@ -32,13 +32,13 @@ const requireAuth = (req, res, next) => {
       });
     }
     
-    // Set user in request - ensure id is always available
+    // Set user in request
     req.user = {
       id: userId,
       userId: userId,
       email: decoded.email,
       role: decoded.role || 'USER',
-      name: decoded.name,
+      name: decoded.name || decoded.userName || '',
       ...decoded
     };
     
@@ -49,13 +49,14 @@ const requireAuth = (req, res, next) => {
       userId: userId,
       email: decoded.email,
       role: decoded.role || 'USER',
-      name: decoded.name
+      name: decoded.name || decoded.userName || ''
     };
 
-    console.log('✅ User authenticated:', req.user.email, 'ID:', req.user.id);
+    console.log('✅ User authenticated:', req.user.email, 'Role:', req.user.role);
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
+      console.error('❌ JWT Error:', error.message);
       return res.status(401).json({ 
         success: false,
         error: 'Invalid token',
@@ -63,6 +64,7 @@ const requireAuth = (req, res, next) => {
       });
     }
     if (error.name === 'TokenExpiredError') {
+      console.error('❌ Token Expired');
       return res.status(401).json({ 
         success: false,
         error: 'Token expired',
@@ -70,7 +72,7 @@ const requireAuth = (req, res, next) => {
       });
     }
     
-    console.error('Auth middleware error:', error);
+    console.error('❌ Auth middleware error:', error);
     return res.status(500).json({ 
       success: false,
       error: 'Authentication error',
@@ -81,14 +83,20 @@ const requireAuth = (req, res, next) => {
 
 // Admin authorization middleware
 const requireAdmin = (req, res, next) => {
+  // First authenticate
   requireAuth(req, res, () => {
-    if (req.user.role !== 'ADMIN') {
+    const userRole = req.user?.role?.toUpperCase();
+    console.log('🛡️ Admin check - User role:', userRole);
+    
+    if (userRole !== 'ADMIN') {
+      console.log('❌ Admin access denied for role:', userRole);
       return res.status(403).json({ 
         success: false,
         error: 'Admin access required',
         code: 'ADMIN_REQUIRED'
       });
     }
+    console.log('✅ Admin access granted');
     next();
   });
 };
@@ -96,7 +104,8 @@ const requireAdmin = (req, res, next) => {
 // Seller authorization middleware
 const requireSeller = (req, res, next) => {
   requireAuth(req, res, () => {
-    if (req.user.role !== 'SELLER' && req.user.role !== 'ADMIN') {
+    const userRole = req.user?.role?.toUpperCase();
+    if (userRole !== 'SELLER' && userRole !== 'ADMIN') {
       return res.status(403).json({ 
         success: false,
         error: 'Seller access required',
@@ -110,7 +119,8 @@ const requireSeller = (req, res, next) => {
 // Seller or Admin authorization middleware
 const requireSellerOrAdmin = (req, res, next) => {
   requireAuth(req, res, () => {
-    if (req.user.role !== 'SELLER' && req.user.role !== 'ADMIN') {
+    const userRole = req.user?.role?.toUpperCase();
+    if (userRole !== 'SELLER' && userRole !== 'ADMIN') {
       return res.status(403).json({ 
         success: false,
         error: 'Seller or Admin access required',
@@ -125,7 +135,8 @@ const requireSellerOrAdmin = (req, res, next) => {
 const authenticateToken = requireAuth;
 
 const isAdmin = (req, res, next) => {
-  if (!req.user || req.user.role !== 'ADMIN') {
+  const userRole = req.user?.role?.toUpperCase();
+  if (!req.user || userRole !== 'ADMIN') {
     return res.status(403).json({ 
       success: false,
       error: 'Admin access required',

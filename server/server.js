@@ -4,6 +4,10 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const { PrismaClient } = require('@prisma/client');
+
+// Initialize Prisma Client
+const prisma = new PrismaClient();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -19,11 +23,9 @@ const checkoutRoutes = require('./routes/checkout.routes');
 const ordersRoutes = require('./routes/orders.routes');
 const productsRoutes = require('./routes/products.routes');
 const uploadRoutes = require('./routes/upload.routes');
-const webhookRoutes = require('./routes/webhooks.routes');
 const usersRoutes = require('./routes/users.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const profileRoutes = require('./routes/profile.routes');
-const sellerRoutes = require('./routes/seller.routes'); // ✅ ADD SELLER ROUTES
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -49,24 +51,50 @@ if (!fs.existsSync(settingsDir)) {
 // Middleware
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
 
-// Raw body parsing for Stripe webhooks
-app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
-
-// JSON parsing for other routes
+// JSON parsing for all routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============== STATIC FILES ==============
-// Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-console.log('✅ Serving static files from:', path.join(__dirname, 'uploads'));
-
-// Also serve from root uploads path for compatibility
 app.use('/uploads/products', express.static(path.join(__dirname, 'uploads/products')));
 app.use('/uploads/settings', express.static(path.join(__dirname, 'uploads/settings')));
+
+console.log('✅ Serving static files from:', path.join(__dirname, 'uploads'));
+
+// ============== DATABASE CONNECTION ==============
+async function connectDatabase() {
+  try {
+    await prisma.$connect();
+    console.log('✅ Database connected successfully');
+    
+    // Test the connection
+    const userCount = await prisma.user.count();
+    console.log(`📊 Database contains ${userCount} users`);
+    
+    // Check if admin exists
+    const adminUser = await prisma.user.findFirst({
+      where: { role: 'ADMIN' }
+    });
+    
+    if (adminUser) {
+      console.log('👤 Admin user exists:', adminUser.email);
+    } else {
+      console.log('⚠️ No admin user found. Please create one.');
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection failed:', error.message);
+    console.error('Please check your DATABASE_URL in .env file');
+    return false;
+  }
+}
 
 // ============== ROUTES ==============
 app.use('/api/auth', authRoutes);
@@ -79,20 +107,39 @@ app.use('/api/checkout', checkoutRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/upload', uploadRoutes);
-app.use('/api/webhooks/stripe', webhookRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/admin/settings', settingsRoutes);
 app.use('/api/profile', profileRoutes);
-app.use('/api/seller', sellerRoutes); // ✅ ADD SELLER ROUTES HERE
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-    uptime: process.uptime()
-  });
+// Health check with database status
+app.get('/api/health', async (req, res) => {
+  try {
+    // Check database connection
+    await prisma.$queryRaw`SELECT 1`;
+    const userCount = await prisma.user.count();
+    
+    res.json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      uptime: process.uptime(),
+      database: {
+        connected: true,
+        userCount: userCount
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      uptime: process.uptime(),
+      database: {
+        connected: false,
+        error: error.message
+      }
+    });
+  }
 });
 
 // Root route
@@ -101,6 +148,7 @@ app.get('/', (req, res) => {
     name: 'Genesis Agri API Server',
     version: '1.0.0',
     status: 'Running',
+    database: 'Connected',
     endpoints: {
       auth: '/api/auth',
       admin: '/api/admin',
@@ -114,9 +162,7 @@ app.get('/', (req, res) => {
       upload: '/api/upload',
       users: '/api/users',
       profile: '/api/profile',
-      seller: '/api/seller', // ✅ ADD SELLER ENDPOINT
       settings: '/api/admin/settings',
-      webhooks: '/api/webhooks/stripe',
       health: '/api/health'
     }
   });
@@ -125,7 +171,7 @@ app.get('/', (req, res) => {
 // 404 handler
 app.use((req, res) => {
   console.log('❌ Route not found:', req.method, req.url);
-  res.status(404).json({ 
+  res.status(404).json({
     success: false,
     error: 'Route not found',
     path: req.url,
@@ -133,9 +179,9 @@ app.use((req, res) => {
   });
 });
 
-// Error handler
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error('Global error handler:', err);
+  console.error('❌ Global error handler:', err);
   res.status(500).json({
     success: false,
     error: 'Internal server error',
@@ -143,42 +189,55 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log('Genesis Agri Server running on http://localhost:' + PORT);
-  console.log('Uploads directory: ' + path.join(__dirname, 'uploads'));
-  console.log('Products directory: ' + path.join(__dirname, 'uploads/products'));
-  console.log('Settings directory: ' + path.join(__dirname, 'uploads/settings'));
-  console.log('Environment: ' + process.env.NODE_ENV);
-  console.log('Health check: http://localhost:' + PORT + '/api/health');
-  console.log('Dashboard endpoint: http://localhost:' + PORT + '/api/admin/dashboard');
-  console.log('Users endpoint: http://localhost:' + PORT + '/api/users');
-  console.log('Profile endpoint: http://localhost:' + PORT + '/api/profile');
-  console.log('Seller endpoint: http://localhost:' + PORT + '/api/seller');
-  console.log(' Settings endpoint: http://localhost:' + PORT + '/api/admin/settings');
-  console.log('Test image URL: http://localhost:' + PORT + '/uploads/products/');
-  console.log('');
-  console.log(' All routes loaded successfully!');
-  console.log(' Available seller routes:');
-  console.log('   POST   /api/seller/register - Register as seller');
-  console.log('   GET    /api/seller/profile - Get seller profile');
-  console.log('   PUT    /api/seller/profile - Update seller profile');
-  console.log('   POST   /api/seller/products - Create product');
-  console.log('   GET    /api/seller/products - Get seller products');
-  console.log('   PUT    /api/seller/products/:id - Update product');
-  console.log('   DELETE /api/seller/products/:id - Delete product');
-  console.log('   GET    /api/seller/stats - Get seller statistics');
-});
+// ============== START SERVER ==============
+async function startServer() {
+  // Connect to database first
+  const dbConnected = await connectDatabase();
+  
+  if (!dbConnected) {
+    console.log('⚠️ Server starting without database connection. Some features may not work.');
+  }
+  
+  // Start listening
+  app.listen(PORT, () => {
+    console.log('\n🌱 Genesis Agri Server running on http://localhost:' + PORT);
+    console.log('📁 Uploads directory: ' + path.join(__dirname, 'uploads'));
+    console.log('📁 Products directory: ' + path.join(__dirname, 'uploads/products'));
+    console.log('📁 Settings directory: ' + path.join(__dirname, 'uploads/settings'));
+    console.log('🌍 Environment: ' + process.env.NODE_ENV);
+    console.log('🗄️  Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
+    console.log('');
+    console.log('Available Endpoints:');
+    console.log('   /api/auth         - Authentication routes');
+    console.log('   /api/admin        - Admin routes');
+    console.log('   /api/admin/dashboard - Dashboard routes');
+    console.log('   /api/blog         - Blog routes');
+    console.log('   /api/cart         - Cart routes');
+    console.log('   /api/categories   - Category routes');
+    console.log('   /api/checkout     - Checkout routes');
+    console.log('   /api/orders       - Order routes');
+    console.log('   /api/products     - Product routes');
+    console.log('   /api/upload       - Upload routes');
+    console.log('   /api/users        - User routes');
+    console.log('   /api/profile      - Profile routes');
+    console.log('   /api/admin/settings - Settings routes');
+    console.log('   /api/health       - Health check');
+    console.log('');
+  });
+}
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully...');
+// Handle graceful shutdown
+async function gracefulShutdown() {
+  console.log('\n🛑 Shutting down gracefully...');
+  await prisma.$disconnect();
+  console.log('✅ Database disconnected');
   process.exit(0);
-});
+}
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  process.exit(0);
-});
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+// Start the server
+startServer();
 
 module.exports = app;
