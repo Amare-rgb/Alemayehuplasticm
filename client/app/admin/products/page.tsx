@@ -38,12 +38,31 @@ const api = axios.create({
 
 // Add token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 interface Category {
   id: string;
@@ -90,10 +109,8 @@ interface ApiResponse {
   page: number;
 }
 
-// Define a type for the API response union
 type ProductsApiResponse = ApiResponse | Product[] | { message?: string; error?: string };
 
-// Duration Time options for display
 const durationOptions = [
   { value: '30m', label: '30 Minutes' },
   { value: '1h', label: '1 Hour' },
@@ -109,7 +126,6 @@ const durationOptions = [
   { value: '30d', label: '30 Days' },
 ];
 
-// Notification Component
 interface NotificationProps {
   type: 'success' | 'error' | 'info' | 'warning';
   message: string;
@@ -173,6 +189,31 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
+// Image Component with fallback
+const ProductImage: React.FC<{ src: string | null; alt: string; className?: string }> = ({ src, alt, className = '' }) => {
+  const [error, setError] = useState(false);
+
+  if (!src || error) {
+    return (
+      <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
+        <ImageIcon className="w-5 h-5 text-gray-400" />
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={48}
+      height={48}
+      className={`object-cover ${className}`}
+      onError={() => setError(true)}
+      unoptimized={src.startsWith('http')}
+    />
+  );
+};
+
 const ProductsPage: React.FC = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -182,7 +223,7 @@ const ProductsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
   
-  // Filters
+  // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -191,39 +232,47 @@ const ProductsPage: React.FC = () => {
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize] = useState(10);
 
-  // Use refs to prevent infinite loops and track mount state
+  // Refs for tracking
   const isMounted = useRef(true);
   const isInitialMount = useRef(true);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const shouldResetPageRef = useRef(false);
 
-  // Show notification helper
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
   };
 
-  // Clear notification
   const clearNotification = () => {
     setNotification(null);
   };
 
-  // Helper function to safely extract products from response
   const extractProductsFromResponse = (data: unknown): { products: Product[]; total: number; pages: number } => {
-    if (data && typeof data === 'object' && 'products' in data && Array.isArray((data as ApiResponse).products)) {
-      const response = data as ApiResponse;
-      return {
-        products: response.products,
-        total: response.total || response.products.length,
-        pages: response.pages || 1
-      };
-    }
-    
-    if (Array.isArray(data)) {
-      return {
-        products: data as Product[],
-        total: data.length,
-        pages: 1
-      };
+    if (data && typeof data === 'object') {
+      if ('products' in data && Array.isArray((data as ApiResponse).products)) {
+        const response = data as ApiResponse;
+        return {
+          products: response.products,
+          total: response.total || response.products.length,
+          pages: response.pages || 1
+        };
+      }
+      if (Array.isArray(data)) {
+        return {
+          products: data as Product[],
+          total: data.length,
+          pages: 1
+        };
+      }
+      if ('data' in data && Array.isArray((data as { data: Product[] }).data)) {
+        const response = data as { data: Product[]; total?: number; pages?: number };
+        return {
+          products: response.data,
+          total: response.total || response.data.length,
+          pages: response.pages || 1
+        };
+      }
     }
     
     return {
@@ -233,11 +282,11 @@ const ProductsPage: React.FC = () => {
     };
   };
 
-  // Fetch categories for filter dropdown
   const fetchCategories = useCallback(async () => {
     try {
       const response = await api.get('/api/categories');
       let categoriesData = [];
+      
       if (response.data && Array.isArray(response.data)) {
         categoriesData = response.data;
       } else if (response.data && response.data.categories) {
@@ -246,7 +295,6 @@ const ProductsPage: React.FC = () => {
         categoriesData = response.data.data;
       }
       
-      // Filter to only parent categories (no parentId)
       const parentCategories = categoriesData.filter((cat: Category) => !cat.parentId);
       const categoryNames = parentCategories.map((cat: Category) => cat.name);
       setCategories(categoryNames);
@@ -258,23 +306,33 @@ const ProductsPage: React.FC = () => {
     }
   }, []);
 
-  // Fetch products from API
+  // Main fetch function - uses all current state values
   const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
         return;
       }
       
+      // Use the current page or reset to 1 if needed
+      const pageToUse = shouldResetPageRef.current ? 1 : currentPage;
+      
+      // Reset the flag after using it
+      if (shouldResetPageRef.current && pageToUse === 1) {
+        shouldResetPageRef.current = false;
+        if (currentPage !== 1) {
+          setCurrentPage(1);
+        }
+      }
+      
       const params = new URLSearchParams();
-      params.append('page', currentPage.toString());
+      params.append('page', pageToUse.toString());
       params.append('limit', pageSize.toString());
-      params.append('all', 'true');
       
       if (searchQuery) params.append('search', searchQuery);
       if (selectedCategory) params.append('category', selectedCategory);
@@ -289,20 +347,9 @@ const ProductsPage: React.FC = () => {
       const { products: productsData, total: totalCount, pages: pagesCount } = 
         extractProductsFromResponse(response.data);
       
-      console.log('📊 Products loaded:', productsData.length);
-      
       setProducts(productsData);
       setTotal(totalCount);
-      setPages(pagesCount);
-      
-      // Fetch categories for filter
-      await fetchCategories();
-      
-      if (productsData.length > 0) {
-        showNotification('success', `Loaded ${productsData.length} products successfully`);
-      } else {
-        showNotification('info', 'No products found');
-      }
+      setPages(pagesCount || 1);
       
     } catch (err: unknown) {
       console.error('❌ Fetch error:', err);
@@ -314,7 +361,8 @@ const ProductsPage: React.FC = () => {
           showNotification('error', 'Products API endpoint not found. Please check your backend configuration.');
         } else if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
           showNotification('error', axiosError.response?.data?.error || `Failed to fetch products (Status: ${axiosError.response?.status})`);
@@ -327,41 +375,74 @@ const ProductsPage: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [currentPage, pageSize, searchQuery, selectedCategory, selectedStatus, router, fetchCategories]);
+  }, [currentPage, pageSize, searchQuery, selectedCategory, selectedStatus, router]);
 
+  // Initial load - only runs once
   useEffect(() => {
     isMounted.current = true;
     
     if (isInitialMount.current) {
       isInitialMount.current = false;
-      fetchProducts();
+      // Fetch categories first, then products
+      fetchCategories().then(() => {
+        fetchProducts();
+      });
     }
     
     return () => {
       isMounted.current = false;
     };
-  }, [fetchProducts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Handle search with debounce - NO setState here
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (currentPage !== 1) {
-        setCurrentPage(1);
-      }
+    if (isInitialMount.current || !isMounted.current) return;
+
+    // Clear existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Debounce search
+    searchTimeoutRef.current = setTimeout(() => {
+      // Mark that page should reset
+      shouldResetPageRef.current = true;
+      // Fetch with page reset logic
+      fetchProducts();
     }, 500);
-    return () => clearTimeout(timer);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
+  // Handle filter changes - NO setState here
   useEffect(() => {
-    if (!isInitialMount.current && isMounted.current) {
-      fetchProducts();
-    }
-  }, [currentPage, selectedCategory, selectedStatus]);
+    if (isInitialMount.current || !isMounted.current) return;
+    
+    // Mark that page should reset
+    shouldResetPageRef.current = true;
+    // Fetch with page reset logic
+    fetchProducts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory, selectedStatus]);
+
+  // Handle page changes - NO setState here, just fetch
+  useEffect(() => {
+    if (isInitialMount.current || !isMounted.current) return;
+    fetchProducts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -385,7 +466,8 @@ const ProductsPage: React.FC = () => {
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 401) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else if (err.response?.status === 403) {
           showNotification('error', 'You don\'t have permission to delete this product.');
@@ -429,7 +511,6 @@ const ProductsPage: React.FC = () => {
 
   const statuses = ['All', 'APPROVED', 'PENDING', 'REJECTED', 'DRAFT'];
 
-  // Helper function to get image URL
   const getImageUrl = (imagePath: string) => {
     if (!imagePath) return null;
     
@@ -445,7 +526,6 @@ const ProductsPage: React.FC = () => {
     return `${API_URL}/${cleanPath}`;
   };
 
-  // Helper function to get first valid image
   const getFirstImage = (images: string[]) => {
     if (!images || images.length === 0) return null;
     
@@ -458,10 +538,36 @@ const ProductsPage: React.FC = () => {
     return null;
   };
 
-  // Check if image exists and is valid
-  const isValidImageUrl = (url: string | null) => {
-    if (!url) return false;
-    return url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/');
+  // Handle page change - NO setState in effect
+  const handlePageChange = (page: number) => {
+    if (page !== currentPage) {
+      setCurrentPage(page);
+    }
+  };
+
+  // Handle search change - NO setState in effect
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  };
+
+  // Handle filter change - NO setState in effect
+  const handleFilterChange = (type: 'category' | 'status', value: string) => {
+    if (type === 'category') {
+      setSelectedCategory(value);
+    } else {
+      setSelectedStatus(value);
+    }
+  };
+
+  // Handle clear filters - NO setState in effect
+  const handleClearFilters = () => {
+    setSelectedCategory('');
+    setSelectedStatus('');
+    setSearchQuery('');
+    setCurrentPage(1);
+    // Reset the flag and fetch
+    shouldResetPageRef.current = false;
+    setTimeout(() => fetchProducts(), 100);
   };
 
   if (loading) {
@@ -477,7 +583,6 @@ const ProductsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Notification */}
       {notification && (
         <Notification
           type={notification.type}
@@ -486,7 +591,6 @@ const ProductsPage: React.FC = () => {
         />
       )}
 
-      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Products</h1>
@@ -502,7 +606,6 @@ const ProductsPage: React.FC = () => {
         </Link>
       </div>
 
-      {/* Search and Filters */}
       <div className="flex flex-col md:flex-row md:items-center gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -510,7 +613,7 @@ const ProductsPage: React.FC = () => {
             type="text"
             placeholder="Search products..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={handleSearchChange}
             className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
           />
         </div>
@@ -524,15 +627,9 @@ const ProductsPage: React.FC = () => {
             <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
           <button
-            onClick={() => window.print()}
-            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export</span>
-          </button>
-          <button
             onClick={() => {
               showNotification('info', 'Refreshing products...');
+              shouldResetPageRef.current = false;
               fetchProducts();
             }}
             className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
@@ -543,17 +640,13 @@ const ProductsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Dropdown */}
       {showFilters && (
         <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="text-sm font-medium text-gray-700">Category</label>
             <select
               value={selectedCategory}
-              onChange={(e) => {
-                setSelectedCategory(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => handleFilterChange('category', e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
               <option value="">All Categories</option>
@@ -570,10 +663,7 @@ const ProductsPage: React.FC = () => {
             <label className="text-sm font-medium text-gray-700">Status</label>
             <select
               value={selectedStatus}
-              onChange={(e) => {
-                setSelectedStatus(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => handleFilterChange('status', e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
               <option value="">All Statuses</option>
@@ -584,12 +674,7 @@ const ProductsPage: React.FC = () => {
           </div>
           <div className="flex items-end">
             <button
-              onClick={() => {
-                setSelectedCategory('');
-                setSelectedStatus('');
-                setSearchQuery('');
-                setCurrentPage(1);
-              }}
+              onClick={handleClearFilters}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               Clear Filters
@@ -598,7 +683,6 @@ const ProductsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Products Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           {products.length > 0 ? (
@@ -617,43 +701,19 @@ const ProductsPage: React.FC = () => {
               <tbody className="divide-y divide-gray-200">
                 {products.map((product) => {
                   const imageUrl = getFirstImage(product.images);
-                  const hasValidImage = imageUrl && isValidImageUrl(imageUrl);
-                  const hasUnitPrice = product.pricePerUnit && product.unitOfMeasurement;
-                  
-                  // Get duration label
-                  const durationLabel = getDurationLabel(product.durationTime || '');
                   const isDurationSet = product.durationTime && product.durationTime !== '' && product.durationTime !== 'undefined' && product.durationTime !== 'null';
+                  const durationLabel = getDurationLabel(product.durationTime || '');
                   
                   return (
                     <tr key={product.id} className="hover:bg-gray-50 transition-colors">
-                      {/* Product Column */}
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-3 whitespace-nowrap">
                           <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0 border border-gray-200">
-                            {hasValidImage ? (
-                              <Image
-                                src={imageUrl}
-                                alt={product.name}
-                                width={48}
-                                height={48}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.style.display = 'none';
-                                  const parent = target.parentElement;
-                                  if (parent) {
-                                    const fallback = document.createElement('div');
-                                    fallback.className = 'w-full h-full flex items-center justify-center bg-gray-100';
-                                    fallback.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-400"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
-                                    parent.appendChild(fallback);
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                                <ImageIcon className="w-5 h-5 text-gray-400" />
-                              </div>
-                            )}
+                            <ProductImage
+                              src={imageUrl}
+                              alt={product.name}
+                              className="w-full h-full"
+                            />
                           </div>
                           <div className="flex flex-col">
                             <p className="text-sm font-semibold text-gray-900 truncate max-w-[150px]">{product.name}</p>
@@ -666,7 +726,6 @@ const ProductsPage: React.FC = () => {
                           </div>
                         </div>
                       </td>
-                      {/* Category Column */}
                       <td className="px-4 py-3">
                         <div className="flex items-center whitespace-nowrap">
                           <span className="text-sm text-gray-900">
@@ -679,42 +738,18 @@ const ProductsPage: React.FC = () => {
                           )}
                         </div>
                       </td>
-                      {/* Price Column - All on one line with "Discount" text */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center whitespace-nowrap space-x-1">
-                          {hasUnitPrice ? (
-                            <>
-                              <span className="text-sm font-semibold text-gray-900">
-                                {formatCurrency(product.pricePerUnit || product.price)}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                /{product.unitOfMeasurement}
-                              </span>
-                              {product.price && product.price !== product.pricePerUnit && (
-                                <span className="text-xs text-gray-500">
-                                  (Total: {formatCurrency(product.price)})
-                                </span>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-sm font-semibold text-gray-900">
-                              {formatCurrency(product.price)}
+                        <div className="flex flex-wrap items-center whitespace-nowrap space-x-1">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {formatCurrency(product.price)}
+                          </span>
+                          {product.discountPrice && product.discountPrice > 0 && product.discountPrice < product.price && (
+                            <span className="text-xs text-green-600 font-medium">
+                              (Disc: {formatCurrency(product.discountPrice)})
                             </span>
-                          )}
-                          {product.discountPrice && product.discountPrice > 0 && (
-                            product.discountPrice < (product.pricePerUnit || product.price) ? (
-                              <span className="text-xs text-green-600 font-medium">
-                                Discount: {formatCurrency(product.discountPrice)}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-red-500 line-through">
-                                {formatCurrency(product.discountPrice)}
-                              </span>
-                            )
                           )}
                         </div>
                       </td>
-                      {/* Stock Column - Single line */}
                       <td className="px-4 py-3">
                         <div className="flex items-center whitespace-nowrap space-x-1">
                           <span className={`text-sm font-medium ${product.stock === 0 ? 'text-red-600' : product.stock < 10 ? 'text-yellow-600' : 'text-gray-900'}`}>
@@ -728,7 +763,6 @@ const ProductsPage: React.FC = () => {
                           )}
                         </div>
                       </td>
-                      {/* Duration Column - Single line */}
                       <td className="px-4 py-3">
                         <div className="flex items-center whitespace-nowrap">
                           {isDurationSet ? (
@@ -741,13 +775,11 @@ const ProductsPage: React.FC = () => {
                           )}
                         </div>
                       </td>
-                      {/* Created Column */}
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-500 whitespace-nowrap">
                           {formatDateWithTime(product.createdAt)}
                         </div>
                       </td>
-                      {/* Actions Column */}
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end space-x-1">
                           <Link
@@ -787,7 +819,6 @@ const ProductsPage: React.FC = () => {
           )}
         </div>
         
-        {/* Pagination */}
         {total > pageSize && (
           <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
             <p className="text-sm text-gray-500">
@@ -795,14 +826,14 @@ const ProductsPage: React.FC = () => {
             </p>
             <div className="flex space-x-2">
               <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
                 disabled={currentPage === 1}
                 className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
               <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, pages))}
+                onClick={() => handlePageChange(Math.min(currentPage + 1, pages))}
                 disabled={currentPage >= pages}
                 className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >

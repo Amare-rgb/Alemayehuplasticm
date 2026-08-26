@@ -2,7 +2,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
 // Create axios instance
@@ -16,7 +16,8 @@ const api = axios.create({
 // Add token to requests with proper typing
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('token');
+    // Check both possible token storage keys
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -60,7 +61,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
   const router = useRouter();
+  const pathname = usePathname();
   const initialized = useRef(false);
+  const authCheckTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize auth - runs only once
   useEffect(() => {
@@ -70,24 +73,94 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
-        const token = localStorage.getItem('token');
+        // Check both possible token storage keys
+        const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+        
         if (!token) {
           setStatus('unauthenticated');
           setUser(null);
           return;
         }
 
+        // Check if user data exists in localStorage first (faster)
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            setStatus('authenticated');
+            
+            // Still verify with backend in background
+            api.get<User>('/api/auth/me')
+              .then(response => {
+                setUser(response.data);
+                localStorage.setItem('user', JSON.stringify(response.data));
+                if (response.data.role) {
+                  localStorage.setItem('userRole', response.data.role);
+                }
+              })
+              .catch(() => {
+                // If backend verification fails, don't logout immediately
+                // Just keep using stored user data
+                console.warn('Backend verification failed, using cached user data');
+              });
+            
+            return;
+          } catch (e) {
+            console.error('Error parsing stored user:', e);
+          }
+        }
+
+        // If no stored user, verify with backend
         const response = await api.get<User>('/api/auth/me');
         setUser(response.data);
         setStatus('authenticated');
+        
+        // Store user data for persistence
+        localStorage.setItem('user', JSON.stringify(response.data));
+        if (response.data.role) {
+          localStorage.setItem('userRole', response.data.role);
+        }
       } catch (error) {
-        localStorage.removeItem('token');
-        setUser(null);
-        setStatus('unauthenticated');
+        console.error('Auth initialization error:', error);
+        // Don't clear token immediately - might be a network issue
+        // Only clear if it's a 401 unauthorized
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('user');
+          localStorage.removeItem('userRole');
+          setUser(null);
+          setStatus('unauthenticated');
+        } else {
+          // Keep user data if available
+          const storedUser = localStorage.getItem('user');
+          if (storedUser) {
+            try {
+              setUser(JSON.parse(storedUser));
+              setStatus('authenticated');
+            } catch {
+              setStatus('unauthenticated');
+            }
+          } else {
+            setStatus('unauthenticated');
+          }
+        }
       }
     };
 
-    initAuth();
+    // Add a small delay to prevent race conditions
+    const timeoutId = setTimeout(() => {
+      initAuth();
+    }, 100);
+    
+    authCheckTimeout.current = timeoutId;
+
+    return () => {
+      if (authCheckTimeout.current) {
+        clearTimeout(authCheckTimeout.current);
+      }
+    };
   }, []); // Empty dependency array - runs once on mount
 
   const login = async (email: string, password: string): Promise<void> => {
@@ -96,11 +169,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email, 
         password 
       });
-      const { token, user } = response.data;
+      
+      const { token, user: userData } = response.data;
+      
+      // Store token with consistent key "token"
       localStorage.setItem('token', token);
-      setUser(user);
+      sessionStorage.setItem('token', token);
+      
+      // Store user data
+      localStorage.setItem('user', JSON.stringify(userData));
+      sessionStorage.setItem('user', JSON.stringify(userData));
+      
+      if (userData.role) {
+        localStorage.setItem('userRole', userData.role);
+      }
+      
+      setUser(userData);
       setStatus('authenticated');
-      router.push('/admin/dashboard');
+      
+      // Redirect based on role using window.location for hard redirect
+      const userRole = userData.role?.toUpperCase();
+      if (userRole === 'ADMIN') {
+        window.location.href = '/admin/dashboard';
+      } else if (userRole === 'SELLER' || userRole === 'FARMER') {
+        window.location.href = '/seller/dashboard';
+      } else {
+        window.location.href = '/dashboard';
+      }
     } catch (error: unknown) {
       const err = error as AxiosError<{ error: string }>;
       throw new Error(err.response?.data?.error || 'Login failed');
@@ -108,10 +203,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = (): void => {
+    // Clear ALL authentication data
     localStorage.removeItem('token');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('authToken');
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem('userRole');
+    
     setUser(null);
     setStatus('unauthenticated');
-    router.push('/auth/signin');
+    
+    // Use window.location for hard redirect
+    window.location.href = '/auth/signin';
   };
 
   const register = async (
@@ -127,11 +234,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password, 
         role 
       });
-      const { token, user } = response.data;
+      
+      const { token, user: userData } = response.data;
+      
+      // Store token with consistent key "token"
       localStorage.setItem('token', token);
-      setUser(user);
+      sessionStorage.setItem('token', token);
+      
+      // Store user data
+      localStorage.setItem('user', JSON.stringify(userData));
+      sessionStorage.setItem('user', JSON.stringify(userData));
+      
+      if (userData.role) {
+        localStorage.setItem('userRole', userData.role);
+      }
+      
+      setUser(userData);
       setStatus('authenticated');
-      router.push('/');
+      
+      // Redirect based on role
+      const userRole = userData.role?.toUpperCase();
+      if (userRole === 'ADMIN') {
+        window.location.href = '/admin/dashboard';
+      } else if (userRole === 'SELLER' || userRole === 'FARMER') {
+        window.location.href = '/seller/dashboard';
+      } else {
+        window.location.href = '/';
+      }
     } catch (error: unknown) {
       const err = error as AxiosError<{ error: string }>;
       throw new Error(err.response?.data?.error || 'Registration failed');

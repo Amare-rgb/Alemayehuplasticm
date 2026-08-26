@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 function LeafMark() {
   return (
@@ -56,14 +57,158 @@ function EyeIcon({ open }: { open: boolean }) {
 }
 
 export default function SignInPage() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    
+    // Clear previous errors
+    setError(null);
+    
+    // Get form data
+    const formData = new FormData(event.currentTarget);
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
 
-    // Connect your authentication logic here.
-    console.log("Sign in submitted");
+    // Basic validation
+    if (!email || !password) {
+      setError("Please fill in all fields.");
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Get the base URL for the API
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      
+      console.log("🔐 Login attempt to:", `${apiBaseUrl}/api/auth/login`);
+      console.log("📧 Email:", email);
+
+      // Call the auth login route
+      const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
+
+      console.log("📡 Response status:", response.status);
+      
+      // Get response text first to handle non-JSON responses
+      const responseText = await response.text();
+      console.log("📦 Raw response:", responseText);
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Failed to parse JSON:", parseError);
+        throw new Error("Server returned invalid response. Please check backend is running.");
+      }
+
+      if (!response.ok) {
+        // Handle different error status codes
+        if (response.status === 401) {
+          throw new Error(data.error || "Invalid credentials. Please check your email and password.");
+        } else if (response.status === 400) {
+          throw new Error(data.error || "Email and password are required.");
+        } else if (response.status === 403) {
+          throw new Error(data.error || "Access denied. Admin privileges required.");
+        } else if (response.status === 404) {
+          throw new Error(data.error || "User not found. Please check your email.");
+        } else {
+          throw new Error(data.error || data.message || `Login failed (Status: ${response.status}).`);
+        }
+      }
+
+      // Check if login was successful
+      if (!data.success) {
+        throw new Error(data.error || "Login failed. Please try again.");
+      }
+
+      // Success - handle authentication
+      console.log("✅ Login successful:", data);
+      console.log("🔍 Token received:", data.token ? "Yes" : "No");
+      console.log("🔍 User role:", data.user?.role);
+
+      // ============================================
+      // FIXED: Store authentication data
+      // ============================================
+      
+      // Store token
+      if (data.token) {
+        localStorage.setItem("authToken", data.token);
+        sessionStorage.setItem("authToken", data.token);
+        console.log("✅ Token stored");
+      }
+      
+      // Store user data
+      if (data.user) {
+        const userData = data.user;
+        localStorage.setItem("user", JSON.stringify(userData));
+        sessionStorage.setItem("user", JSON.stringify(userData));
+        
+        // Store role separately for quick access (ensure uppercase)
+        if (userData.role) {
+          const roleUpper = userData.role.toUpperCase();
+          localStorage.setItem("userRole", roleUpper);
+          sessionStorage.setItem("userRole", roleUpper);
+          console.log("👤 User role stored:", roleUpper);
+        }
+      }
+
+      // ============================================
+      // FIXED: Redirect logic with immediate execution
+      // ============================================
+      
+      // Get role from stored data
+      const userRole = data.user?.role?.toUpperCase() || 
+                       localStorage.getItem("userRole") || 
+                       "USER";
+      
+      console.log("🔄 Redirecting with role:", userRole);
+
+      // Determine redirect URL
+      let redirectUrl = '/dashboard';
+      if (userRole === 'ADMIN') {
+        redirectUrl = '/admin/dashboard';
+      } else if (userRole === 'SELLER' || userRole === 'FARMER') {
+        redirectUrl = '/seller/dashboard';
+      }
+      
+      console.log("🚀 Redirecting to:", redirectUrl);
+
+      // Use window.location.replace for immediate redirect (prevents back button issues)
+      // Small delay to ensure storage is complete
+      setTimeout(() => {
+        window.location.replace(redirectUrl);
+      }, 200);
+      
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "An error occurred. Please try again.";
+      setError(errorMessage);
+      console.error("Login error:", err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -169,6 +314,13 @@ export default function SignInPage() {
               </p>
             </div>
 
+            {/* Error Message */}
+            {error && (
+              <div className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 border border-red-200">
+                {error}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label
@@ -183,9 +335,10 @@ export default function SignInPage() {
                   name="email"
                   type="email"
                   autoComplete="email"
-                  placeholder="you@example.com"
+                  placeholder="admin@example.com"
                   required
-                  className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
+                  disabled={isLoading}
+                  className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20 disabled:opacity-60"
                 />
               </div>
 
@@ -214,7 +367,8 @@ export default function SignInPage() {
                     autoComplete="current-password"
                     placeholder="Enter your password"
                     required
-                    className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 pr-12 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
+                    disabled={isLoading}
+                    className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 pr-12 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20 disabled:opacity-60"
                   />
 
                   <button
@@ -223,7 +377,8 @@ export default function SignInPage() {
                     aria-label={
                       showPassword ? "Hide password" : "Show password"
                     }
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#69736b] transition-colors hover:text-[#123523]"
+                    disabled={isLoading}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#69736b] transition-colors hover:text-[#123523] disabled:opacity-50"
                   >
                     <EyeIcon open={showPassword} />
                   </button>
@@ -235,7 +390,8 @@ export default function SignInPage() {
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(event) => setRememberMe(event.target.checked)}
-                  className="h-4 w-4 rounded border-[#19472d]/20 accent-[#28633e]"
+                  disabled={isLoading}
+                  className="h-4 w-4 rounded border-[#19472d]/20 accent-[#28633e] disabled:opacity-50"
                 />
 
                 <span className="text-sm text-[#69736b]">
@@ -245,9 +401,20 @@ export default function SignInPage() {
 
               <button
                 type="submit"
-                className="flex h-14 w-full items-center justify-center rounded-2xl bg-[#123523] px-5 text-sm font-bold text-[#f6f3e9] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#19472d] hover:shadow-lg"
+                disabled={isLoading}
+                className="flex h-14 w-full items-center justify-center rounded-2xl bg-[#123523] px-5 text-sm font-bold text-[#f6f3e9] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#19472d] hover:shadow-lg disabled:opacity-70 disabled:hover:-translate-y-0 disabled:hover:shadow-none"
               >
-                Sign in to your account
+                {isLoading ? (
+                  <>
+                    <svg className="mr-2 h-5 w-5 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Signing in...
+                  </>
+                ) : (
+                  "Sign in to your account"
+                )}
               </button>
             </form>
 

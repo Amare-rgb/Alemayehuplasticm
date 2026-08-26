@@ -25,7 +25,9 @@ import {
   Weight,
   Eye,
   ShoppingBag,
-  Clock
+  Clock,
+  Calendar,
+  CalendarDays
 } from 'lucide-react';
 
 // Create axios instance
@@ -39,14 +41,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
+// Add token to requests - FIXED: Use 'authToken'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 interface ProductFormData {
   name: string;
@@ -63,7 +84,7 @@ interface ProductFormData {
   unitOfMeasurement: string;
   pricePerUnit: string;
   durationTime: string;
-  stock: string; // Added stock field
+  stock: string;
 }
 
 interface Category {
@@ -93,7 +114,7 @@ const unitOptions = [
   { value: 'hectare', label: 'Hectare' },
 ];
 
-// Duration Time options
+// Duration Time options - FIXED with proper labels
 const durationOptions = [
   { value: '30m', label: '30 Minutes' },
   { value: '1h', label: '1 Hour' },
@@ -104,9 +125,14 @@ const durationOptions = [
   { value: '24h', label: '24 Hours' },
   { value: '2d', label: '2 Days' },
   { value: '3d', label: '3 Days' },
+  { value: '5d', label: '5 Days' },
   { value: '7d', label: '7 Days' },
+  { value: '10d', label: '10 Days' },
   { value: '14d', label: '14 Days' },
+  { value: '21d', label: '21 Days' },
   { value: '30d', label: '30 Days' },
+  { value: '60d', label: '60 Days' },
+  { value: '90d', label: '90 Days' },
 ];
 
 // Notification Component
@@ -247,7 +273,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         setError('Authentication required');
         setLoading(false);
@@ -283,16 +309,12 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         payload.parentId = parentCategoryId;
       }
 
-      console.log(`📤 Creating ${isSubCategory ? 'subcategory' : 'category'} with payload:`, payload);
-
       const response = await api.post('/api/categories', payload, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
 
-      console.log(`✅ ${isSubCategory ? 'Subcategory' : 'Category'} created:`, response.data);
-      
       if (response.data) {
         const newCategory = response.data.category || response.data;
         onCategoryAdded(newCategory);
@@ -302,12 +324,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         onClose();
       }
     } catch (err) {
-      console.error(`❌ Error creating ${isSubCategory ? 'subcategory' : 'category'}:`, err);
+      console.error(`❌ Error creating category:`, err);
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{ error: string; message?: string }>;
         const errorMsg = axiosError.response?.data?.error || 
                          axiosError.response?.data?.message || 
-                         (axiosError.response?.data as { message?: string })?.message ||
                          `Failed to create ${isSubCategory ? 'subcategory' : 'category'}`;
         setError(errorMsg);
       } else {
@@ -419,7 +440,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
   );
 };
 
-// SKU Generator function (pure function)
+// SKU Generator function
 const generateSKU = () => {
   const prefix = 'PRD';
   const timestamp = Date.now().toString().slice(-6);
@@ -427,6 +448,9 @@ const generateSKU = () => {
   return `${prefix}-${timestamp}-${random}`;
 };
 
+// ============================================
+// FIXED: Main Component with Authentication Check
+// ============================================
 const NewProductPage: React.FC = () => {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -438,6 +462,11 @@ const NewProductPage: React.FC = () => {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
   const [sku, setSku] = useState<string>('');
+  
+  // ✅ FIXED: Authentication check
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
     description: '',
@@ -453,18 +482,56 @@ const NewProductPage: React.FC = () => {
     unitOfMeasurement: 'kg',
     pricePerUnit: '',
     durationTime: '1h',
-    stock: '10' // Default stock value
+    stock: '10'
   });
 
   const [newTag, setNewTag] = useState('');
 
-  // Generate SKU using useMemo (runs once on mount, no setState in effect)
-  const initialSKU = useMemo(() => {
-    return generateSKU();
-  }, []);
+  // ✅ FIXED: Authentication check on mount
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
+      
+      console.log('🔍 New Product Page - Checking auth...');
+      console.log('Token exists:', !!token);
+      
+      if (!token) {
+        console.log('❌ No token found, redirecting to login...');
+        router.replace('/auth/signin');
+        setAuthLoading(false);
+        return;
+      }
+      
+      if (userData) {
+        try {
+          const parsedUser = JSON.parse(userData);
+          console.log('👤 User role:', parsedUser.role);
+          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
+            console.log('❌ Not an admin, redirecting to home...');
+            router.replace('/');
+            setAuthLoading(false);
+            return;
+          }
+          setIsAuthenticated(true);
+        } catch (error) {
+          console.error('Error parsing user data:', error);
+          router.replace('/auth/signin');
+        }
+      } else {
+        console.log('❌ No user data found');
+        router.replace('/auth/signin');
+      }
+      setAuthLoading(false);
+    };
+    
+    checkAuth();
+  }, [router]);
 
-  // Set SKU once on mount using useEffect with a ref to prevent cascade
+  // Generate SKU using useMemo
+  const initialSKU = useMemo(() => generateSKU(), []);
   const skuSet = useRef(false);
+  
   useEffect(() => {
     if (!skuSet.current) {
       setSku(initialSKU);
@@ -533,14 +600,14 @@ const NewProductPage: React.FC = () => {
   const hasFetchedSubCategories = useRef(false);
 
   useEffect(() => {
-    if (!hasFetchedCategories.current) {
+    if (!hasFetchedCategories.current && isAuthenticated) {
       hasFetchedCategories.current = true;
       const loadCategories = async () => {
         await fetchCategories();
       };
       loadCategories();
     }
-  }, [fetchCategories]);
+  }, [fetchCategories, isAuthenticated]);
 
   useEffect(() => {
     const loadSubCategories = async () => {
@@ -568,7 +635,7 @@ const NewProductPage: React.FC = () => {
     setUploadingImage(true);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -577,16 +644,12 @@ const NewProductPage: React.FC = () => {
       const formDataUpload = new FormData();
       formDataUpload.append('image', file);
 
-      console.log('📤 Uploading image...', file.name, file.size);
-      
       const response = await api.post('/api/upload', formDataUpload, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
         },
       });
-
-      console.log('📊 Upload response:', response.data);
 
       let imageUrl = null;
       if (response.data && response.data.url) {
@@ -604,7 +667,6 @@ const NewProductPage: React.FC = () => {
         }));
         showNotification('success', 'Image uploaded successfully');
       } else {
-        console.error('No image URL in response:', response.data);
         showNotification('error', 'Failed to get image URL from server');
       }
     } catch (err) {
@@ -672,7 +734,6 @@ const NewProductPage: React.FC = () => {
     }
   };
 
-  // Function to generate new SKU (for button click)
   const handleGenerateSKU = () => {
     const newSKU = generateSKU();
     setSku(newSKU);
@@ -684,10 +745,11 @@ const NewProductPage: React.FC = () => {
     setLoading(true);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
+        setLoading(false);
         return;
       }
 
@@ -714,7 +776,7 @@ const NewProductPage: React.FC = () => {
         description: formData.description.trim(),
         price: parseFloat(formData.pricePerUnit) || 0,
         discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : null,
-        stock: parseInt(formData.stock) || 0, // Use the stock from form
+        stock: parseInt(formData.stock) || 0,
         sku: sku,
         categoryId: formData.categoryId,
         subCategoryId: formData.subCategoryId || undefined,
@@ -729,15 +791,11 @@ const NewProductPage: React.FC = () => {
         durationTime: formData.durationTime || '1h',
       };
 
-      console.log('📤 Creating product with data:', submitData);
-      
       const response = await api.post('/api/products', submitData, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      
-      console.log('✅ Create response:', response.data);
       
       if (response.data.success) {
         showNotification('success', 'Product published successfully! 🎉');
@@ -753,7 +811,8 @@ const NewProductPage: React.FC = () => {
         const axiosError = err as AxiosError<{ error: string; message?: string }>;
         if (axiosError.response?.status === 401) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
           const errorMsg = axiosError.response?.data?.error || 
@@ -786,7 +845,6 @@ const NewProductPage: React.FC = () => {
     const handleError = () => {
       if (!hasError) {
         setHasError(true);
-        // Try with API_URL prefix if not already
         if (!src.startsWith('http') && !src.startsWith('/')) {
           setImgSrc(`${API_URL}/${src}`);
         } else if (src.startsWith('/uploads/')) {
@@ -818,6 +876,23 @@ const NewProductPage: React.FC = () => {
       </div>
     );
   };
+
+  // Show loading state
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="space-y-6">
@@ -1001,12 +1076,17 @@ const NewProductPage: React.FC = () => {
                   <p className="text-xs text-gray-400 mt-1">Auto-generated</p>
                 </div>
 
-                {/* Duration Time */}
+                {/* ✅ FIXED: Duration Time - Now with proper labels */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration Time</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    <div className="flex items-center space-x-2">
+                      <Clock className="w-4 h-4 text-gray-500" />
+                      <span>Duration Time</span>
+                    </div>
+                  </label>
                   <select
                     name="durationTime"
-                    value={formData.durationTime || '1h'}
+                    value={formData.durationTime}
                     onChange={handleChange}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
                   >
@@ -1016,6 +1096,7 @@ const NewProductPage: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">Select how long this product listing will be active</p>
                 </div>
 
                 {/* Weight & Unit */}
@@ -1165,12 +1246,12 @@ const NewProductPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex items-center space-x-2 px-6 py-2.5 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  className="flex items-center space-x-2 px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
                 >
                   {loading ? (
-                    <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <CheckCircle className="w-4 h-4" />
                   )}
                   <span>{loading ? 'Publishing...' : 'Publish Product'}</span>
                 </button>
@@ -1229,7 +1310,7 @@ const NewProductPage: React.FC = () => {
               <p className="text-xs text-gray-400 mt-1 text-center">Default image will be used if none uploaded</p>
             </div>
 
-            {/* Stock Info Card - Updated to show entered stock */}
+            {/* Stock Info Card */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
                 <ShoppingBag className="w-4 h-4 text-blue-600" />
@@ -1253,6 +1334,31 @@ const NewProductPage: React.FC = () => {
                   <span className="text-gray-600">Status:</span>
                   <span className={`text-xs px-2 py-1 rounded-full ${parseInt(formData.stock) > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                     {parseInt(formData.stock) > 0 ? 'In Stock' : 'Out of Stock'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Duration Info Card - NEW */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center space-x-2 mb-4">
+                <Calendar className="w-4 h-4 text-purple-600" />
+                <h3 className="font-semibold text-gray-900 text-sm">Duration Info</h3>
+              </div>
+              <div className="space-y-3">
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <div className="flex items-center space-x-2">
+                    <Info className="w-4 h-4 text-purple-600" />
+                    <p className="text-xs text-purple-700">
+                      The duration determines how long this product will be active.
+                      After the duration ends, the product will be automatically archived.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Duration:</span>
+                  <span className="font-medium text-gray-900">
+                    {durationOptions.find(d => d.value === formData.durationTime)?.label || 'Not set'}
                   </span>
                 </div>
               </div>
@@ -1293,7 +1399,7 @@ const NewProductPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Product Summary Card - Updated to show stock */}
+            {/* Product Summary Card */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
                 <Info className="w-4 h-4 text-green-600" />

@@ -49,14 +49,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
+// Add token to requests - FIXED: Use 'authToken' instead of 'token'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 interface BlogPost {
   id: string;
@@ -154,7 +173,7 @@ const isVideoUrl = (url: string | null): boolean => {
          lowerUrl.includes('uploads/blog') && (lowerUrl.includes('.mp4') || lowerUrl.includes('.webm'));
 };
 
-// ✅ FIXED: Media Renderer Component - Properly handles both images and videos
+// Media Renderer Component - Properly handles both images and videos
 const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: string }> = ({ 
   src, 
   alt, 
@@ -163,7 +182,7 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
   const [error, setError] = useState(false);
   const isVideo = src ? isVideoUrl(src) : false;
 
-  if (!src) {
+  if (!src || error) {
     return (
       <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${className}`}>
         <ImageIcon className="w-12 h-12 text-gray-300" />
@@ -196,17 +215,6 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
     );
   }
 
-  if (error) {
-    return (
-      <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${className}`}>
-        <div className="text-center">
-          <Play className="w-12 h-12 text-gray-300 mx-auto" />
-          <span className="text-xs text-gray-400 block mt-2">Media unavailable</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={`relative w-full h-full ${className}`}>
       <Image
@@ -215,6 +223,7 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
         fill
         className="object-cover"
         onError={() => setError(true)}
+        unoptimized={fullUrl.startsWith('http')}
       />
     </div>
   );
@@ -234,7 +243,7 @@ const BlogPage: React.FC = () => {
   const [categories, setCategories] = useState<string[]>([]);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(9);
+  const [pageSize] = useState(9);
   const [totalPages, setTotalPages] = useState(0);
 
   const isMounted = useRef(true);
@@ -265,11 +274,12 @@ const BlogPage: React.FC = () => {
     return status ? 'Published' : 'Draft';
   };
 
+  // ✅ FIXED: fetchPosts function
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
       
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -329,7 +339,8 @@ const BlogPage: React.FC = () => {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
           showNotification('error', axiosError.response?.data?.error || 'Failed to fetch blog posts');
@@ -344,6 +355,7 @@ const BlogPage: React.FC = () => {
     }
   }, [selectedStatus, searchQuery, currentPage, pageSize, router]);
 
+  // ✅ FIXED: Initial load - only runs once
   useEffect(() => {
     isMounted.current = true;
     
@@ -355,18 +367,49 @@ const BlogPage: React.FC = () => {
     return () => {
       isMounted.current = false;
     };
-  }, [fetchPosts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - only runs once
 
+  // ✅ FIXED: Handle status and search changes
   useEffect(() => {
     if (isInitialMount.current) return;
     fetchPosts();
-  }, [selectedStatus, searchQuery, currentPage, fetchPosts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStatus, searchQuery, currentPage]);
+
+  // ✅ FIXED: Handler functions - no setState in effects
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const handleStatusChange = (value: string) => {
+    setSelectedStatus(value);
+    setCurrentPage(1);
+  };
+
+  const handleCategoryChange = (value: string) => {
+    setSelectedCategory(value);
+    setCurrentPage(1);
+  };
+
+  const handleClearFilters = () => {
+    setSelectedCategory('all');
+    setSelectedStatus('all');
+    setSearchQuery('');
+    setCurrentPage(1);
+  };
+
+  const handleRefresh = () => {
+    showNotification('info', 'Refreshing blog posts...');
+    fetchPosts();
+  };
 
   const handleDelete = async (id: string, title: string) => {
     if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) return;
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -460,10 +503,7 @@ const BlogPage: React.FC = () => {
             type="text"
             placeholder="Search blog posts..."
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
+            onChange={handleSearchChange}
             className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
           />
         </div>
@@ -477,10 +517,7 @@ const BlogPage: React.FC = () => {
             <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
           <button
-            onClick={() => {
-              showNotification('info', 'Refreshing blog posts...');
-              fetchPosts();
-            }}
+            onClick={handleRefresh}
             className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -495,7 +532,7 @@ const BlogPage: React.FC = () => {
             <label className="text-sm font-medium text-gray-700">Category</label>
             <select
               value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+              onChange={(e) => handleCategoryChange(e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
               <option value="all">All Categories</option>
@@ -508,7 +545,7 @@ const BlogPage: React.FC = () => {
             <label className="text-sm font-medium text-gray-700">Status</label>
             <select
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => handleStatusChange(e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
               <option value="all">All Statuses</option>
@@ -518,12 +555,7 @@ const BlogPage: React.FC = () => {
           </div>
           <div className="flex items-end">
             <button
-              onClick={() => {
-                setSelectedCategory('all');
-                setSelectedStatus('all');
-                setSearchQuery('');
-                setCurrentPage(1);
-              }}
+              onClick={handleClearFilters}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               Clear Filters
@@ -532,7 +564,6 @@ const BlogPage: React.FC = () => {
         </div>
       )}
 
-      {/* ✅ FIXED: Blog Posts Grid - Using MediaRenderer component */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {posts.length > 0 ? (
           posts.map((post) => {
@@ -541,7 +572,6 @@ const BlogPage: React.FC = () => {
             
             return (
               <div key={post.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-200">
-                {/* ✅ FIXED: Using MediaRenderer instead of direct Image/Video */}
                 <div className="relative h-48 bg-gray-100">
                   <MediaRenderer src={imageUrl} alt={post.title} />
                   <div className="absolute top-3 right-3">

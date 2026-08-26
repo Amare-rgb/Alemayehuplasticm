@@ -83,7 +83,7 @@ router.get('/stats', requireAdmin, async (req, res) => {
 });
 
 // Create seller (with documents)
-router.post('/sellers', requireAdmin, uploadDocuments, async (req, res) => {
+router.post('/admin', requireAdmin, uploadDocuments, async (req, res) => {
   try {
     const { business, bank } = req.body;
     const businessData = business ? JSON.parse(business) : {};

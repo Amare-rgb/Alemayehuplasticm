@@ -14,8 +14,12 @@ const getServerSession = async (req) => {
 
     const decoded = jwt.verify(token, JWT_SECRET);
     
+    // Get userId from multiple possible fields for compatibility
+    const userId = decoded.userId || decoded.id || decoded.user_id;
+    if (!userId) return null;
+    
     const user = await prisma.user.findUnique({
-      where: { id: decoded.userId }
+      where: { id: userId }
     });
 
     if (!user) return null;
@@ -29,14 +33,27 @@ const getServerSession = async (req) => {
       }
     };
   } catch (error) {
+    console.error('❌ Session error:', error.message);
     return null;
   }
 };
 
-// Generate JWT token for login
-const generateToken = (userId, email, role) => {
+// Generate JWT token for login - FIXED to include all fields
+const generateToken = (userId, email, role, name = '') => {
+  console.log('🔐 Generating token for:', { userId, email, role });
+  
+  // Create token with multiple ID fields for compatibility
+  const payload = {
+    id: userId,           // For middleware expecting id
+    userId: userId,       // For original code
+    user_id: userId,      // For any other code
+    email: email,
+    role: role.toUpperCase(), // Ensure role is uppercase
+    name: name
+  };
+  
   return jwt.sign(
-    { userId, email, role },
+    payload,
     JWT_SECRET,
     { expiresIn: '7d' }
   );

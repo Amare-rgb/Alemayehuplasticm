@@ -17,17 +17,13 @@ import {
   Info,
   XCircle,
   Trash2,
-  Eye,
-  Calendar,
-  Clock,
-  Tag,
-  User,
+
   FileText,
   Plus,
   Minus,
   Loader2,
   Settings,
-  Video,
+  
   Play,
   Film
 } from 'lucide-react';
@@ -42,13 +38,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// Add token to requests - FIXED: Use 'authToken'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken') ||
+                localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/signin';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 interface NotificationProps {
   type: 'success' | 'error' | 'info' | 'warning';
@@ -113,25 +129,21 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
-// ✅ FIXED: Better video detection - PURE FUNCTION
+// Helper function to detect if URL is a video
 const isVideoUrl = (url: string | null): boolean => {
   if (!url) return false;
   
-  // Check file extensions
   const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.mpeg', '.mpg', '.3gp'];
   const lowerUrl = url.toLowerCase();
   
-  // Check if URL ends with video extension
   if (videoExtensions.some(ext => lowerUrl.endsWith(ext) || lowerUrl.includes(ext))) {
     return true;
   }
   
-  // Check for video in path
   if (lowerUrl.includes('/video/') || lowerUrl.includes('/videos/')) {
     return true;
   }
   
-  // Check if it's a YouTube or Vimeo URL
   if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be') || lowerUrl.includes('vimeo.com')) {
     return true;
   }
@@ -139,7 +151,7 @@ const isVideoUrl = (url: string | null): boolean => {
   return false;
 };
 
-// ✅ FIXED: Media Renderer - No useEffect, pure derived state
+// Media Renderer Component
 const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: string }> = ({ 
   src, 
   alt, 
@@ -155,11 +167,9 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
     );
   }
 
-  // ✅ Derive values directly from props - NO useEffect
   const fullUrl = src.startsWith('http') ? src : `${API_URL}${src}`;
   const isVideo = isVideoUrl(fullUrl);
 
-  // Video rendering
   if (isVideo) {
     return (
       <div className={`relative bg-black w-full h-full ${className}`}>
@@ -192,7 +202,6 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
     );
   }
 
-  // Image rendering
   if (error) {
     return (
       <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${className}`}>
@@ -212,6 +221,7 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
         fill
         className="object-cover"
         onError={() => setError(true)}
+        unoptimized={fullUrl.startsWith('http')}
       />
     </div>
   );
@@ -227,6 +237,10 @@ const EditBlogPostPage: React.FC = () => {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
   const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
+
+  // ✅ FIXED: Authentication state
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -262,12 +276,55 @@ const EditBlogPostPage: React.FC = () => {
     setNotification(null);
   };
 
+  // ✅ FIXED: Authentication check on mount
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
+      
+      console.log('🔍 Edit Blog Post - Checking auth...');
+      console.log('Token exists:', !!token);
+      
+      if (!token) {
+        console.log('❌ No token found, redirecting to login...');
+        router.replace('/auth/signin');
+        setAuthLoading(false);
+        return;
+      }
+      
+      if (userData) {
+        try {
+          const parsedUser = JSON.parse(userData);
+          console.log('👤 User role:', parsedUser.role);
+          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
+            console.log('❌ Not an admin, redirecting to home...');
+            router.replace('/');
+            setAuthLoading(false);
+            return;
+          }
+          setIsAuthenticated(true);
+        } catch (error) {
+          console.error('Error parsing user data:', error);
+          router.replace('/auth/signin');
+        }
+      } else {
+        console.log('❌ No user data found');
+        router.replace('/auth/signin');
+      }
+      setAuthLoading(false);
+    };
+    
+    checkAuth();
+  }, [router]);
+
   // Fetch post data
   useEffect(() => {
     const fetchPost = async () => {
+      if (!isAuthenticated || !id) return;
+      
       try {
         setLoading(true);
-        const token = localStorage.getItem('token');
+        const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
         if (!token) {
           showNotification('error', 'Authentication required');
           router.push('/auth/signin');
@@ -278,8 +335,23 @@ const EditBlogPostPage: React.FC = () => {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        if (response.data.post) {
+        if (response.data && response.data.post) {
           const post = response.data.post;
+          const isVideo = post.image ? isVideoUrl(post.image) : false;
+          
+          setFormData({
+            title: post.title || '',
+            content: post.content || '',
+            excerpt: post.excerpt || '',
+            image: isVideo ? '' : (post.image || ''),
+            video: isVideo ? (post.image || '') : '',
+            category: post.category || 'Agriculture',
+            readTime: post.readTime || 3,
+            published: post.published !== undefined ? post.published : true,
+          });
+          setMediaType(isVideo ? 'video' : (post.image ? 'image' : null));
+        } else if (response.data && response.data.data) {
+          const post = response.data.data;
           const isVideo = post.image ? isVideoUrl(post.image) : false;
           
           setFormData({
@@ -306,10 +378,8 @@ const EditBlogPostPage: React.FC = () => {
       }
     };
 
-    if (id) {
-      fetchPost();
-    }
-  }, [id, router]);
+    fetchPost();
+  }, [id, router, isAuthenticated]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -343,7 +413,7 @@ const EditBlogPostPage: React.FC = () => {
     setUploadingMedia(true);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
         setUploadingMedia(false);
@@ -351,30 +421,48 @@ const EditBlogPostPage: React.FC = () => {
       }
 
       const formDataUpload = new FormData();
-      formDataUpload.append('media', file);
+      formDataUpload.append('image', file); // Use 'image' field
 
-      const response = await api.post('/api/blog/upload', formDataUpload, {
+      // Use /api/upload endpoint instead of /api/blog/upload
+      const response = await api.post('/api/upload', formDataUpload, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
         },
       });
 
-      if (response.data.success && response.data.mediaUrl) {
+      let mediaUrl = null;
+      if (response.data && response.data.url) {
+        mediaUrl = response.data.url;
+      } else if (response.data && response.data.imageUrl) {
+        mediaUrl = response.data.imageUrl;
+      } else if (response.data && response.data.image) {
+        mediaUrl = response.data.image;
+      }
+
+      if (mediaUrl) {
         const fieldName = isVideo ? 'video' : 'image';
         setFormData(prev => ({
           ...prev,
-          [fieldName]: response.data.mediaUrl,
+          [fieldName]: mediaUrl,
           ...(isVideo ? { image: '' } : { video: '' })
         }));
         setMediaType(isVideo ? 'video' : 'image');
         showNotification('success', `${isVideo ? 'Video' : 'Image'} uploaded successfully`);
       } else {
-        showNotification('error', response.data.error || 'Failed to upload media');
+        showNotification('error', 'Failed to get media URL from server');
       }
     } catch (err) {
       console.error('Error uploading media:', err);
-      showNotification('error', 'Failed to upload media');
+      if (axios.isAxiosError(err)) {
+        const axiosError = err as AxiosError<{ error: string; message?: string }>;
+        const errorMsg = axiosError.response?.data?.error || 
+                         axiosError.response?.data?.message || 
+                         'Failed to upload media';
+        showNotification('error', errorMsg);
+      } else {
+        showNotification('error', 'Failed to upload media');
+      }
     } finally {
       setUploadingMedia(false);
       if (fileInputRef.current) {
@@ -397,7 +485,7 @@ const EditBlogPostPage: React.FC = () => {
     setSaving(true);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
         router.push('/auth/signin');
@@ -444,11 +532,40 @@ const EditBlogPostPage: React.FC = () => {
       }
     } catch (err) {
       console.error('Error updating blog post:', err);
-      showNotification('error', 'Failed to update blog post');
+      if (axios.isAxiosError(err)) {
+        const axiosError = err as AxiosError<{ error: string }>;
+        if (axiosError.response?.status === 401) {
+          showNotification('error', 'Authentication failed. Please login again.');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
+          router.push('/auth/signin');
+        } else {
+          showNotification('error', axiosError.response?.data?.error || 'Failed to update blog post');
+        }
+      } else {
+        showNotification('error', 'Failed to update blog post');
+      }
     } finally {
       setSaving(false);
     }
   };
+
+  // Show auth loading state
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
 
   if (loading) {
     return (
