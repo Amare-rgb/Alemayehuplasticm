@@ -248,7 +248,7 @@ export default function HomePage() {
 
         <div className="relative mx-auto flex w-[min(1180px,calc(100%-48px))] items-center justify-between gap-[70px] pt-[90px]">
           <div className="max-w-[720px] animate-fade-in-up">
-            <h1 className="font-serif-heading text-[clamp(48px,6vw,80px)] font-extrabold leading-[1.03] tracking-[-0.045em]">
+            <h1 className="font-serif-heading text-[clamp(48px,6vw,80px)] font-extrabold leading-[1.03] tracking-[-0.045em] mb-[10rem]">
               Fresh from our{" "}
               <em className="font-semibold text-[var(--lime)]">
                 fields
@@ -257,9 +257,6 @@ export default function HomePage() {
             </h1>
 
             <p className="mt-6 max-w-[580px] text-[16px] leading-[1.8] text-white/75">
-              We grow and deliver quality vegetables, fruits and cereals
-              directly to you — keeping food fresh, affordable and free from
-              unnecessary markups.
             </p>
 
             <div className="mt-8 flex items-center gap-6 max-sm:flex-col max-sm:items-start">
@@ -541,7 +538,7 @@ export default function HomePage() {
       {/* =========================================================
           JOURNEY
       ========================================================= */}
-      <section className="bg-[var(--cream)] py-[105px]">
+      {/* <section className="bg-[var(--cream)] py-[105px]">
         <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
           <div className="mb-10 flex flex-col items-center text-center">
             <Eyebrow>THE JOURNEY</Eyebrow>
@@ -583,7 +580,7 @@ export default function HomePage() {
             ))}
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* =========================================================
           CONTACT CTA
@@ -630,120 +627,6 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-
-      {/* =========================================================
-          FOOTER
-      ========================================================= */}
-      <footer className="bg-[#081b12] text-white">
-        <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[2fr_1fr_1.4fr_1fr] gap-11 py-16 max-lg:grid-cols-3 max-sm:grid-cols-2">
-          <div className="max-sm:col-span-2">
-            <a href="#home" className="mb-5 flex items-center gap-3">
-              <BrandMark />
-
-              <span className="grid gap-[5px] leading-none">
-                <strong className="text-[18px] tracking-[0.16em]">
-                  GENESIS
-                </strong>
-
-                <small className="text-[8px] tracking-[0.22em] opacity-75">
-                  AGRO-BUSINESS
-                </small>
-              </span>
-            </a>
-
-            <p className="text-[11px] leading-[1.8] text-white/40">
-              Fresh agriculture. Fair prices.
-              <br />
-              A shorter journey from farm to table.
-            </p>
-          </div>
-
-          <div className="grid content-start gap-2">
-            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--lime)]">
-              Explore
-            </h4>
-
-            <a
-              href="#products"
-              className="text-[11px] text-white/60 transition hover:text-white"
-            >
-              Our Products
-            </a>
-
-            <a
-              href="#tana-farm"
-              className="text-[11px] text-white/60 transition hover:text-white"
-            >
-              Tana Farm
-            </a>
-
-            <a
-              href="#about"
-              className="text-[11px] text-white/60 transition hover:text-white"
-            >
-              About Us
-            </a>
-          </div>
-
-          <div className="grid content-start gap-2">
-            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--lime)]">
-              Contact
-            </h4>
-
-            <a
-              href="mailto:info@genesisagrobusiness.com"
-              className="text-[11px] text-white/60 transition hover:text-white"
-            >
-              info@genesisagrobusiness.com
-            </a>
-
-            <a
-              href="tel:+251900000000"
-              className="text-[11px] text-white/60 transition hover:text-white"
-            >
-              +251 900 000 000
-            </a>
-
-            <span className="text-[11px] text-white/60">Ethiopia</span>
-          </div>
-
-          <div className="grid content-start gap-2">
-            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--lime)]">
-              Follow
-            </h4>
-
-            <a
-              href="#"
-              className="text-[11px] text-white/60 transition hover:text-white"
-            >
-              Facebook ↗
-            </a>
-
-            <a
-              href="#"
-              className="text-[11px] text-white/60 transition hover:text-white"
-            >
-              Instagram ↗
-            </a>
-
-            <a
-              href="#"
-              className="text-[11px] text-white/60 transition hover:text-white"
-            >
-              Telegram ↗
-            </a>
-          </div>
-        </div>
-
-        <div className="mx-auto flex w-[min(1180px,calc(100%-48px))] justify-between border-t border-white/10 py-5 text-[9px] text-white/30 max-sm:flex-col max-sm:gap-2">
-          <span>
-            © {new Date().getFullYear()} Genesis Agro-business. All rights
-            reserved.
-          </span>
-
-          <span>Built around the farm-to-table idea.</span>
-        </div>
-      </footer>
 
       {/* =========================================================
           BACK TO TOP
