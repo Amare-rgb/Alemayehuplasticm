@@ -136,10 +136,7 @@ export default function Products() {
 
         <div className="relative mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#b9d873]">
-              <LeafIcon />
-              Farm Direct Marketplace
-            </div>
+            
 
             <h1 className="font-serif-heading text-5xl font-medium leading-[0.98] tracking-[-0.045em] text-[#f6f3e9] sm:text-6xl lg:text-7xl">
               Good food,
