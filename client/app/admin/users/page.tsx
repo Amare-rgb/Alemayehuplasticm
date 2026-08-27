@@ -10,7 +10,6 @@ import {
   Search,
   Filter,
   ChevronDown,
-  Edit,
   Trash2,
   Eye,
   CheckCircle,
@@ -47,23 +46,26 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests - FIXED: Use 'authToken' instead of 'token'
+// Add token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('authToken') || 
-                sessionStorage.getItem('authToken') ||
-                localStorage.getItem('token');
+  const token = localStorage.getItem('token') || 
+                sessionStorage.getItem('token') ||
+                localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Add response interceptor for better error handling
+// Add response interceptor
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      localStorage.removeItem('token');
       localStorage.removeItem('authToken');
+      sessionStorage.removeItem('token');
       sessionStorage.removeItem('authToken');
       localStorage.removeItem('user');
       sessionStorage.removeItem('user');
@@ -76,13 +78,6 @@ api.interceptors.response.use(
 );
 
 // Types
-interface SellerProfile {
-  id: string;
-  shopName: string;
-  isVerified: boolean;
-  totalSales: number;
-}
-
 interface UserCount {
   orders: number;
 }
@@ -92,11 +87,10 @@ interface User {
   name: string;
   email: string;
   phone: string | null;
-  role: 'ADMIN' | 'SELLER' | 'USER';
+  role: 'ADMIN' | 'SELLER' | 'CUSTOMER' | 'USER';
   avatar: string | null;
   createdAt: string;
   updatedAt: string;
-  sellerProfile: SellerProfile | null;
   _count: UserCount;
 }
 
@@ -122,7 +116,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   const getIcon = () => {
     switch (type) {
       case 'success':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
+        return <CheckCircle className="w-5 h-5 text-emerald-500" />;
       case 'error':
         return <XCircle className="w-5 h-5 text-red-500" />;
       case 'warning':
@@ -135,7 +129,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   const getColors = () => {
     switch (type) {
       case 'success':
-        return 'bg-green-50 border-green-200 text-green-800';
+        return 'bg-emerald-50 border-emerald-200 text-emerald-800';
       case 'error':
         return 'bg-red-50 border-red-200 text-red-800';
       case 'warning':
@@ -164,6 +158,15 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
+// Helper function to get token
+const getToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('token') || 
+         sessionStorage.getItem('token') ||
+         localStorage.getItem('authToken') || 
+         sessionStorage.getItem('authToken');
+};
+
 // User Detail Modal
 interface UserDetailModalProps {
   user: User | null;
@@ -188,6 +191,7 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
     const colors: Record<string, string> = {
       ADMIN: 'bg-purple-100 text-purple-700 border-purple-200',
       SELLER: 'bg-blue-100 text-blue-700 border-blue-200',
+      CUSTOMER: 'bg-gray-100 text-gray-700 border-gray-200',
       USER: 'bg-gray-100 text-gray-700 border-gray-200',
     };
     return colors[role] || 'bg-gray-100 text-gray-700 border-gray-200';
@@ -197,6 +201,7 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
     const icons: Record<string, React.ReactNode> = {
       ADMIN: <ShieldCheck className="w-4 h-4" />,
       SELLER: <Shield className="w-4 h-4" />,
+      CUSTOMER: <ShieldAlert className="w-4 h-4" />,
       USER: <ShieldAlert className="w-4 h-4" />,
     };
     return icons[role] || null;
@@ -206,6 +211,7 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
     const labels: Record<string, string> = {
       ADMIN: 'Admin',
       SELLER: 'Seller',
+      CUSTOMER: 'Customer',
       USER: 'User',
     };
     return labels[role] || role;
@@ -231,19 +237,25 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
 
         <div className="p-6 space-y-6">
           <div className="flex items-center space-x-4">
-            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-xl font-bold">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-xl font-bold">
               {user.name.charAt(0).toUpperCase()}
             </div>
             <div>
               <h3 className="text-xl font-semibold text-gray-900">{user.name}</h3>
               <div className="flex items-center space-x-2 text-sm text-gray-500">
                 <Mail className="w-4 h-4" />
-                <span>{user.email}</span>
+                <span>{user.email || 'No email'}</span>
               </div>
               {user.phone && (
                 <div className="flex items-center space-x-2 text-sm text-gray-500">
                   <Phone className="w-4 h-4" />
                   <span>{user.phone}</span>
+                </div>
+              )}
+              {!user.phone && (
+                <div className="flex items-center space-x-2 text-sm text-gray-400">
+                  <Phone className="w-4 h-4" />
+                  <span>No phone number</span>
                 </div>
               )}
             </div>
@@ -294,31 +306,6 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
                 </div>
               </div>
             </div>
-
-            {user.role === 'SELLER' && user.sellerProfile && (
-              <div className="md:col-span-2 bg-white rounded-lg border border-gray-200 p-4">
-                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
-                  <Store className="w-4 h-4 text-gray-500" />
-                  <span>Seller Profile</span>
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-500">Shop Name:</span>
-                    <p className="font-medium text-gray-900">{user.sellerProfile.shopName}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Verified:</span>
-                    <p className={user.sellerProfile.isVerified ? 'text-green-600' : 'text-gray-400'}>
-                      {user.sellerProfile.isVerified ? 'Yes' : 'No'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Total Sales:</span>
-                    <p className="font-medium text-gray-900">{user.sellerProfile.totalSales || 0}</p>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -374,6 +361,7 @@ const UsersPage: React.FC = () => {
     const colors: Record<string, string> = {
       ADMIN: 'bg-purple-100 text-purple-700 border-purple-200',
       SELLER: 'bg-blue-100 text-blue-700 border-blue-200',
+      CUSTOMER: 'bg-gray-100 text-gray-700 border-gray-200',
       USER: 'bg-gray-100 text-gray-700 border-gray-200',
     };
     return colors[role] || 'bg-gray-100 text-gray-700 border-gray-200';
@@ -383,6 +371,7 @@ const UsersPage: React.FC = () => {
     const icons: Record<string, React.ReactNode> = {
       ADMIN: <ShieldCheck className="w-4 h-4" />,
       SELLER: <Shield className="w-4 h-4" />,
+      CUSTOMER: <ShieldAlert className="w-4 h-4" />,
       USER: <ShieldAlert className="w-4 h-4" />,
     };
     return icons[role] || null;
@@ -392,19 +381,20 @@ const UsersPage: React.FC = () => {
     const labels: Record<string, string> = {
       ADMIN: 'Admin',
       SELLER: 'Seller',
+      CUSTOMER: 'Customer',
       USER: 'User',
     };
     return labels[role] || role;
   };
 
-  const roles = ['ALL', 'ADMIN', 'SELLER', 'USER'];
+  const roles = ['ALL', 'ADMIN', 'SELLER', 'CUSTOMER', 'USER'];
 
-  // ✅ FIXED: fetchUsers function
+  // Fetch users
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
       
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const token = getToken();
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -420,6 +410,8 @@ const UsersPage: React.FC = () => {
       
       const url = `/api/users?${params.toString()}`;
       
+      console.log('📡 Fetching users from:', url);
+      
       const response = await api.get(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -428,7 +420,7 @@ const UsersPage: React.FC = () => {
 
       if (!isMounted.current) return;
 
-      console.log('📊 Users loaded:', response.data);
+      console.log('📊 Users response:', response.data);
       
       let usersData: User[] = [];
       let totalCount = 0;
@@ -453,7 +445,9 @@ const UsersPage: React.FC = () => {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
           showNotification('error', 'Authentication failed. Please login again.');
+          localStorage.removeItem('token');
           localStorage.removeItem('authToken');
+          sessionStorage.removeItem('token');
           sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
@@ -469,7 +463,7 @@ const UsersPage: React.FC = () => {
     }
   }, [selectedRole, searchQuery, currentPage, pageSize, router]);
 
-  // ✅ FIXED: Initial load - only runs once
+  // Initial load
   useEffect(() => {
     isMounted.current = true;
     
@@ -482,16 +476,16 @@ const UsersPage: React.FC = () => {
       isMounted.current = false;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only runs once
+  }, []);
 
-  // ✅ FIXED: Handle role and search changes
+  // Handle role and search changes
   useEffect(() => {
     if (isInitialMount.current) return;
     fetchUsers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRole, searchQuery, currentPage]);
 
-  // ✅ FIXED: Handler functions - no setState in effects
+  // Handler functions
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
     setCurrentPage(1);
@@ -513,7 +507,7 @@ const UsersPage: React.FC = () => {
     fetchUsers();
   };
 
-  // Stats - Only Total Users
+  // Stats
   const totalUsers = users.length;
 
   // Handle user click to view details
@@ -527,7 +521,7 @@ const UsersPage: React.FC = () => {
     if (!confirm(`Are you sure you want to delete user "${name}"? This action cannot be undone.`)) return;
     
     try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const token = getToken();
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -559,7 +553,7 @@ const UsersPage: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading users...</p>
         </div>
       </div>
@@ -605,7 +599,7 @@ const UsersPage: React.FC = () => {
             placeholder="Search users by name, email, or phone..."
             value={searchQuery}
             onChange={handleSearchChange}
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-sm"
           />
         </div>
         <div className="flex items-center space-x-3">
@@ -619,7 +613,7 @@ const UsersPage: React.FC = () => {
           </button>
           <button
             onClick={handleRefresh}
-            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Refresh</span>
@@ -634,7 +628,7 @@ const UsersPage: React.FC = () => {
             <select
               value={selectedRole}
               onChange={(e) => handleRoleChange(e.target.value)}
-              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
             >
               {roles.map(role => (
                 <option key={role} value={role}>
@@ -657,13 +651,12 @@ const UsersPage: React.FC = () => {
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           {users.length > 0 ? (
-            <table className="w-full min-w-[1100px]">
+            <table className="w-full min-w-[1000px]">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">User</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Contact</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Role</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Shop</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Orders</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Joined</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Actions</th>
@@ -674,24 +667,23 @@ const UsersPage: React.FC = () => {
                   <tr key={user.id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => handleViewUser(user)}>
                     <td className="px-4 py-3">
                       <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-semibold text-sm flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-semibold text-sm flex-shrink-0">
                           {user.name.charAt(0).toUpperCase()}
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{user.name}</p>
-                          <p className="text-xs text-gray-500 truncate max-w-[150px]">{user.email}</p>
+                          <p className="text-xs text-gray-500 truncate max-w-[150px]">{user.email || 'No email'}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-0.5">
-                        {user.phone && (
+                        {user.phone ? (
                           <div className="flex items-center space-x-1 text-xs text-gray-500">
                             <Phone className="w-3 h-3" />
                             <span>{user.phone}</span>
                           </div>
-                        )}
-                        {!user.phone && (
+                        ) : (
                           <span className="text-xs text-gray-400">No phone</span>
                         )}
                       </div>
@@ -701,20 +693,6 @@ const UsersPage: React.FC = () => {
                         {getRoleIcon(user.role)}
                         <span>{getRoleLabel(user.role)}</span>
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {user.role === 'SELLER' && user.sellerProfile ? (
-                        <div className="flex items-center space-x-1">
-                          <span className="text-sm text-gray-700 truncate max-w-[100px]">
-                            {user.sellerProfile.shopName}
-                          </span>
-                          {user.sellerProfile.isVerified && (
-                            <CheckCircle className="w-3 h-3 text-green-500" />
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-400">—</span>
-                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-sm text-gray-700">{user._count?.orders || 0}</span>
@@ -736,14 +714,6 @@ const UsersPage: React.FC = () => {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <Link
-                          href={`/admin/users/${user.id}/edit`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors"
-                          title="Edit User"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Link>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

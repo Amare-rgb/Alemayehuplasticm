@@ -12,7 +12,7 @@ const { requireAuth } = require('../middleware/auth');
 // ============================================
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role = 'USER' } = req.body;
+    const { name, email, password, phone, role = 'USER' } = req.body;
 
     // Validate input
     if (!name || !email || !password) {
@@ -51,18 +51,20 @@ router.post('/register', async (req, res) => {
     const saltRounds = 12;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Create user
+    // Create user - ✅ FIXED: Include phone in the create data
     const user = await prisma.user.create({
       data: {
         name,
         email: email.toLowerCase(),
         password: hashedPassword,
-        role: role.toUpperCase() // Ensure role is uppercase
+        phone: phone || null, // ✅ FIXED: Save phone number
+        role: role.toUpperCase()
       },
       select: {
         id: true,
         name: true,
         email: true,
+        phone: true, // ✅ FIXED: Return phone in response
         role: true,
         createdAt: true
       }
@@ -117,6 +119,7 @@ router.post('/login', async (req, res) => {
     console.log('👤 User found:', user ? 'Yes' : 'No');
     if (user) {
       console.log('📧 User email:', user.email);
+      console.log('📱 User phone:', user.phone);
       console.log('🔑 Role:', user.role);
       console.log('🔐 Has password:', user.password ? 'Yes' : 'No');
     }
@@ -191,8 +194,8 @@ router.get('/me', requireAuth, async (req, res) => {
         id: true,
         name: true,
         email: true,
+        phone: true, // ✅ FIXED: Ensure phone is returned
         role: true,
-        phone: true,
         avatar: true,
         createdAt: true,
         updatedAt: true,
@@ -323,8 +326,8 @@ router.put('/profile', requireAuth, async (req, res) => {
         id: true,
         name: true,
         email: true,
+        phone: true, // ✅ FIXED: Ensure phone is returned
         role: true,
-        phone: true,
         avatar: true,
         createdAt: true,
         updatedAt: true

@@ -187,14 +187,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(userData);
       setStatus('authenticated');
       
-      // Redirect based on role using window.location for hard redirect
+      // ✅ FIXED: Use router.push() instead of window.location.href
+      // Redirect based on role
       const userRole = userData.role?.toUpperCase();
       if (userRole === 'ADMIN') {
-        window.location.href = '/admin/dashboard';
+        router.push('/admin/dashboard');
       } else if (userRole === 'SELLER' || userRole === 'FARMER') {
-        window.location.href = '/seller/dashboard';
+        router.push('/seller/dashboard');
       } else {
-        window.location.href = '/dashboard';
+        router.push('/dashboard');
       }
     } catch (error: unknown) {
       const err = error as AxiosError<{ error: string }>;
@@ -217,8 +218,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setStatus('unauthenticated');
     
-    // Use window.location for hard redirect
-    window.location.href = '/auth/signin';
+    // ✅ FIXED: Use router.push() instead of window.location.href
+    router.push('/auth/signin');
   };
 
   const register = async (
@@ -252,14 +253,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(userData);
       setStatus('authenticated');
       
+      // ✅ FIXED: Use router.push() instead of window.location.href
       // Redirect based on role
       const userRole = userData.role?.toUpperCase();
       if (userRole === 'ADMIN') {
-        window.location.href = '/admin/dashboard';
+        router.push('/admin/dashboard');
       } else if (userRole === 'SELLER' || userRole === 'FARMER') {
-        window.location.href = '/seller/dashboard';
+        router.push('/seller/dashboard');
       } else {
-        window.location.href = '/';
+        router.push('/');
       }
     } catch (error: unknown) {
       const err = error as AxiosError<{ error: string }>;

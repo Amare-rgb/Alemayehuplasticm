@@ -2,6 +2,18 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import axios from "axios";
+
+// API URL - Make sure this matches your backend
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
 
 function LeafMark() {
   return (
@@ -67,8 +79,12 @@ function CheckIcon() {
 }
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: "",
@@ -79,20 +95,73 @@ export default function RegisterPage() {
   });
 
   const passwordsMatch =
-    form.confirmPassword.length === 0 ||
-    form.password === form.confirmPassword;
+    form.confirmPassword.length === 0 || form.password === form.confirmPassword;
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError(null);
+    setSuccess(null);
 
     if (form.password !== form.confirmPassword) {
+      setError("Passwords do not match");
       return;
     }
 
-    // Connect your registration API / authentication logic here.
-    console.log("Registration submitted", form);
+    if (form.password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // ✅ FIXED: Send phone field to backend
+      const response = await api.post("/api/auth/register", {
+        name: form.name,
+        email: form.email,
+        phone: form.phone, // ✅ Send phone number
+        password: form.password,
+      });
+
+      console.log("Registration response:", response.data);
+
+      if (response.data.success) {
+        setSuccess("Account created successfully! Redirecting to login...");
+        
+        // Clear form
+        setForm({
+          name: "",
+          email: "",
+          phone: "",
+          password: "",
+          confirmPassword: "",
+        });
+
+        // Redirect to login after 2 seconds
+        setTimeout(() => {
+          router.push("/auth/signin");
+        }, 2000);
+      } else {
+        setError(response.data.error || "Registration failed");
+      }
+    } catch (err) {
+      console.error("Registration error:", err);
+      
+      if (axios.isAxiosError(err)) {
+        const errorMsg = 
+          err.response?.data?.error || 
+          err.response?.data?.message || 
+          "Registration failed. Please try again.";
+        setError(errorMsg);
+      } else {
+        setError("An unexpected error occurred. Please try again.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  // ... rest of the component remains the same
   return (
     <main className="relative min-h-screen overflow-hidden bg-[var(--cream)]">
       {/* Background decoration */}
@@ -213,6 +282,20 @@ export default function RegisterPage() {
                 </p>
               </div>
 
+              {/* Error Message */}
+              {error && (
+                <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+                  {error}
+                </div>
+              )}
+
+              {/* Success Message */}
+              {success && (
+                <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-600">
+                  {success}
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-5">
                 {/* Name */}
                 <div>
@@ -248,9 +331,6 @@ export default function RegisterPage() {
                     className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#123523]"
                   >
                     Email
-                    <span className="rounded-full bg-[#f6f3e9] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#69736b]">
-                      Optional
-                    </span>
                   </label>
 
                   <input
@@ -266,6 +346,7 @@ export default function RegisterPage() {
                         email: event.target.value,
                       }))
                     }
+                    required
                     className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
                   />
                 </div>
@@ -449,10 +530,17 @@ export default function RegisterPage() {
 
                 <button
                   type="submit"
-                  disabled={!passwordsMatch}
+                  disabled={!passwordsMatch || isLoading}
                   className="flex h-14 w-full items-center justify-center rounded-2xl bg-[#123523] px-5 text-sm font-bold text-[#f6f3e9] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#19472d] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Create my account
+                  {isLoading ? (
+                    <>
+                      <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-[#f6f3e9] border-t-transparent" />
+                      Creating account...
+                    </>
+                  ) : (
+                    "Create my account"
+                  )}
                 </button>
               </form>
 

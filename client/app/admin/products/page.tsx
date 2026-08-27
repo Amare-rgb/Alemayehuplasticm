@@ -11,17 +11,16 @@ import {
   Edit,
   Trash2,
   Eye,
+  EyeOff,
   Search,
   Filter,
   ChevronDown,
   Package,
-  Download,
   RefreshCw,
   XCircle,
   AlertCircle,
   CheckCircle,
   Info,
-  Clock,
   Image as ImageIcon
 } from 'lucide-react';
 
@@ -38,21 +37,24 @@ const api = axios.create({
 
 // Add token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('authToken') || 
-                sessionStorage.getItem('authToken') ||
-                localStorage.getItem('token');
+  const token = localStorage.getItem('token') || 
+                sessionStorage.getItem('token') ||
+                localStorage.getItem('authToken') ||
+                sessionStorage.getItem('authToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Add response interceptor for better error handling
+// Add response interceptor
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      localStorage.removeItem('token');
       localStorage.removeItem('authToken');
+      sessionStorage.removeItem('token');
       sessionStorage.removeItem('authToken');
       localStorage.removeItem('user');
       sessionStorage.removeItem('user');
@@ -69,6 +71,7 @@ interface Category {
   name: string;
   slug: string;
   parentId?: string | null;
+  status?: string;
 }
 
 interface Product {
@@ -83,6 +86,7 @@ interface Product {
   stock: number;
   sku: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'DRAFT';
+  visibility: 'VISIBLE' | 'HIDDEN';
   images: string[];
   tags: string[];
   condition: 'NEW' | 'USED' | 'REFURBISHED';
@@ -101,30 +105,6 @@ interface Product {
   createdAt: string;
   updatedAt: string;
 }
-
-interface ApiResponse {
-  products: Product[];
-  total: number;
-  pages: number;
-  page: number;
-}
-
-type ProductsApiResponse = ApiResponse | Product[] | { message?: string; error?: string };
-
-const durationOptions = [
-  { value: '30m', label: '30 Minutes' },
-  { value: '1h', label: '1 Hour' },
-  { value: '2h', label: '2 Hours' },
-  { value: '4h', label: '4 Hours' },
-  { value: '8h', label: '8 Hours' },
-  { value: '12h', label: '12 Hours' },
-  { value: '24h', label: '24 Hours' },
-  { value: '2d', label: '2 Days' },
-  { value: '3d', label: '3 Days' },
-  { value: '7d', label: '7 Days' },
-  { value: '14d', label: '14 Days' },
-  { value: '30d', label: '30 Days' },
-];
 
 interface NotificationProps {
   type: 'success' | 'error' | 'info' | 'warning';
@@ -146,27 +126,19 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
 
   const getIcon = () => {
     switch (type) {
-      case 'success':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case 'error':
-        return <XCircle className="w-5 h-5 text-red-500" />;
-      case 'warning':
-        return <AlertCircle className="w-5 h-5 text-yellow-500" />;
-      default:
-        return <Info className="w-5 h-5 text-blue-500" />;
+      case 'success': return <CheckCircle className="w-5 h-5 text-emerald-500" />;
+      case 'error': return <XCircle className="w-5 h-5 text-red-500" />;
+      case 'warning': return <AlertCircle className="w-5 h-5 text-yellow-500" />;
+      default: return <Info className="w-5 h-5 text-blue-500" />;
     }
   };
 
   const getColors = () => {
     switch (type) {
-      case 'success':
-        return 'bg-green-50 border-green-200 text-green-800';
-      case 'error':
-        return 'bg-red-50 border-red-200 text-red-800';
-      case 'warning':
-        return 'bg-yellow-50 border-yellow-200 text-yellow-800';
-      default:
-        return 'bg-blue-50 border-blue-200 text-blue-800';
+      case 'success': return 'bg-emerald-50 border-emerald-200 text-emerald-800';
+      case 'error': return 'bg-red-50 border-red-200 text-red-800';
+      case 'warning': return 'bg-yellow-50 border-yellow-200 text-yellow-800';
+      default: return 'bg-blue-50 border-blue-200 text-blue-800';
     }
   };
 
@@ -220,15 +192,23 @@ const ProductsPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [selectedVisibility, setSelectedVisibility] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const [categories, setCategories] = useState<string[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  
+  // Bulk action states
+  const [isBulkActionLoading, setIsBulkActionLoading] = useState(false);
+  const [allProductsVisible, setAllProductsVisible] = useState(false);
+  const [selectedCategoryForBulk, setSelectedCategoryForBulk] = useState('');
+  
+  // Track if products in selected category are all visible
+  const [categoryProductsVisible, setCategoryProductsVisible] = useState(false);
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -238,7 +218,6 @@ const ProductsPage: React.FC = () => {
   const isMounted = useRef(true);
   const isInitialMount = useRef(true);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const shouldResetPageRef = useRef(false);
 
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
@@ -248,108 +227,79 @@ const ProductsPage: React.FC = () => {
     setNotification(null);
   };
 
-  const extractProductsFromResponse = (data: unknown): { products: Product[]; total: number; pages: number } => {
-    if (data && typeof data === 'object') {
-      if ('products' in data && Array.isArray((data as ApiResponse).products)) {
-        const response = data as ApiResponse;
-        return {
-          products: response.products,
-          total: response.total || response.products.length,
-          pages: response.pages || 1
-        };
-      }
-      if (Array.isArray(data)) {
-        return {
-          products: data as Product[],
-          total: data.length,
-          pages: 1
-        };
-      }
-      if ('data' in data && Array.isArray((data as { data: Product[] }).data)) {
-        const response = data as { data: Product[]; total?: number; pages?: number };
-        return {
-          products: response.data,
-          total: response.total || response.data.length,
-          pages: response.pages || 1
-        };
-      }
-    }
-    
-    return {
-      products: [],
-      total: 0,
-      pages: 0
-    };
+  // Helper function to get token
+  const getToken = () => {
+    return localStorage.getItem('token') || 
+           sessionStorage.getItem('token') ||
+           localStorage.getItem('authToken') ||
+           sessionStorage.getItem('authToken');
   };
 
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await api.get('/api/categories');
+      const response = await api.get('/api/categories/admin/all');
       let categoriesData = [];
       
       if (response.data && Array.isArray(response.data)) {
         categoriesData = response.data;
-      } else if (response.data && response.data.categories) {
-        categoriesData = response.data.categories;
-      } else if (response.data && response.data.data) {
-        categoriesData = response.data.data;
       }
       
-      const parentCategories = categoriesData.filter((cat: Category) => !cat.parentId);
-      const categoryNames = parentCategories.map((cat: Category) => cat.name);
-      setCategories(categoryNames);
-      
-      return categoryNames;
+      setCategories(categoriesData);
     } catch (err) {
       console.log('Categories fetch error:', err);
-      return [];
     }
   }, []);
 
-  // Main fetch function - uses all current state values
+  // Main fetch function
   const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
       
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const token = getToken();
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
         return;
       }
       
-      // Use the current page or reset to 1 if needed
-      const pageToUse = shouldResetPageRef.current ? 1 : currentPage;
-      
-      // Reset the flag after using it
-      if (shouldResetPageRef.current && pageToUse === 1) {
-        shouldResetPageRef.current = false;
-        if (currentPage !== 1) {
-          setCurrentPage(1);
-        }
-      }
-      
       const params = new URLSearchParams();
-      params.append('page', pageToUse.toString());
+      params.append('page', currentPage.toString());
       params.append('limit', pageSize.toString());
       
       if (searchQuery) params.append('search', searchQuery);
-      if (selectedCategory) params.append('category', selectedCategory);
+      if (selectedCategory) params.append('categoryId', selectedCategory);
       if (selectedStatus) params.append('status', selectedStatus);
+      if (selectedVisibility) params.append('visibility', selectedVisibility);
       
-      const url = `/api/products?${params.toString()}`;
+      const url = `/api/products/admin/all?${params.toString()}`;
       
-      const response = await api.get<ProductsApiResponse>(url);
+      const response = await api.get(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       
       if (!isMounted.current) return;
       
-      const { products: productsData, total: totalCount, pages: pagesCount } = 
-        extractProductsFromResponse(response.data);
-      
-      setProducts(productsData);
-      setTotal(totalCount);
-      setPages(pagesCount || 1);
+      if (response.data && response.data.products) {
+        setProducts(response.data.products);
+        setTotal(response.data.total || response.data.products.length);
+        setPages(response.data.pages || 1);
+        
+        // Check if ALL products are visible
+        const visibleCount = response.data.products.filter((p: Product) => p.visibility === 'VISIBLE').length;
+        const allVisible = visibleCount === response.data.products.length;
+        setAllProductsVisible(allVisible);
+        
+        // Update category products visibility after fetch
+        if (selectedCategoryForBulk) {
+          const categoryProducts = response.data.products.filter((p: Product) => p.category?.id === selectedCategoryForBulk);
+          if (categoryProducts.length > 0) {
+            const catAllVisible = categoryProducts.every((p: Product) => p.visibility === 'VISIBLE');
+            setCategoryProductsVisible(catAllVisible);
+          }
+        }
+      }
       
     } catch (err: unknown) {
       console.error('❌ Fetch error:', err);
@@ -357,33 +307,28 @@ const ProductsPage: React.FC = () => {
       
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{ error: string }>;
-        if (axiosError.response?.status === 404) {
-          showNotification('error', 'Products API endpoint not found. Please check your backend configuration.');
-        } else if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
+        if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
           showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('authToken');
-          sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
         } else {
-          showNotification('error', axiosError.response?.data?.error || `Failed to fetch products (Status: ${axiosError.response?.status})`);
+          showNotification('error', axiosError.response?.data?.error || 'Failed to fetch products');
         }
       } else {
-        showNotification('error', err instanceof Error ? err.message : 'An unexpected error occurred');
+        showNotification('error', 'An unexpected error occurred');
       }
     } finally {
       if (isMounted.current) {
         setLoading(false);
       }
     }
-  }, [currentPage, pageSize, searchQuery, selectedCategory, selectedStatus, router]);
+  }, [currentPage, pageSize, searchQuery, selectedCategory, selectedStatus, selectedVisibility, router, selectedCategoryForBulk]);
 
-  // Initial load - only runs once
+  // Initial load
   useEffect(() => {
     isMounted.current = true;
     
     if (isInitialMount.current) {
       isInitialMount.current = false;
-      // Fetch categories first, then products
       fetchCategories().then(() => {
         fetchProducts();
       });
@@ -395,20 +340,16 @@ const ProductsPage: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Handle search with debounce - NO setState here
+  // Handle search with debounce
   useEffect(() => {
     if (isInitialMount.current || !isMounted.current) return;
 
-    // Clear existing timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
 
-    // Debounce search
     searchTimeoutRef.current = setTimeout(() => {
-      // Mark that page should reset
-      shouldResetPageRef.current = true;
-      // Fetch with page reset logic
+      setCurrentPage(1);
       fetchProducts();
     }, 500);
 
@@ -420,32 +361,158 @@ const ProductsPage: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // Handle filter changes - NO setState here
+  // Handle filter changes
   useEffect(() => {
     if (isInitialMount.current || !isMounted.current) return;
-    
-    // Mark that page should reset
-    shouldResetPageRef.current = true;
-    // Fetch with page reset logic
+    setCurrentPage(1);
     fetchProducts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCategory, selectedStatus]);
+  }, [selectedCategory, selectedStatus, selectedVisibility]);
 
-  // Handle page changes - NO setState here, just fetch
+  // Handle page changes
   useEffect(() => {
     if (isInitialMount.current || !isMounted.current) return;
     fetchProducts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
 
+  // Toggle ALL products visibility
+  const handleToggleAllProducts = async () => {
+    try {
+      setIsBulkActionLoading(true);
+      const token = getToken();
+      if (!token) {
+        showNotification('error', 'Authentication required');
+        return;
+      }
+
+      // If all are visible, HIDE them. If not all are visible, SHOW them.
+      const isHiding = allProductsVisible;
+      const newVisibility = isHiding ? 'HIDDEN' : 'VISIBLE';
+      
+      const response = await api.post('/api/products/bulk-visibility', {
+        visibility: newVisibility,
+        scope: 'all'
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.data.success) {
+        // Alert matches the ACTION performed
+        if (isHiding) {
+          showNotification('success', 'All products hidden successfully');
+        } else {
+          showNotification('success', 'All products shown successfully');
+        }
+        setAllProductsVisible(!allProductsVisible);
+        await fetchProducts();
+      }
+    } catch (err) {
+      console.error('Error toggling all products:', err);
+      if (axios.isAxiosError(err)) {
+        showNotification('error', err.response?.data?.error || 'Failed to update visibility');
+      }
+    } finally {
+      setIsBulkActionLoading(false);
+    }
+  };
+
+  // Toggle products by category
+  const handleToggleByCategory = async () => {
+    if (!selectedCategoryForBulk) {
+      showNotification('warning', 'Please select a category first');
+      return;
+    }
+
+    try {
+      setIsBulkActionLoading(true);
+      const token = getToken();
+      if (!token) {
+        showNotification('error', 'Authentication required');
+        return;
+      }
+
+      // If all in category are visible, HIDE them. If not, SHOW them.
+      const isHiding = categoryProductsVisible;
+      const newVisibility = isHiding ? 'HIDDEN' : 'VISIBLE';
+      
+      const response = await api.post('/api/products/bulk-visibility', {
+        visibility: newVisibility,
+        scope: 'category',
+        categoryId: selectedCategoryForBulk
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.data.success) {
+        // Alert matches the ACTION performed
+        if (isHiding) {
+          showNotification('success', 'Products in category hidden successfully');
+        } else {
+          showNotification('success', 'Products in category shown successfully');
+        }
+        setCategoryProductsVisible(!categoryProductsVisible);
+        await fetchProducts();
+      }
+    } catch (err) {
+      console.error('Error toggling category products:', err);
+      if (axios.isAxiosError(err)) {
+        showNotification('error', err.response?.data?.error || 'Failed to update category visibility');
+      }
+    } finally {
+      setIsBulkActionLoading(false);
+    }
+  };
+
+  // Toggle individual product visibility
+  const handleToggleProductVisibility = async (product: Product) => {
+    try {
+      const token = getToken();
+      if (!token) {
+        showNotification('error', 'Authentication required');
+        return;
+      }
+
+      // If visible, HIDE it. If hidden, SHOW it.
+      const isHiding = product.visibility === 'VISIBLE';
+      const newVisibility = isHiding ? 'HIDDEN' : 'VISIBLE';
+      
+      const response = await api.patch(`/api/products/${product.id}/visibility`, {
+        visibility: newVisibility,
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.data.success) {
+        // Alert matches the ACTION performed
+        if (isHiding) {
+          showNotification('success', `Product "${product.name}" hidden successfully`);
+        } else {
+          showNotification('success', `Product "${product.name}" shown successfully`);
+        }
+        await fetchProducts();
+      }
+    } catch (err) {
+      console.error('Error toggling product visibility:', err);
+      if (axios.isAxiosError(err)) {
+        showNotification('error', err.response?.data?.error || 'Failed to update visibility');
+      }
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
     
     try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const token = getToken();
       if (!token) {
-        showNotification('error', 'Authentication required. Please login again.');
-        router.push('/auth/signin');
+        showNotification('error', 'Authentication required');
         return;
       }
       
@@ -458,24 +525,11 @@ const ProductsPage: React.FC = () => {
       if (response.data.success) {
         showNotification('success', 'Product deleted successfully!');
         await fetchProducts();
-      } else {
-        showNotification('error', response.data.error || 'Failed to delete product');
       }
     } catch (err) {
       console.error('Error deleting product:', err);
       if (axios.isAxiosError(err)) {
-        if (err.response?.status === 401) {
-          showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('authToken');
-          sessionStorage.removeItem('authToken');
-          router.push('/auth/signin');
-        } else if (err.response?.status === 403) {
-          showNotification('error', 'You don\'t have permission to delete this product.');
-        } else {
-          showNotification('error', err.response?.data?.error || 'Failed to delete product');
-        }
-      } else {
-        showNotification('error', 'An unexpected error occurred');
+        showNotification('error', err.response?.data?.error || 'Failed to delete product');
       }
     }
   };
@@ -489,7 +543,7 @@ const ProductsPage: React.FC = () => {
     }).format(amount || 0);
   };
 
-  const formatDateWithTime = (dateString: string) => {
+  const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleString('en-US', {
       month: 'short',
@@ -500,16 +554,6 @@ const ProductsPage: React.FC = () => {
       hour12: true,
     });
   };
-
-  const getDurationLabel = (durationValue: string) => {
-    if (!durationValue || durationValue === '' || durationValue === 'undefined' || durationValue === 'null') {
-      return 'Not set';
-    }
-    const option = durationOptions.find(d => d.value === durationValue);
-    return option ? option.label : durationValue;
-  };
-
-  const statuses = ['All', 'APPROVED', 'PENDING', 'REJECTED', 'DRAFT'];
 
   const getImageUrl = (imagePath: string) => {
     if (!imagePath) return null;
@@ -538,43 +582,11 @@ const ProductsPage: React.FC = () => {
     return null;
   };
 
-  // Handle page change - NO setState in effect
-  const handlePageChange = (page: number) => {
-    if (page !== currentPage) {
-      setCurrentPage(page);
-    }
-  };
-
-  // Handle search change - NO setState in effect
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
-  };
-
-  // Handle filter change - NO setState in effect
-  const handleFilterChange = (type: 'category' | 'status', value: string) => {
-    if (type === 'category') {
-      setSelectedCategory(value);
-    } else {
-      setSelectedStatus(value);
-    }
-  };
-
-  // Handle clear filters - NO setState in effect
-  const handleClearFilters = () => {
-    setSelectedCategory('');
-    setSelectedStatus('');
-    setSearchQuery('');
-    setCurrentPage(1);
-    // Reset the flag and fetch
-    shouldResetPageRef.current = false;
-    setTimeout(() => fetchProducts(), 100);
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading products...</p>
         </div>
       </div>
@@ -594,16 +606,98 @@ const ProductsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Products</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Manage your product inventory and listings</p>
+          <p className="text-xs text-gray-500 mt-0.5">Manage your product inventory and visibility</p>
           <p className="text-xs text-gray-400 mt-1">Total: {total} products</p>
         </div>
         <Link
           href="/admin/products/new"
-          className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs"
+          className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-xs"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>Add Product</span>
         </Link>
+      </div>
+
+      {/* Visibility Controls Section */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-900">Visibility Controls</h3>
+          <span className="text-xs text-gray-500">Quick actions</span>
+        </div>
+
+        <div className="flex flex-wrap gap-3 items-center">
+          {/* 1. All Products Toggle:
+              - When ALL products are HIDDEN → Red + Eye + "Show All" (action: SHOW)
+              - When ALL products are VISIBLE → Green + EyeOff + "Hide All" (action: HIDE) */}
+          <button
+            onClick={handleToggleAllProducts}
+            disabled={isBulkActionLoading}
+            className={`inline-flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+              allProductsVisible
+                ? 'bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200'
+                : 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {isBulkActionLoading ? (
+              <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : allProductsVisible ? (
+              <>
+                <EyeOff className="w-3.5 h-3.5" />
+                <span>Hide All</span>
+              </>
+            ) : (
+              <>
+                <Eye className="w-3.5 h-3.5" />
+                <span>Show All</span>
+              </>
+            )}
+          </button>
+
+          {/* 2. By Category Toggle */}
+          <div className="flex items-center space-x-2">
+            <select
+              value={selectedCategoryForBulk}
+              onChange={(e) => {
+                setSelectedCategoryForBulk(e.target.value);
+                setCategoryProductsVisible(true);
+              }}
+              className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs min-w-[150px]"
+            >
+              <option value="">Select Category</option>
+              {categories.filter(cat => !cat.parentId).map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleToggleByCategory}
+              disabled={isBulkActionLoading || !selectedCategoryForBulk}
+              className={`inline-flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+                categoryProductsVisible
+                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200'
+                  : 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isBulkActionLoading ? (
+                <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : categoryProductsVisible ? (
+                <>
+                  <EyeOff className="w-3.5 h-3.5" />
+                  <span>Hide Category</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Show Category</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* 3. Individual Product Info */}
+          <div className="text-xs text-gray-500 italic">
+            Use <Eye className="w-3.5 h-3.5 inline text-purple-600" /> / <EyeOff className="w-3.5 h-3.5 inline text-purple-600" /> buttons in table below for individual products
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row md:items-center gap-4">
@@ -613,8 +707,8 @@ const ProductsPage: React.FC = () => {
             type="text"
             placeholder="Search products..."
             value={searchQuery}
-            onChange={handleSearchChange}
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-sm"
           />
         </div>
         <div className="flex items-center space-x-3">
@@ -627,12 +721,8 @@ const ProductsPage: React.FC = () => {
             <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
           <button
-            onClick={() => {
-              showNotification('info', 'Refreshing products...');
-              shouldResetPageRef.current = false;
-              fetchProducts();
-            }}
-            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+            onClick={() => fetchProducts()}
+            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Refresh</span>
@@ -641,40 +731,54 @@ const ProductsPage: React.FC = () => {
       </div>
 
       {showFilters && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="text-sm font-medium text-gray-700">Category</label>
             <select
               value={selectedCategory}
-              onChange={(e) => handleFilterChange('category', e.target.value)}
-              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
             >
               <option value="">All Categories</option>
-              {categories.length > 0 ? (
-                categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))
-              ) : (
-                <option value="" disabled>No categories available</option>
-              )}
+              {categories.filter(cat => !cat.parentId).map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
             </select>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-700">Status</label>
             <select
               value={selectedStatus}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
             >
               <option value="">All Statuses</option>
-              {statuses.slice(1).map(status => (
-                <option key={status} value={status}>{status}</option>
-              ))}
+              <option value="APPROVED">Approved</option>
+              <option value="PENDING">Pending</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700">Visibility</label>
+            <select
+              value={selectedVisibility}
+              onChange={(e) => setSelectedVisibility(e.target.value)}
+              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+            >
+              <option value="">All Visibility</option>
+              <option value="VISIBLE">Visible</option>
+              <option value="HIDDEN">Hidden</option>
             </select>
           </div>
           <div className="flex items-end">
             <button
-              onClick={handleClearFilters}
+              onClick={() => {
+                setSelectedCategory('');
+                setSelectedStatus('');
+                setSelectedVisibility('');
+                setSearchQuery('');
+                setCurrentPage(1);
+              }}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               Clear Filters
@@ -693,7 +797,8 @@ const ProductsPage: React.FC = () => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Category</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Price</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Stock</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Duration</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Visibility</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Created</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Actions</th>
                 </tr>
@@ -701,8 +806,6 @@ const ProductsPage: React.FC = () => {
               <tbody className="divide-y divide-gray-200">
                 {products.map((product) => {
                   const imageUrl = getFirstImage(product.images);
-                  const isDurationSet = product.durationTime && product.durationTime !== '' && product.durationTime !== 'undefined' && product.durationTime !== 'null';
-                  const durationLabel = getDurationLabel(product.durationTime || '');
                   
                   return (
                     <tr key={product.id} className="hover:bg-gray-50 transition-colors">
@@ -719,9 +822,6 @@ const ProductsPage: React.FC = () => {
                             <p className="text-sm font-semibold text-gray-900 truncate max-w-[150px]">{product.name}</p>
                             <div className="flex items-center space-x-1 text-xs text-gray-500">
                               <span>SKU: {product.sku || 'N/A'}</span>
-                              {product.subCategory && (
-                                <span>• {product.subCategory.name}</span>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -731,11 +831,6 @@ const ProductsPage: React.FC = () => {
                           <span className="text-sm text-gray-900">
                             {product.category?.name || 'Uncategorized'}
                           </span>
-                          {product.subCategory && (
-                            <span className="text-xs text-gray-500 ml-1">
-                              → {product.subCategory.name}
-                            </span>
-                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -743,55 +838,69 @@ const ProductsPage: React.FC = () => {
                           <span className="text-sm font-semibold text-gray-900">
                             {formatCurrency(product.price)}
                           </span>
-                          {product.discountPrice && product.discountPrice > 0 && product.discountPrice < product.price && (
-                            <span className="text-xs text-green-600 font-medium">
+                          {product.discountPrice && product.discountPrice > 0 && (
+                            <span className="text-xs text-emerald-600 font-medium">
                               (Disc: {formatCurrency(product.discountPrice)})
                             </span>
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center whitespace-nowrap space-x-1">
-                          <span className={`text-sm font-medium ${product.stock === 0 ? 'text-red-600' : product.stock < 10 ? 'text-yellow-600' : 'text-gray-900'}`}>
-                            {product.stock || 0}
-                          </span>
-                          {product.stock < 10 && product.stock > 0 && (
-                            <span className="text-xs text-yellow-600">(Low)</span>
-                          )}
-                          {product.stock === 0 && (
-                            <span className="text-xs text-red-600">(Out of Stock)</span>
-                          )}
-                        </div>
+                        <span className={`text-sm font-medium ${product.stock === 0 ? 'text-red-600' : product.stock < 10 ? 'text-yellow-600' : 'text-gray-900'}`}>
+                          {product.stock || 0}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center whitespace-nowrap">
-                          {isDurationSet ? (
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                              <Clock className="w-3 h-3 flex-shrink-0" />
-                              <span>{durationLabel}</span>
-                            </span>
+                        <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${
+                          product.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' :
+                          product.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {product.status}
+                        </span>
+                      </td>
+                      {/* Visibility column - icon matches the CURRENT state */}
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => handleToggleProductVisibility(product)}
+                          className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
+                            product.visibility === 'VISIBLE' 
+                              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                          title={product.visibility === 'VISIBLE' ? 'Click to Hide' : 'Click to Show'}
+                        >
+                          {product.visibility === 'VISIBLE' ? (
+                            <>
+                              <Eye className="w-3 h-3 mr-1" />
+                              Visible
+                            </>
                           ) : (
-                            <span className="text-xs text-gray-400">Not set</span>
+                            <>
+                              <EyeOff className="w-3 h-3 mr-1" />
+                              Hidden
+                            </>
                           )}
-                        </div>
+                        </button>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm text-gray-500 whitespace-nowrap">
-                          {formatDateWithTime(product.createdAt)}
+                        <div className="text-xs text-gray-500 whitespace-nowrap">
+                          {formatDate(product.createdAt)}
                         </div>
                       </td>
+                      {/* ✅ FIXED: Actions column - REMOVED Visibility Toggle, keeping only View, Edit, and Delete */}
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end space-x-1">
                           <Link
                             href={`/admin/products/${product.id}`}
                             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="View Product Details"
+                            title="View Product"
                           >
                             <Eye className="w-4 h-4" />
                           </Link>
                           <Link
                             href={`/admin/products/${product.id}/edit`}
-                            className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors"
+                            className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
                             title="Edit Product"
                           >
                             <Edit className="w-4 h-4" />
@@ -826,14 +935,14 @@ const ProductsPage: React.FC = () => {
             </p>
             <div className="flex space-x-2">
               <button
-                onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
                 className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
               <button
-                onClick={() => handlePageChange(Math.min(currentPage + 1, pages))}
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, pages))}
                 disabled={currentPage >= pages}
                 className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >

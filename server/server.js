@@ -201,11 +201,11 @@ async function startServer() {
   // Start listening
   app.listen(PORT, () => {
     console.log('\n🌱 Genesis Agri Server running on http://localhost:' + PORT);
-    console.log('📁 Uploads directory: ' + path.join(__dirname, 'uploads'));
-    console.log('📁 Products directory: ' + path.join(__dirname, 'uploads/products'));
-    console.log('📁 Settings directory: ' + path.join(__dirname, 'uploads/settings'));
-    console.log('🌍 Environment: ' + process.env.NODE_ENV);
-    console.log('🗄️  Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
+    console.log(' Uploads directory: ' + path.join(__dirname, 'uploads'));
+    console.log(' Products directory: ' + path.join(__dirname, 'uploads/products'));
+    console.log(' Settings directory: ' + path.join(__dirname, 'uploads/settings'));
+    console.log(' Environment: ' + process.env.NODE_ENV);
+    console.log('  Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
     console.log('');
     console.log('Available Endpoints:');
     console.log('   /api/auth         - Authentication routes');

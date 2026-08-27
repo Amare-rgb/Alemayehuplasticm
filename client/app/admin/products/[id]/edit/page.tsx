@@ -18,9 +18,7 @@ import {
   CheckCircle,
   XCircle,
   Info,
- 
   Weight,
-  
   FolderPlus,
   Clock,
   Calendar
@@ -37,28 +35,31 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests - FIXED: Use 'authToken'
+// ✅ FIXED: Use consistent token keys - check for 'token' first, then 'authToken'
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('authToken') || 
-                sessionStorage.getItem('authToken') ||
-                localStorage.getItem('token');
+  const token = localStorage.getItem('token') || 
+                sessionStorage.getItem('token') ||
+                localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Add response interceptor for 401 errors
+// ✅ FIXED: Use consistent redirect path '/login'
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      localStorage.removeItem('token');
       localStorage.removeItem('authToken');
+      sessionStorage.removeItem('token');
       sessionStorage.removeItem('authToken');
       localStorage.removeItem('user');
       sessionStorage.removeItem('user');
       if (typeof window !== 'undefined') {
-        window.location.href = '/auth/signin';
+        window.location.href = '/login';
       }
     }
     return Promise.reject(error);
@@ -198,6 +199,20 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
+// ✅ FIXED: Helper function to get token consistently
+const getToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('token') || 
+         sessionStorage.getItem('token') ||
+         localStorage.getItem('authToken') || 
+         sessionStorage.getItem('authToken');
+};
+
+// ✅ FIXED: Helper function to check authentication
+const isAuthenticated = (): boolean => {
+  return !!getToken();
+};
+
 // Add Category Modal
 interface AddCategoryModalProps {
   isOpen: boolean;
@@ -272,7 +287,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     setError(null);
 
     try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const token = getToken();
       if (!token) {
         setError('Authentication required');
         setLoading(false);
@@ -493,7 +508,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   // ✅ FIXED: Authentication check on mount
   useEffect(() => {
     const checkAuth = () => {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const token = getToken();
       const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
       
       console.log('🔍 Edit Product Page - Checking auth...');
@@ -501,7 +516,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
       
       if (!token) {
         console.log('❌ No token found, redirecting to login...');
-        router.replace('/auth/signin');
+        router.replace('/login');
         setAuthLoading(false);
         return;
       }
@@ -519,11 +534,11 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
           setIsAuthenticated(true);
         } catch (error) {
           console.error('Error parsing user data:', error);
-          router.replace('/auth/signin');
+          router.replace('/login');
         }
       } else {
         console.log('❌ No user data found');
-        router.replace('/auth/signin');
+        router.replace('/login');
       }
       setAuthLoading(false);
     };
@@ -660,14 +675,18 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
         setLoading(true);
         setError(null);
         
-        const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+        const token = getToken();
         if (!token) {
           showNotification('error', 'Authentication required. Please login again.');
-          router.push('/auth/signin');
+          router.push('/login');
           return;
         }
         
-        const response = await api.get(`/api/products/${productId}`);
+        const response = await api.get(`/api/products/${productId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         
         if (!isMounted.current) return;
         
@@ -714,9 +733,11 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
             showNotification('error', 'Product not found. Please check the product ID.');
           } else if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
             showNotification('error', 'Authentication failed. Please login again.');
+            localStorage.removeItem('token');
             localStorage.removeItem('authToken');
+            sessionStorage.removeItem('token');
             sessionStorage.removeItem('authToken');
-            router.push('/auth/signin');
+            router.push('/login');
           } else {
             showNotification('error', axiosError.response?.data?.error || `Failed to load product (Status: ${axiosError.response?.status})`);
           }
@@ -747,7 +768,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     setUploadingImage(true);
     
     try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const token = getToken();
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -860,10 +881,10 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     setError(null);
     
     try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      const token = getToken();
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
-        router.push('/auth/signin');
+        router.push('/login');
         return;
       }
       
@@ -902,9 +923,11 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401) {
           showNotification('error', 'Authentication failed. Please login again.');
+          localStorage.removeItem('token');
           localStorage.removeItem('authToken');
+          sessionStorage.removeItem('token');
           sessionStorage.removeItem('authToken');
-          router.push('/auth/signin');
+          router.push('/login');
         } else {
           showNotification('error', axiosError.response?.data?.error || `Failed to update product (Status: ${axiosError.response?.status})`);
         }

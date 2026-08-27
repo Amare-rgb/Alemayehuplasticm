@@ -9,7 +9,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ❌ SELLER እዚህ ጠፍቷል (USER እና ADMIN ብቻ ቀረ)
 enum Role {
   USER
   ADMIN
@@ -19,6 +18,11 @@ enum ProductStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum ProductVisibility {
+  VISIBLE
+  HIDDEN
 }
 
 enum OrderStatus {
@@ -40,6 +44,7 @@ enum CategoryStatus {
   APPROVED
   REJECTED
   INACTIVE
+  HIDDEN
 }
 
 model User {
@@ -108,33 +113,34 @@ model Category {
 }
 
 model Product {
-  id                String        @id @default(cuid())
+  id                String             @id @default(cuid())
   name              String
-  slug              String        @unique
-  description       String        @db.Text
-  price             Decimal       @db.Decimal(10, 2)
-  discountPrice     Decimal?      @db.Decimal(10, 2)
-  stock             Int           @default(0)
-  sku               String        @unique
+  slug              String             @unique
+  description       String             @db.Text
+  price             Decimal            @db.Decimal(10, 2)
+  discountPrice     Decimal?           @db.Decimal(10, 2)
+  stock             Int                @default(0)
+  sku               String             @unique
   images            String[]
-  status            ProductStatus @default(PENDING)
+  status            ProductStatus      @default(PENDING)
+  visibility        ProductVisibility  @default(VISIBLE)  // ✅ ADD THIS LINE
   adminNote         String?
   categoryId        String
   subCategoryId     String?
   tags              String[]
   warranty          String?
   videoUrl          String?
-  unitOfMeasurement String        @default("pcs")  
+  unitOfMeasurement String             @default("pcs")  
   sizes             String?         
-  colors            String?         
+  colors             String?         
   brand             String?
   weight            Float?           
   estimatedDelivery String?
   rejectionReason   String?
-  durationTime      String?       @default("1h")
-  pricePerUnit      Decimal?      @db.Decimal(10, 2)
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  durationTime      String?            @default("1h")
+  pricePerUnit      Decimal?           @db.Decimal(10, 2)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   category    Category    @relation(fields: [categoryId], references: [id])
   subCategory Category?   @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
@@ -144,6 +150,7 @@ model Product {
 
   @@index([categoryId])
   @@index([status])
+  @@index([visibility])  // ✅ ADD THIS LINE
   @@index([sku])
   @@map("products")
 }
