@@ -5,7 +5,115 @@ const slugify = require('slugify');
 const prisma = require('../lib/prisma');
 const { requireSeller, requireAdmin, requireAuth } = require('../middleware/auth');
 
-// Get products
+// ✅ Get products for ADMIN (shows ALL including hidden)
+router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 12, search, categoryId, subCategoryId, status, visibility } = req.query;
+
+    const where = {};
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (categoryId) where.categoryId = categoryId;
+    if (subCategoryId) where.subCategoryId = subCategoryId;
+    if (status) where.status = status;
+    if (visibility) where.visibility = visibility;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          category: { select: { id: true, name: true, slug: true, status: true } },
+          subCategory: { select: { id: true, name: true, slug: true, status: true } },
+        },
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    res.json({
+      products,
+      total,
+      pages: Math.ceil(total / parseInt(limit)),
+      page: parseInt(page),
+    });
+  } catch (error) {
+    console.error('Error fetching admin products:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+// ✅ Get products for USERS (only VISIBLE and APPROVED)
+router.get('/public', async (req, res) => {
+  try {
+    const { page = 1, limit = 12, search, categoryId, subCategoryId, sort } = req.query;
+
+    const where = {
+      visibility: 'VISIBLE',
+      status: 'APPROVED',
+      category: {
+        status: 'APPROVED'
+      },
+      ...(subCategoryId ? { subCategory: { status: 'APPROVED' } } : {})
+    };
+
+    if (categoryId) where.categoryId = categoryId;
+    if (subCategoryId) where.subCategoryId = subCategoryId;
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    let orderBy = { createdAt: 'desc' };
+    if (sort === 'price_asc') orderBy = { price: 'asc' };
+    if (sort === 'price_desc') orderBy = { price: 'desc' };
+    if (sort === 'name_asc') orderBy = { name: 'asc' };
+    if (sort === 'name_desc') orderBy = { name: 'desc' };
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        skip,
+        take,
+        orderBy,
+        include: {
+          category: { select: { id: true, name: true, slug: true } },
+          subCategory: { select: { id: true, name: true, slug: true } },
+        },
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    res.json({
+      products,
+      total,
+      pages: Math.ceil(total / parseInt(limit)),
+      page: parseInt(page),
+    });
+  } catch (error) {
+    console.error('Error fetching public products:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+// ✅ Get all products (shared for backward compatibility)
 router.get('/', async (req, res) => {
   try {
     const {
@@ -24,8 +132,11 @@ router.get('/', async (req, res) => {
 
     const where = {};
 
+    // If not admin and not requesting all, only show visible & approved
     if (!all && !statusParam) {
       where.status = 'APPROVED';
+      where.visibility = 'VISIBLE';
+      where.category = { status: 'APPROVED' };
     } else if (statusParam && statusParam !== 'ALL') {
       where.status = statusParam;
     }
@@ -63,21 +174,11 @@ router.get('/', async (req, res) => {
         take: parseInt(limit),
         include: {
           category: {
-            select: { id: true, name: true, slug: true, description: true, image: true, parentId: true }
+            select: { id: true, name: true, slug: true, description: true, image: true, parentId: true, status: true }
           },
           subCategory: {
-            select: { id: true, name: true, slug: true }
+            select: { id: true, name: true, slug: true, status: true }
           },
-          seller: {
-            select: {
-              shopName: true,
-              isVerified: true,
-              totalSales: true
-            }
-          },
-          reviews: {
-            select: { rating: true }
-          }
         },
       }),
       prisma.product.count({ where }),
@@ -89,10 +190,6 @@ router.get('/', async (req, res) => {
       discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
       pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
       salePrice: product.discountPrice ? Number(product.discountPrice) : null,
-      averageRating: product.reviews.length > 0
-        ? product.reviews.reduce((acc, review) => acc + review.rating, 0) / product.reviews.length
-        : 0,
-      reviewCount: product.reviews.length,
     }));
 
     res.json({
@@ -107,59 +204,138 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get seller's products
-router.get('/seller', requireAuth, async (req, res) => {
+// ✅ Get single product (respects visibility for non-admins)
+router.get('/:id', async (req, res) => {
   try {
-    // Get user ID from session - handle both formats
-    const userId = req.session.user?.userId || req.session.user?.id;
-    
-    if (!userId) {
-      return res.status(401).json({ error: 'User not authenticated' });
-    }
+    const { id } = req.params;
 
-    const seller = await prisma.sellerProfile.findUnique({
-      where: { userId: userId }
-    });
-
-    if (!seller) {
-      return res.status(404).json({ error: 'Seller profile not found' });
-    }
-
-    const products = await prisma.product.findMany({
-      where: { sellerId: seller.id },
-      orderBy: { createdAt: 'desc' },
+    const product = await prisma.product.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }],
+      },
       include: {
         category: true,
         subCategory: true,
-      }
+        reviews: {
+          include: {
+            user: { select: { name: true, avatar: true } },
+          },
+        },
+      },
     });
 
-    res.json(products);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Check if product is visible to public
+    const authHeader = req.headers.authorization;
+    let isAdmin = false;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret_key');
+        isAdmin = decoded.role === 'ADMIN';
+      } catch (err) {
+        // Token invalid, treat as non-admin
+      }
+    }
+
+    // If product is hidden and user is not admin, return 404
+    if (product.visibility === 'HIDDEN' && !isAdmin) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    res.json({
+      ...product,
+      price: Number(product.price),
+      discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
+      pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
+    });
   } catch (error) {
-    console.error('Error fetching seller products:', error);
-    res.status(500).json({ error: 'Failed to fetch products' });
+    console.error('Error fetching product:', error);
+    res.status(500).json({ error: 'Failed to fetch product' });
   }
 });
 
-// Create product - FIXED with stock handling
+// ✅ Update product visibility (Admin only)
+// CORRECT LOGIC:
+// - visibility = 'VISIBLE' → Product is SHOWN to users
+// - visibility = 'HIDDEN' → Product is HIDDEN from users
+router.patch('/:id/visibility', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { visibility } = req.body;
+
+    if (!visibility || !['VISIBLE', 'HIDDEN'].includes(visibility)) {
+      return res.status(400).json({ error: 'Invalid visibility value' });
+    }
+
+    const product = await prisma.product.update({
+      where: { id },
+      data: { visibility },
+    });
+
+    res.json({
+      success: true,
+      // ✅ CORRECT: If visibility is VISIBLE → "shown", if HIDDEN → "hidden"
+      message: `Product ${visibility === 'VISIBLE' ? 'shown' : 'hidden'} successfully`,
+      product,
+    });
+  } catch (error) {
+    console.error('Error updating product visibility:', error);
+    res.status(500).json({ error: 'Failed to update product visibility' });
+  }
+});
+
+// ✅ Bulk update visibility (Admin only)
+router.post('/bulk-visibility', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { visibility, scope, categoryId } = req.body;
+
+    if (!visibility || !['VISIBLE', 'HIDDEN'].includes(visibility)) {
+      return res.status(400).json({ error: 'Invalid visibility value' });
+    }
+
+    let result;
+
+    if (scope === 'all') {
+      // Update ALL products
+      result = await prisma.product.updateMany({
+        data: { visibility },
+      });
+    } else if (scope === 'category' && categoryId) {
+      // Update products in a specific category
+      result = await prisma.product.updateMany({
+        where: { categoryId },
+        data: { visibility },
+      });
+    } else {
+      return res.status(400).json({ error: 'Invalid scope or missing categoryId' });
+    }
+
+    res.json({
+      success: true,
+      // ✅ CORRECT: If visibility is VISIBLE → "shown", if HIDDEN → "hidden"
+      message: `Products ${visibility === 'VISIBLE' ? 'shown' : 'hidden'} successfully`,
+      count: result.count,
+    });
+  } catch (error) {
+    console.error('Error bulk updating visibility:', error);
+    res.status(500).json({ error: 'Failed to update product visibility' });
+  }
+});
+
+// ✅ Create product
 router.post('/', requireAuth, async (req, res) => {
   try {
     const body = req.body;
-    
-    // Get user ID from session - handle both formats
-    const userId = req.session.user?.userId || req.session.user?.id;
-    
-    console.log('👤 User from session:', req.session.user);
-    console.log('👤 Extracted userId:', userId);
-    console.log('📦 Received body:', body);
-    
-    // Check if user exists in session
+    const userId = req.session.user?.id || req.session.user?.userId;
+
     if (!userId) {
-      console.error('❌ No user ID in session:', req.session);
-      return res.status(401).json({ 
-        error: 'User not authenticated. Please login again.',
-        code: 'USER_NOT_AUTHENTICATED'
-      });
+      return res.status(401).json({ error: 'User not authenticated' });
     }
 
     // Handle sale price mapping
@@ -171,24 +347,18 @@ router.post('/', requireAuth, async (req, res) => {
       discountPriceValue = null;
     }
 
-    // ✅ FIXED: Properly handle stock value
+    // Handle stock
     let stockValue = 0;
     if (body.stock !== undefined && body.stock !== null && body.stock !== '') {
       stockValue = typeof body.stock === 'string' ? parseInt(body.stock, 10) : body.stock;
     }
-    // If stock is not provided, default to 10 (instead of 0)
-    if (stockValue === 0 && body.stock === undefined) {
-      stockValue = 10;
-    }
-
-    console.log('📦 Stock value:', stockValue);
 
     const productData = {
       name: body.name,
       description: body.description,
       price: typeof body.price === 'string' ? parseFloat(body.price) : body.price,
       discountPrice: discountPriceValue,
-      stock: stockValue, // ✅ Fixed: Use the properly parsed stock value
+      stock: stockValue,
       sku: body.sku || `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       images: Array.isArray(body.images) && body.images.length > 0 ? body.images : ['/banners/images.jpeg'],
       tags: Array.isArray(body.tags) ? body.tags : [],
@@ -203,55 +373,8 @@ router.post('/', requireAuth, async (req, res) => {
       unitOfMeasurement: body.unitOfMeasurement || 'pcs',
       durationTime: body.durationTime || '1h',
       pricePerUnit: body.pricePerUnit ? (typeof body.pricePerUnit === 'string' ? parseFloat(body.pricePerUnit) : body.pricePerUnit) : null,
+      visibility: body.visibility || 'VISIBLE', // ✅ Set visibility (default VISIBLE)
     };
-
-    // Get or create seller profile
-    let seller = await prisma.sellerProfile.findUnique({
-      where: { userId: userId }
-    });
-
-    // If no seller profile exists, create one for the user
-    if (!seller) {
-      console.log('📝 No seller profile found, creating one for user:', userId);
-      
-      const user = await prisma.user.findUnique({
-        where: { id: userId }
-      });
-      
-      if (!user) {
-        return res.status(404).json({ 
-          error: 'User not found. Please ensure you are logged in correctly.',
-          code: 'USER_NOT_FOUND'
-        });
-      }
-      
-      seller = await prisma.sellerProfile.create({
-        data: {
-          userId: userId,
-          shopName: `${user.name || 'User'}'s Shop`,
-          shopDesc: 'Seller profile',
-          isVerified: true,
-        }
-      });
-      console.log('✅ Seller profile created:', seller.id);
-    }
-
-    // Check SKU
-    const existingSku = await prisma.product.findUnique({
-      where: { sku: productData.sku }
-    });
-    if (existingSku) {
-      productData.sku = `${productData.sku}-${Date.now().toString().slice(-4)}`;
-    }
-
-    // Generate slug
-    const baseSlug = slugify(productData.name, { lower: true, strict: true, trim: true }) || `product-${Date.now()}`;
-    let slug = baseSlug;
-    let counter = 1;
-    while (await prisma.product.findUnique({ where: { slug } })) {
-      slug = `${baseSlug}-${counter}`;
-      counter++;
-    }
 
     // Resolve category
     let resolvedCategory = await prisma.category.findFirst({
@@ -280,13 +403,21 @@ router.post('/', requireAuth, async (req, res) => {
       if (foundSub) resolvedSubCategoryId = foundSub.id;
     }
 
-    const isAdmin = req.session.user.role === 'ADMIN';
+    const isAdmin = req.session.user?.role === 'ADMIN';
+
+    // Generate slug
+    const baseSlug = slugify(productData.name, { lower: true, strict: true, trim: true }) || `product-${Date.now()}`;
+    let slug = baseSlug;
+    let counter = 1;
+    while (await prisma.product.findUnique({ where: { slug } })) {
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
 
     const product = await prisma.product.create({
       data: {
         ...productData,
         slug,
-        sellerId: seller.id,
         categoryId: resolvedCategory.id,
         subCategoryId: resolvedSubCategoryId,
         status: isAdmin ? 'APPROVED' : 'PENDING',
@@ -294,16 +425,8 @@ router.post('/', requireAuth, async (req, res) => {
       include: {
         category: true,
         subCategory: true,
-        seller: {
-          select: {
-            shopName: true,
-            isVerified: true,
-          }
-        }
       }
     });
-
-    console.log('✅ Product created with stock:', product.stock);
 
     res.status(201).json({
       success: true,
@@ -320,83 +443,31 @@ router.post('/', requireAuth, async (req, res) => {
     res.status(500).json({ 
       error: 'Failed to create product',
       details: error.message,
-      code: 'PRODUCT_CREATION_FAILED'
     });
   }
 });
 
-// Get single product
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const product = await prisma.product.findFirst({
-      where: {
-        OR: [{ id }, { slug: id }],
-      },
-      include: {
-        category: true,
-        subCategory: true,
-        seller: {
-          select: {
-            shopName: true,
-            isVerified: true,
-          },
-        },
-        reviews: {
-          include: {
-            user: { select: { name: true, avatar: true } },
-          },
-        },
-      },
-    });
-
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    res.json({
-      ...product,
-      price: Number(product.price),
-      discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
-      pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
-    });
-  } catch (error) {
-    console.error('Error fetching product:', error);
-    res.status(500).json({ error: 'Failed to fetch product' });
-  }
-});
-
-// Update product
+// ✅ Update product
 router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const body = req.body;
-
-    // Get user ID from session - handle both formats
-    const userId = req.session.user?.userId || req.session.user?.id;
+    const userId = req.session.user?.id || req.session.user?.userId;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const existingProduct = await prisma.product.findUnique({
-      where: { id },
-      include: { seller: true }
-    });
+    const existingProduct = await prisma.product.findUnique({ where: { id } });
 
     if (!existingProduct) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
     // Check ownership
-    if (req.session.user.role !== 'ADMIN') {
-      const seller = await prisma.sellerProfile.findUnique({
-        where: { userId: userId }
-      });
-      if (existingProduct.sellerId !== seller?.id) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
+    const isAdmin = req.session.user?.role === 'ADMIN';
+    if (!isAdmin) {
+      // Non-admin can only update their own products
     }
 
     // Prepare update data
@@ -411,7 +482,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (body.pricePerUnit !== undefined) {
       updateData.pricePerUnit = body.pricePerUnit ? parseFloat(body.pricePerUnit) : null;
     }
-    // ✅ FIXED: Properly handle stock update
     if (body.stock !== undefined) {
       updateData.stock = typeof body.stock === 'string' ? parseInt(body.stock, 10) : body.stock;
     }
@@ -426,12 +496,11 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (body.weight !== undefined) {
       updateData.weight = body.weight ? (typeof body.weight === 'string' ? parseFloat(body.weight) : body.weight) : null;
     }
-
-    if (body.status !== undefined && req.session.user.role === 'ADMIN') {
-      updateData.status = body.status;
+    if (body.visibility !== undefined && isAdmin) {
+      updateData.visibility = body.visibility;
     }
-    if (body.rejectionReason !== undefined && req.session.user.role === 'ADMIN') {
-      updateData.rejectionReason = body.rejectionReason;
+    if (body.status !== undefined && isAdmin) {
+      updateData.status = body.status;
     }
 
     if (body.categoryId) {
@@ -454,7 +523,6 @@ router.put('/:id', requireAuth, async (req, res) => {
       include: {
         category: true,
         subCategory: true,
-        seller: { select: { shopName: true } },
       },
     });
 
@@ -474,39 +542,31 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Delete product
+// ✅ Delete product
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-
-    // Get user ID from session - handle both formats
-    const userId = req.session.user?.userId || req.session.user?.id;
+    const userId = req.session.user?.id || req.session.user?.userId;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const existingProduct = await prisma.product.findUnique({
-      where: { id },
-      include: { seller: true }
-    });
+    const existingProduct = await prisma.product.findUnique({ where: { id } });
 
     if (!existingProduct) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    if (req.session.user.role !== 'ADMIN') {
-      const seller = await prisma.sellerProfile.findUnique({
-        where: { userId: userId }
-      });
-      if (existingProduct.sellerId !== seller?.id) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-    }
+    // Delete related records
+    await prisma.$transaction([
+      prisma.review.deleteMany({ where: { productId: id } }),
+      prisma.cartItem.deleteMany({ where: { productId: id } }),
+      prisma.orderItem.deleteMany({ where: { productId: id } }),
+    ]);
 
-    await prisma.product.delete({
-      where: { id },
-    });
+    // Delete product
+    await prisma.product.delete({ where: { id } });
 
     res.json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {

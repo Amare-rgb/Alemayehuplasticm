@@ -11,9 +11,17 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
 
     const where = {};
     
+    // Handle role filtering
     if (role && role !== 'ALL') {
-      where.role = role;
+      if (role === 'USER') {
+        where.role = 'CUSTOMER';
+      } else if (role === 'CUSTOMER') {
+        where.role = 'CUSTOMER';
+      } else {
+        where.role = role;
+      }
     }
+    
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -40,18 +48,11 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
           avatar: true,
           createdAt: true,
           updatedAt: true,
-          sellerProfile: {
-            select: {
-              id: true,
-              shopName: true,
-              isVerified: true,
-              totalSales: true,
-            },
-          },
+          // ✅ FIXED: Removed sellerProfile since it doesn't exist in schema
+          // Only include fields that exist in the User model
           _count: {
             select: {
               orders: true,
-              // products: true, // ❌ REMOVED - doesn't exist on User model
             },
           },
         },
@@ -59,8 +60,14 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       prisma.user.count({ where }),
     ]);
 
+    // Normalize role values for frontend
+    const normalizedUsers = users.map(user => ({
+      ...user,
+      role: user.role === 'CUSTOMER' ? 'USER' : user.role,
+    }));
+
     res.json({
-      users,
+      users: normalizedUsers,
       total,
       pages: Math.ceil(total / parseInt(limit)),
       page: parseInt(page),
@@ -87,18 +94,10 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
         avatar: true,
         createdAt: true,
         updatedAt: true,
-        sellerProfile: {
-          select: {
-            id: true,
-            shopName: true,
-            isVerified: true,
-            totalSales: true,
-          },
-        },
+        // ✅ FIXED: Removed sellerProfile
         _count: {
           select: {
             orders: true,
-            // products: true, // ❌ REMOVED - doesn't exist on User model
           },
         },
       },
@@ -108,7 +107,13 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(user);
+    // Normalize role
+    const normalizedUser = {
+      ...user,
+      role: user.role === 'CUSTOMER' ? 'USER' : user.role,
+    };
+
+    res.json(normalizedUser);
   } catch (error) {
     console.error('Error fetching user:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
@@ -130,7 +135,11 @@ router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
     }
 
     const updateData = {};
-    if (role) updateData.role = role;
+    
+    // Handle role mapping
+    if (role) {
+      updateData.role = role === 'USER' ? 'CUSTOMER' : role;
+    }
     if (name) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
     if (avatar !== undefined) updateData.avatar = avatar;
@@ -150,9 +159,15 @@ router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
       },
     });
 
+    // Normalize role
+    const normalizedUser = {
+      ...updatedUser,
+      role: updatedUser.role === 'CUSTOMER' ? 'USER' : updatedUser.role,
+    };
+
     res.json({
       success: true,
-      user: updatedUser,
+      user: normalizedUser,
       message: 'User updated successfully',
     });
   } catch (error) {
@@ -185,7 +200,6 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
       prisma.cartItem.deleteMany({ where: { userId: id } }),
       prisma.address.deleteMany({ where: { userId: id } }),
       prisma.review.deleteMany({ where: { userId: id } }),
-      prisma.sellerProfile.deleteMany({ where: { userId: id } }),
     ]);
 
     // Then delete the user

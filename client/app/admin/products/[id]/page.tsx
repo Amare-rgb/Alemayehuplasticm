@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import axios, { AxiosError } from 'axios';
 import {
   ArrowLeft,
@@ -37,14 +38,37 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
+// Add token to requests - FIXED: Use consistent token key
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('token') || 
+                sessionStorage.getItem('token') ||
+                localStorage.getItem('authToken') ||
+                sessionStorage.getItem('authToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Add response interceptor for handling 401 errors globally - FIXED: Use consistent redirect path
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Clear all auth tokens
+      localStorage.removeItem('token');
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 interface Product {
   id: string;
@@ -110,7 +134,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   const getIcon = () => {
     switch (type) {
       case 'success':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
+        return <CheckCircle className="w-5 h-5 text-emerald-500" />;
       case 'error':
         return <XCircle className="w-5 h-5 text-red-500" />;
       case 'warning':
@@ -123,7 +147,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   const getColors = () => {
     switch (type) {
       case 'success':
-        return 'bg-green-50 border-green-200 text-green-800';
+        return 'bg-emerald-50 border-emerald-200 text-emerald-800';
       case 'error':
         return 'bg-red-50 border-red-200 text-red-800';
       case 'warning':
@@ -152,6 +176,69 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
+// Helper function to check if user is authenticated
+const isAuthenticated = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const token = localStorage.getItem('token') || 
+                sessionStorage.getItem('token') ||
+                localStorage.getItem('authToken') || 
+                sessionStorage.getItem('authToken');
+  return !!token;
+};
+
+// Helper function to get token
+const getToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('token') || 
+         sessionStorage.getItem('token') ||
+         localStorage.getItem('authToken') || 
+         sessionStorage.getItem('authToken');
+};
+
+// Helper function to redirect to login - FIXED: Properly typed router
+const redirectToLogin = (router: ReturnType<typeof useRouter>) => {
+  // Clear all auth tokens
+  localStorage.removeItem('token');
+  localStorage.removeItem('authToken');
+  sessionStorage.removeItem('token');
+  sessionStorage.removeItem('authToken');
+  localStorage.removeItem('user');
+  sessionStorage.removeItem('user');
+  // Use router.push for client-side navigation
+  router.push('/login');
+};
+
+// Image component with proper Next.js Image optimization
+const ProductImage: React.FC<{ 
+  src: string | null; 
+  alt: string; 
+  className?: string;
+  priority?: boolean;
+}> = ({ src, alt, className = '', priority = false }) => {
+  const [error, setError] = useState(false);
+
+  if (!src || error) {
+    return (
+      <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
+        <Package className="w-8 h-8 text-gray-400" />
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={400}
+      height={400}
+      className={`object-cover ${className}`}
+      onError={() => setError(true)}
+      priority={priority}
+      unoptimized={src.startsWith('http')}
+    />
+  );
+};
+
 const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -167,13 +254,20 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
   // Unwrap params for Next.js 15
   const unwrappedParams = React.use(params);
 
-  // Set productId from unwrapped params - FIXED
+  // Set productId from unwrapped params
   useEffect(() => {
     if (unwrappedParams && unwrappedParams.id && !hasSetProductId.current) {
       hasSetProductId.current = true;
       setProductId(unwrappedParams.id);
     }
   }, [unwrappedParams]);
+
+  // Check authentication on mount
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      redirectToLogin(router);
+    }
+  }, [router]);
 
   // Show notification helper
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
@@ -216,14 +310,18 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
       setLoading(true);
       setError(null);
       
-      const token = localStorage.getItem('token');
-      if (!token) {
-        showNotification('error', 'Authentication required. Please login again.');
-        router.push('/auth/signin');
+      // Check authentication before making request
+      if (!isAuthenticated()) {
+        redirectToLogin(router);
         return;
       }
 
-      const response = await api.get(`/api/products/${productId}`);
+      const token = getToken();
+      const response = await api.get(`/api/products/${productId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       
       let productData = response.data;
       if (response.data && response.data.product) {
@@ -241,11 +339,18 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
     } catch (err) {
       console.error('Error fetching product:', err);
       if (axios.isAxiosError(err)) {
-        if (err.response?.status === 404) {
+        if (err.response?.status === 401) {
+          // Handle 401 error - redirect to login
+          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('authToken');
+          showNotification('error', 'Session expired. Please login again.');
+          setTimeout(() => {
+            router.push('/login');
+          }, 1500);
+        } else if (err.response?.status === 404) {
           setError('Product not found');
-        } else if (err.response?.status === 401) {
-          showNotification('error', 'Authentication failed. Please login again.');
-          router.push('/auth/signin');
         } else {
           setError(err.response?.data?.error || 'Failed to load product');
         }
@@ -257,7 +362,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
     }
   }, [productId, router]);
 
-  // Fetch product when productId changes - FIXED: Use a flag to prevent cascading renders
+  // Fetch product when productId changes
   useEffect(() => {
     if (productId && !hasFetchedProduct.current) {
       hasFetchedProduct.current = true;
@@ -270,13 +375,13 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
     
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        showNotification('error', 'Authentication required. Please login again.');
-        router.push('/auth/signin');
+      // Check authentication
+      if (!isAuthenticated()) {
+        redirectToLogin(router);
         return;
       }
-      
+
+      const token = getToken();
       const response = await api.delete(`/api/products/${productId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -295,9 +400,15 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
       console.error('Error deleting product:', err);
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 401) {
-          showNotification('error', 'Authentication failed. Please login again.');
+          // Clear all auth tokens
           localStorage.removeItem('token');
-          router.push('/auth/signin');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('authToken');
+          showNotification('error', 'Session expired. Please login again.');
+          setTimeout(() => {
+            router.push('/login');
+          }, 1500);
         } else {
           showNotification('error', err.response?.data?.error || 'Failed to delete product');
         }
@@ -329,7 +440,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
-      APPROVED: 'bg-green-100 text-green-700 border-green-200',
+      APPROVED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
       PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
       REJECTED: 'bg-red-100 text-red-700 border-red-200',
       DRAFT: 'bg-gray-100 text-gray-700 border-gray-200',
@@ -339,7 +450,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
 
   const getStatusIcon = (status: string) => {
     const icons: Record<string, React.ReactNode> = {
-      APPROVED: <CheckCircle className="w-5 h-5 text-green-500" />,
+      APPROVED: <CheckCircle className="w-5 h-5 text-emerald-500" />,
       PENDING: <Clock className="w-5 h-5 text-yellow-500" />,
       REJECTED: <XCircle className="w-5 h-5 text-red-500" />,
       DRAFT: <Package className="w-5 h-5 text-gray-500" />,
@@ -351,7 +462,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading product details...</p>
         </div>
       </div>
@@ -368,7 +479,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
           </div>
           <Link
             href="/admin/products"
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
           >
             Back to Products
           </Link>
@@ -403,9 +514,10 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
           </div>
         </div>
         <div className="flex items-center space-x-3">
+          {/* ✅ FIXED: Edit button changed to smooth green */}
           <Link
             href={`/admin/products/${product.id}/edit`}
-            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors"
           >
             <Edit className="w-3.5 h-3.5" />
             <span>Edit</span>
@@ -438,7 +550,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
             </div>
           </div>
 
-          {/* Product Images */}
+          {/* Product Images - FIXED: Using Next.js Image component */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 text-sm mb-3">Product Images</h3>
             {product.images && product.images.length > 0 ? (
@@ -448,30 +560,12 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
                   
                   return (
                     <div key={index} className="aspect-square bg-gray-100 rounded-lg overflow-hidden relative group">
-                      {imageUrl ? (
-                        <img 
-                          src={imageUrl}
-                          alt={`${product.name} - ${index + 1}`}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            console.error('❌ Image failed to load:', imageUrl);
-                            const target = e.target as HTMLImageElement;
-                            if (img.startsWith('/uploads/')) {
-                              const altUrl = `${API_URL}${img.substring(1)}`;
-                              target.src = altUrl;
-                            } else {
-                              target.src = '/placeholder-image.png';
-                            }
-                          }}
-                          onLoad={() => {
-                            console.log('✅ Image loaded successfully:', imageUrl);
-                          }}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-400">
-                          <Package className="w-8 h-8" />
-                        </div>
-                      )}
+                      <ProductImage
+                        src={imageUrl}
+                        alt={`${product.name} - ${index + 1}`}
+                        className="w-full h-full"
+                        priority={index === 0}
+                      />
                       <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white text-xs px-2 py-0.5 rounded-full">
                         {index + 1}/{product.images.length}
                       </div>
@@ -524,7 +618,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
                   <span className="text-sm text-gray-600">Tags:</span>
                   <div className="flex flex-wrap gap-1">
                     {product.tags.map((tag, index) => (
-                      <span key={index} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-full">
+                      <span key={index} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs rounded-full">
                         {tag}
                       </span>
                     ))}
@@ -548,13 +642,13 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
               {product.discountPrice && product.discountPrice < product.price && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600">Discounted Price</span>
-                  <span className="text-lg font-bold text-green-600">{formatCurrency(product.discountPrice)}</span>
+                  <span className="text-lg font-bold text-emerald-600">{formatCurrency(product.discountPrice)}</span>
                 </div>
               )}
               {product.discountPrice && product.discountPrice < product.price && (
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-green-600">You Save</span>
-                  <span className="text-green-600 font-medium">{formatCurrency(product.price - product.discountPrice)}</span>
+                  <span className="text-emerald-600">You Save</span>
+                  <span className="text-emerald-600 font-medium">{formatCurrency(product.price - product.discountPrice)}</span>
                 </div>
               )}
               {product.discountPrice && product.discountPrice >= product.price && (
@@ -593,7 +687,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
                   <span className="text-sm font-medium text-gray-900">{product.seller.shopName}</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
                   <span className="text-sm text-gray-600">
                     {product.seller.isVerified ? 'Verified Seller' : 'Unverified Seller'}
                   </span>
