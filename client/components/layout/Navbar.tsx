@@ -4,7 +4,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import Image from "next/image";
 import {
   Menu,
   X,
@@ -278,15 +277,12 @@ export const Navbar = () => {
 
   const closeMenu = () => setMenuOpen(false);
 
-  // Check if logo exists and is valid
-  const hasLogo = !loading && settings.logo && settings.logo !== '' && !logoError;
-
   return (
     <header
       className={
         isHome
           ? `fixed inset-x-0 top-0 z-50 transition-all duration-500 ${
-              scrolled ? "py-2" : "py-3"
+              scrolled ? "py-3" : "py-5"
             }`
           : "relative z-50 w-full bg-[#071a11] text-white border-b border-white/10 shadow-md"
       }
@@ -294,54 +290,30 @@ export const Navbar = () => {
       <div
         className={
           isHome
-            ? `mx-auto flex h-[60px] w-[min(1180px,calc(100%-48px))] items-center justify-between border-b transition-all duration-500 ${
+            ? `mx-auto flex h-[70px] w-[min(1180px,calc(100%-48px))] items-center justify-between border-b transition-all duration-500 ${
                 scrolled
-                  ? "rounded-full border-white/10 bg-[rgba(7,26,17,.88)] px-4 shadow-[0_15px_40px_rgba(0,0,0,.18)] backdrop-blur-xl"
+                  ? "rounded-full border-white/10 bg-[rgba(7,26,17,.88)] px-5 shadow-[0_15px_40px_rgba(0,0,0,.18)] backdrop-blur-xl"
                   : "border-white/20 px-0"
               }`
-            : "mx-auto flex h-[65px] w-[min(1180px,calc(100%-48px))] items-center justify-between px-0"
+            : "mx-auto flex h-[75px] w-[min(1180px,calc(100%-48px))] items-center justify-between px-0"
         }
       >
-        {/* Logo - Smaller and Circular */}
+        {/* =====================================================
+            LOGO / BRAND
+        ====================================================== */}
         <Link
           href="/"
-          className="group flex items-center gap-2.5"
+          className="group flex items-center gap-3"
           onClick={closeMenu}
         >
-          {/* Dynamic Logo from Settings - Circular */}
-          {hasLogo ? (
-            <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/5 border-2 border-white/20 p-0.5">
-              <Image
-                src={settings.logo}
-                alt={settings.siteName || "Genesis"}
-                fill
-                className="object-contain rounded-full"
-                sizes="40px"
-                priority
-                onError={() => {
-                  console.log('❌ Logo failed to load:', settings.logo);
-                  setLogoError(true);
-                }}
-                onLoad={() => {
-                  console.log('✅ Logo loaded successfully');
-                  setLogoError(false);
-                }}
-              />
-            </div>
-          ) : (
-            // Fallback SVG Logo - Circular
-            <span className="brand-mark shrink-0" aria-hidden="true">
-              <span className="leaf leaf-one" />
-              <span className="leaf leaf-two" />
-              <span className="stem" />
-            </span>
-          )}
+          <BrandMark />
 
-          <div className="flex flex-col leading-tight">
-            <span className="font-serif-heading text-[18px] font-semibold tracking-[-0.03em] text-white leading-none">
-              {settings.siteName || "Genesis"}
+          <div className="flex flex-col leading-none">
+            <span className="font-serif-heading text-[23px] font-semibold tracking-[-0.045em] text-white">
+              Genesis
             </span>
-            <span className="text-[7px] font-semibold uppercase tracking-[0.25em] text-white/50 leading-none mt-0.5">
+
+            <span className="mt-1 text-[8px] font-semibold uppercase tracking-[0.28em] text-white/55">
               Agro-Business
             </span>
           </div>
