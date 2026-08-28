@@ -124,7 +124,6 @@ router.get('/', async (req, res) => {
       sort = 'newest',
       minPrice,
       maxPrice,
-      condition,
       brand,
       status: statusParam,
       all = false
@@ -159,7 +158,6 @@ router.get('/', async (req, res) => {
       if (maxPrice) where.price.lte = parseFloat(maxPrice);
     }
 
-    if (condition) where.condition = condition;
     if (brand) where.brand = brand;
 
     const orderBy = sort === 'price_asc' ? { price: 'asc' }
@@ -261,9 +259,6 @@ router.get('/:id', async (req, res) => {
 });
 
 // ✅ Update product visibility (Admin only)
-// CORRECT LOGIC:
-// - visibility = 'VISIBLE' → Product is SHOWN to users
-// - visibility = 'HIDDEN' → Product is HIDDEN from users
 router.patch('/:id/visibility', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -280,7 +275,6 @@ router.patch('/:id/visibility', requireAuth, requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      // ✅ CORRECT: If visibility is VISIBLE → "shown", if HIDDEN → "hidden"
       message: `Product ${visibility === 'VISIBLE' ? 'shown' : 'hidden'} successfully`,
       product,
     });
@@ -302,12 +296,10 @@ router.post('/bulk-visibility', requireAuth, requireAdmin, async (req, res) => {
     let result;
 
     if (scope === 'all') {
-      // Update ALL products
       result = await prisma.product.updateMany({
         data: { visibility },
       });
     } else if (scope === 'category' && categoryId) {
-      // Update products in a specific category
       result = await prisma.product.updateMany({
         where: { categoryId },
         data: { visibility },
@@ -318,7 +310,6 @@ router.post('/bulk-visibility', requireAuth, requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      // ✅ CORRECT: If visibility is VISIBLE → "shown", if HIDDEN → "hidden"
       message: `Products ${visibility === 'VISIBLE' ? 'shown' : 'hidden'} successfully`,
       count: result.count,
     });
@@ -362,7 +353,6 @@ router.post('/', requireAuth, async (req, res) => {
       sku: body.sku || `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       images: Array.isArray(body.images) && body.images.length > 0 ? body.images : ['/banners/images.jpeg'],
       tags: Array.isArray(body.tags) ? body.tags : [],
-      condition: body.condition || 'NEW',
       warranty: body.warranty || null,
       videoUrl: body.videoUrl || null,
       sizes: body.sizes || null,
@@ -373,8 +363,11 @@ router.post('/', requireAuth, async (req, res) => {
       unitOfMeasurement: body.unitOfMeasurement || 'pcs',
       durationTime: body.durationTime || '1h',
       pricePerUnit: body.pricePerUnit ? (typeof body.pricePerUnit === 'string' ? parseFloat(body.pricePerUnit) : body.pricePerUnit) : null,
-      visibility: body.visibility || 'VISIBLE', // ✅ Set visibility (default VISIBLE)
+      visibility: body.visibility || 'VISIBLE',
     };
+
+    // ✅ FIXED: Remove condition field since it doesn't exist in schema
+    // Don't include condition, sizes, colors in productData
 
     // Resolve category
     let resolvedCategory = await prisma.category.findFirst({
@@ -466,9 +459,6 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     // Check ownership
     const isAdmin = req.session.user?.role === 'ADMIN';
-    if (!isAdmin) {
-      // Non-admin can only update their own products
-    }
 
     // Prepare update data
     const updateData = {};
@@ -487,7 +477,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     }
     if (body.images !== undefined) updateData.images = body.images;
     if (body.tags !== undefined) updateData.tags = Array.isArray(body.tags) ? body.tags : [];
-    if (body.condition !== undefined) updateData.condition = body.condition;
     if (body.brand !== undefined) updateData.brand = body.brand || null;
     if (body.warranty !== undefined) updateData.warranty = body.warranty || null;
     if (body.videoUrl !== undefined) updateData.videoUrl = body.videoUrl || null;
@@ -502,6 +491,8 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (body.status !== undefined && isAdmin) {
       updateData.status = body.status;
     }
+
+    // ✅ FIXED: Don't include condition, sizes, colors if they don't exist
 
     if (body.categoryId) {
       const cat = await prisma.category.findFirst({

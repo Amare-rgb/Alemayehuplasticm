@@ -26,6 +26,8 @@ const uploadRoutes = require('./routes/upload.routes');
 const usersRoutes = require('./routes/users.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const profileRoutes = require('./routes/profile.routes');
+// ============== ADD ARTICLES ROUTE ==============
+const articlesRoutes = require('./routes/articles.routes');
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -48,6 +50,13 @@ if (!fs.existsSync(settingsDir)) {
   console.log('✅ Created settings directory:', settingsDir);
 }
 
+// ============== ENSURE PDFS DIRECTORY EXISTS ==============
+const pdfsDir = path.join(uploadsDir, 'pdfs');
+if (!fs.existsSync(pdfsDir)) {
+  fs.mkdirSync(pdfsDir, { recursive: true });
+  console.log('✅ Created PDFs directory:', pdfsDir);
+}
+
 // Middleware
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
@@ -64,6 +73,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/uploads/products', express.static(path.join(__dirname, 'uploads/products')));
 app.use('/uploads/settings', express.static(path.join(__dirname, 'uploads/settings')));
+app.use('/uploads/pdfs', express.static(path.join(__dirname, 'uploads/pdfs'))); // ADD THIS LINE
 
 console.log('✅ Serving static files from:', path.join(__dirname, 'uploads'));
 
@@ -110,6 +120,8 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/admin/settings', settingsRoutes);
 app.use('/api/profile', profileRoutes);
+// ============== ADD ARTICLES ROUTE ==============
+app.use('/api/articles', articlesRoutes);
 
 // Health check with database status
 app.get('/api/health', async (req, res) => {
@@ -153,6 +165,7 @@ app.get('/', (req, res) => {
       auth: '/api/auth',
       admin: '/api/admin',
       adminDashboard: '/api/admin/dashboard',
+      articles: '/api/articles', // ADD THIS LINE
       blog: '/api/blog',
       cart: '/api/cart',
       categories: '/api/categories',
@@ -204,6 +217,7 @@ async function startServer() {
     console.log(' Uploads directory: ' + path.join(__dirname, 'uploads'));
     console.log(' Products directory: ' + path.join(__dirname, 'uploads/products'));
     console.log(' Settings directory: ' + path.join(__dirname, 'uploads/settings'));
+    console.log(' PDFs directory: ' + path.join(__dirname, 'uploads/pdfs'));
     console.log(' Environment: ' + process.env.NODE_ENV);
     console.log('  Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
     console.log('');
@@ -211,6 +225,7 @@ async function startServer() {
     console.log('   /api/auth         - Authentication routes');
     console.log('   /api/admin        - Admin routes');
     console.log('   /api/admin/dashboard - Dashboard routes');
+    console.log('   /api/articles     - Article management routes'); // ADD THIS LINE
     console.log('   /api/blog         - Blog routes');
     console.log('   /api/cart         - Cart routes');
     console.log('   /api/categories   - Category routes');
@@ -222,6 +237,16 @@ async function startServer() {
     console.log('   /api/profile      - Profile routes');
     console.log('   /api/admin/settings - Settings routes');
     console.log('   /api/health       - Health check');
+    console.log('');
+    console.log('📄 Article Endpoints:');
+    console.log('   POST   /api/articles        - Create article with PDF');
+    console.log('   GET    /api/articles        - Get all articles');
+    console.log('   GET    /api/articles/:id    - Get single article');
+    console.log('   PUT    /api/articles/:id    - Update article');
+    console.log('   DELETE /api/articles/:id    - Delete article');
+    console.log('   PATCH  /api/articles/:id/status - Update article status');
+    console.log('   GET    /api/articles/stats/summary - Get article statistics');
+    console.log('   GET    /api/articles/search/query - Search articles');
     console.log('');
   });
 }
