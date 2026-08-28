@@ -193,12 +193,7 @@ export const Navbar = () => {
     status === "authenticated" || (status !== "unauthenticated" && !!activeUser);
 
   const isAdminRoute = pathname?.startsWith("/admin") || false;
-  const isHome =
-    pathname === "/" ||
-    pathname === "/shop" ||
-    pathname === "/blog" ||
-    pathname === "/about" ||
-    pathname === "/orders";
+  const isHome = pathname === "/";
 
   useEffect(() => {
     if (!isHome) return;
