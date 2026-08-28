@@ -47,6 +47,12 @@ enum CategoryStatus {
   HIDDEN
 }
 
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 model User {
   id        String   @id @default(cuid())
   name      String
@@ -67,6 +73,7 @@ model User {
   blogPosts          BlogPost[]
   categories         Category[] @relation("CategoryCreator")
   approvedCategories Category[] @relation("CategoryApprover")
+  articles           Article[]  @relation("ArticleAuthor")
 
   @@map("users")
 }
@@ -123,16 +130,16 @@ model Product {
   sku               String             @unique
   images            String[]
   status            ProductStatus      @default(PENDING)
-  visibility        ProductVisibility  @default(VISIBLE)  // ✅ ADD THIS LINE
+  visibility        ProductVisibility  @default(VISIBLE)
   adminNote         String?
   categoryId        String
   subCategoryId     String?
   tags              String[]
   warranty          String?
   videoUrl          String?
-  unitOfMeasurement String             @default("pcs")  
+  unitOfMeasurement String             @default("pcs")
   sizes             String?         
-  colors             String?         
+  colors            String?         
   brand             String?
   weight            Float?           
   estimatedDelivery String?
@@ -150,7 +157,7 @@ model Product {
 
   @@index([categoryId])
   @@index([status])
-  @@index([visibility])  // ✅ ADD THIS LINE
+  @@index([visibility])
   @@index([sku])
   @@map("products")
 }
@@ -267,6 +274,39 @@ model BlogPost {
   @@map("blog_posts")
 }
 
+// ============================================
+// ARTICLE MODEL - ADDED NOTE FIELD
+// ============================================
+model Article {
+  id            String        @id @default(cuid())
+  title         String
+  author        String
+  summary       String?
+  content       String        @db.Text
+  note          String?       @db.Text  // ← ADDED: Writer's Note
+  pdfUrl        String
+  pdfFileName   String
+  pdfFileSize   Int
+  status        ArticleStatus @default(PUBLISHED)
+  views         Int           @default(0)
+  downloads     Int           @default(0)
+  tags          String[]
+  createdBy     String?
+  publishedAt   DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  authorUser    User?         @relation("ArticleAuthor", fields: [createdBy], references: [id])
+
+  @@index([status, createdAt])
+  @@index([author])
+  @@index([createdBy])
+  @@map("articles")
+}
+
+// ============================================
+// SETTINGS MODEL
+// ============================================
 model Settings {
   id                   String   @id @default(cuid())
   siteName             String   @default("Genesis Agri Business")
@@ -282,8 +322,8 @@ model Settings {
   storeAddress         String?  @default("123 Farm Road, Nairobi, Kenya")
   currency             String   @default("KES")
   taxRate              Float    @default(16)
-  logo                 String?  
-  favicon              String?  
+  logo                 String?  @default("")
+  favicon              String?  @default("")
   twoFactorAuth        Boolean  @default(false)
   sessionTimeout       Int      @default(60)
   emailNotifications   Boolean  @default(true)
@@ -293,6 +333,20 @@ model Settings {
   marketingEmails      Boolean  @default(false)
   themeColor           String   @default("#22c55e")
   darkMode             Boolean  @default(false)
+  
+  contactEmail         String?  @default("support@genesisagri.com")
+  contactPhone         String?  @default("+1 (555) 123-4567")
+  contactAddress       String?  @default("123 Agriculture Way, Farming District, FC 12345")
+  contactHours         String?  @default("Mon-Fri: 8:00 AM - 6:00 PM")
+  contactMapEmbed      String?  @default("")
+  enableContactForm    Boolean  @default(true)
+  enableWhatsApp       Boolean  @default(true)
+  whatsAppNumber       String?  @default("+254700000000")
+  enableLiveChat       Boolean  @default(false)
+  emergencyPhone       String?  @default("+1 (555) 999-9999")
+  supportEmail         String?  @default("support@genesisagri.com")
+  infoEmail            String?  @default("info@genesisagri.com")
+  
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

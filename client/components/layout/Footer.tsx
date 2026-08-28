@@ -4,6 +4,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSettings } from "@/hooks/useSettings";
 
 function BrandMark() {
   return (
@@ -18,10 +19,17 @@ function BrandMark() {
 export const Footer = () => {
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith("/admin") || false;
+  const { settings, loading } = useSettings(true);
 
   if (isAdminRoute) {
     return null;
   }
+
+  // Use settings values with fallbacks
+  const contactEmail = settings?.contactEmail || 'info@genesisagrobusiness.com';
+  const contactPhone = settings?.contactPhone || '+251 900 000 000';
+  const contactAddress = settings?.contactAddress || 'Ethiopia';
+  const siteName = settings?.siteName || 'GENESIS';
 
   return (
     <footer className="bg-[#081b12] text-white">
@@ -32,7 +40,7 @@ export const Footer = () => {
 
             <span className="grid gap-[5px] leading-none">
               <strong className="text-[18px] tracking-[0.16em]">
-                GENESIS
+                {siteName.toUpperCase()}
               </strong>
 
               <small className="text-[8px] tracking-[0.22em] opacity-75">
@@ -88,20 +96,22 @@ export const Footer = () => {
           </h4>
 
           <a
-            href="mailto:info@genesisagrobusiness.com"
-            className="text-[11px] text-white/60 transition hover:text-white"
+            href={`mailto:${contactEmail}`}
+            className="text-[11px] text-white/60 transition hover:text-white break-all"
           >
-            info@genesisagrobusiness.com
+            {contactEmail}
           </a>
 
           <a
-            href="tel:+251900000000"
+            href={`tel:${contactPhone.replace(/\s/g, '')}`}
             className="text-[11px] text-white/60 transition hover:text-white"
           >
-            +251 900 000 000
+            {contactPhone}
           </a>
 
-          <span className="text-[11px] text-white/60">Ethiopia</span>
+          <span className="text-[11px] text-white/60">
+            {contactAddress}
+          </span>
         </div>
 
         <div className="grid content-start gap-2">
