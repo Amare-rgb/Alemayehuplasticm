@@ -156,7 +156,9 @@ export default function SignInPage() {
       // Store token
       if (data.token) {
         localStorage.setItem("authToken", data.token);
+        localStorage.setItem("token", data.token);
         sessionStorage.setItem("authToken", data.token);
+        sessionStorage.setItem("token", data.token);
         console.log("✅ Token stored");
       }
       
@@ -175,6 +177,10 @@ export default function SignInPage() {
         }
       }
 
+      // Notify any active context listeners
+      window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new Event("auth-change"));
+
       // ============================================
       // FIXED: Redirect logic with immediate execution
       // ============================================
@@ -187,7 +193,7 @@ export default function SignInPage() {
       console.log("🔄 Redirecting with role:", userRole);
 
       // Determine redirect URL
-      let redirectUrl = '/dashboard';
+      let redirectUrl = '/shop';
       if (userRole === 'ADMIN') {
         redirectUrl = '/admin/dashboard';
       } else if (userRole === 'SELLER' || userRole === 'FARMER') {

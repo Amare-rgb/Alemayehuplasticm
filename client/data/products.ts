@@ -1,12 +1,15 @@
-export type ProductCategory = "Vegetables" | "Fruits" | "Cereals";
+// data/products.ts
+
+export type ProductCategory = "Vegetables" | "Fruits" | "Cereals" | "Dairy" | "Spices";
 
 export type Product = {
   id: string;
   slug: string;
   name: string;
-  category: ProductCategory;
+  category: string;
   description: string;
   price: number;
+  discountPrice?: number | null;
   unit: string;
   stock: number;
   featured?: boolean;
@@ -18,11 +21,12 @@ export const products: Product[] = [
   {
     id: "tomato-001",
     slug: "fresh-tomatoes",
-    name: "Fresh Tomatoes",
+    name: "Fresh Red Tomatoes",
     category: "Vegetables",
     description:
-      "Fresh, naturally ripened tomatoes sourced directly from local farms.",
+      "Fresh, naturally ripened red tomatoes sourced directly from local farm harvest.",
     price: 85,
+    discountPrice: 75,
     unit: "kg",
     stock: 120,
     featured: true,
@@ -30,21 +34,20 @@ export const products: Product[] = [
     images: [
       "https://images.unsplash.com/photo-1546094096-0df4bcaaa337?auto=format&fit=crop&w=1200&q=85",
       "https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=1200&q=85",
-      "https://images.unsplash.com/photo-1561136594-7f68413baa99?auto=format&fit=crop&w=1200&q=85",
     ],
   },
   {
     id: "tomato-002",
     slug: "organic-tomatoes",
-    name: "Organic Tomatoes",
+    name: "Organic Vine Tomatoes",
     category: "Vegetables",
     description:
-      "Freshly harvested ripe organic tomatoes directly from Genesis fields.",
-    price: 45,
+      "Freshly harvested ripe organic vine tomatoes grown without synthetic pesticides.",
+    price: 95,
     unit: "kg",
-    stock: 120,
+    stock: 80,
     featured: true,
-    badge: "Farm Fresh",
+    badge: "Organic",
     images: [
       "https://images.unsplash.com/photo-1592841200221-a6898f307baa?auto=format&fit=crop&w=1200&q=85",
       "https://images.unsplash.com/photo-1546470427-227c7369a64e?auto=format&fit=crop&w=1200&q=85",
@@ -53,14 +56,14 @@ export const products: Product[] = [
   {
     id: "spinach-001",
     slug: "fresh-spinach",
-    name: "Fresh Spinach & Garden Greens",
+    name: "Fresh Garden Spinach",
     category: "Vegetables",
     description:
-      "Nutrient-rich green spinach leaves harvested daily from our organic garden beds.",
+      "Nutrient-dense dark green spinach leaves harvested daily from our organic beds.",
     price: 30,
     unit: "bundle",
     stock: 85,
-    badge: "Organic",
+    badge: "Farm Fresh",
     images: [
       "https://images.unsplash.com/photo-1576045057995-568f588f82fb?auto=format&fit=crop&w=1200&q=85",
       "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
@@ -69,10 +72,10 @@ export const products: Product[] = [
   {
     id: "onion-001",
     slug: "red-onions",
-    name: "Red Onions",
+    name: "Crisp Red Onions",
     category: "Vegetables",
     description:
-      "Crisp, flavorful red onions carefully selected for freshness and quality.",
+      "Aromatic, firm red onions carefully dried and curated for long kitchen shelf life.",
     price: 70,
     unit: "kg",
     stock: 90,
@@ -84,15 +87,16 @@ export const products: Product[] = [
   {
     id: "avocado-001",
     slug: "fresh-avocados",
-    name: "Fresh Avocados",
+    name: "Hass Fresh Avocados",
     category: "Fruits",
     description:
-      "Creamy, nutrient-rich avocados harvested at the right stage of ripeness.",
+      "Rich and creamy avocados picked at peak maturity from highland orchards.",
     price: 140,
+    discountPrice: 125,
     unit: "kg",
     stock: 55,
     featured: true,
-    badge: "Farm Fresh",
+    badge: "Special Offer",
     images: [
       "https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?auto=format&fit=crop&w=1200&q=85",
       "https://images.unsplash.com/photo-1601039641847-7857b994d704?auto=format&fit=crop&w=1200&q=85",
@@ -101,10 +105,10 @@ export const products: Product[] = [
   {
     id: "apple-001",
     slug: "fresh-apples",
-    name: "Seasonal Fresh Apples",
+    name: "Crisp Orchard Apples",
     category: "Fruits",
     description:
-      "Sweet, crisp handpicked apples direct from orchard harvest.",
+      "Sweet, crunchy fresh apples handpicked directly from local fruit orchards.",
     price: 85,
     unit: "kg",
     stock: 60,
@@ -118,10 +122,10 @@ export const products: Product[] = [
   {
     id: "banana-001",
     slug: "fresh-bananas",
-    name: "Fresh Bananas",
+    name: "Sweet Farm Bananas",
     category: "Fruits",
     description:
-      "Naturally sweet bananas sourced directly from trusted local growers.",
+      "Naturally ripened sweet bananas packed with energy and natural potassium.",
     price: 75,
     unit: "kg",
     stock: 150,
@@ -131,26 +135,12 @@ export const products: Product[] = [
     ],
   },
   {
-    id: "banana-002",
-    slug: "ripe-bananas",
-    name: "Ripe Bananas (Cluster)",
-    category: "Fruits",
-    description:
-      "Naturally ripened sweet bananas packed with energy and essential nutrients.",
-    price: 65,
-    unit: "cluster",
-    stock: 140,
-    images: [
-      "https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?auto=format&fit=crop&w=1200&q=85",
-    ],
-  },
-  {
     id: "maize-001",
     slug: "yellow-maize",
-    name: "Yellow Maize",
+    name: "Premium Yellow Maize",
     category: "Cereals",
     description:
-      "High-quality maize sourced directly from farmers and carefully handled.",
+      "High-grade dried yellow corn/maize grains suitable for milling and feeding.",
     price: 95,
     unit: "kg",
     stock: 300,
@@ -164,10 +154,10 @@ export const products: Product[] = [
   {
     id: "wheat-001",
     slug: "whole-wheat",
-    name: "Whole Wheat",
+    name: "Clean Whole Wheat",
     category: "Cereals",
     description:
-      "Wholesome whole wheat grains selected for quality and nutrition.",
+      "Nutritious whole wheat grains cleaned and packed straight from the fields.",
     price: 110,
     unit: "kg",
     stock: 180,
@@ -177,63 +167,35 @@ export const products: Product[] = [
     ],
   },
   {
-    id: "wheat-002",
-    slug: "premium-wheat",
-    name: "Premium Wheat Grains",
-    category: "Cereals",
-    description:
-      "High-quality whole wheat grains for home milling, bread, and porridge.",
-    price: 320,
-    unit: "5kg pack",
-    stock: 40,
-    badge: "Premium",
-    images: [
-      "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-    ],
-  },
-  {
     id: "teff-001",
     slug: "organic-teff",
-    name: "Organic Teff Grain",
+    name: "Organic Teff Grains",
     category: "Cereals",
     description:
-      "Pure gluten-free staple teff grain directly from farm harvest.",
-    price: 680,
-    unit: "10kg bag",
-    stock: 30,
+      "Pure, gluten-free staple white and brown teff harvested from Ethiopian highlands.",
+    price: 130,
+    unit: "kg",
+    stock: 200,
+    featured: true,
     badge: "Gluten Free",
     images: [
       "https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=1200&q=85",
+      "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
     ],
   },
   {
     id: "milk-001",
     slug: "tana-fresh-milk",
-    name: "Tana Farm Fresh Cow Milk",
-    category: "Cereals",
+    name: "Tana Farm Fresh Milk",
+    category: "Dairy",
     description:
-      "100% pure, farm-fresh pasteurized cow milk from Tana Sister Farm.",
-    price: 110,
-    unit: "2L bottle",
-    stock: 50,
+      "Pure pasteurized whole cow milk straight from our sister enterprise Tana Farm.",
+    price: 90,
+    unit: "liter",
+    stock: 60,
     badge: "Tana Farm",
     images: [
       "https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=1200&q=85",
-    ],
-  },
-  {
-    id: "cow-001",
-    slug: "tana-cattle",
-    name: "Tana Farm Raised Cattle / Cow",
-    category: "Cereals",
-    description:
-      "Healthy, well-cared farm-raised cow for livestock purchase from Tana Sister Farm.",
-    price: 45000,
-    unit: "animal",
-    stock: 5,
-    badge: "Tana Farm",
-    images: [
-      "https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=1200&q=85",
     ],
   },
 ];
