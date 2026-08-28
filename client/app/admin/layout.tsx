@@ -20,6 +20,8 @@ import {
   User,
   CreditCard,
   FileText,
+  Newspaper,
+  StickyNote, // ADD THIS IMPORT
 } from 'lucide-react';
 
 // Define types
@@ -128,9 +130,9 @@ export default function AdminLayout({
 
     checkAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMounted]); // Remove router from dependencies
+  }, [isMounted]);
 
-  // Navigation items
+  // Navigation items - ADD NOTES HERE
   const navItems: NavItem[] = [
     { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, section: 'Main' },
     { name: 'Products', href: '/admin/products', icon: Package, section: 'Main' },
@@ -138,6 +140,9 @@ export default function AdminLayout({
     { name: 'Users', href: '/admin/users', icon: Users, section: 'Main' },
     { name: 'Transactions', href: '/admin/transactions', icon: CreditCard, section: 'Financial' },
     { name: 'Blog', href: '/admin/blog', icon: FileText, section: 'Content' },
+    // ADD NOTES NAVIGATION ITEM
+    { name: 'Notes', href: '/admin/notes', icon: StickyNote, section: 'Content' },
+    { name: 'Articles', href: '/admin/articles', icon: Newspaper, section: 'Content' },
     { name: 'Settings', href: '/admin/settings', icon: Settings, section: 'Settings' },
   ];
 
@@ -220,37 +225,33 @@ export default function AdminLayout({
           sidebarOpen ? 'w-64' : 'w-20'
         }`}
       >
-        {/* Logo - FIXED with actual image */}
-       
-
-{/* Logo - FIXED with full text */}
-{/* Logo - FIXED with larger font */}
-<div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
-  <Link href="/admin/dashboard" className="flex items-center space-x-2">
-    <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
-      <Image
-        src="/banners/images.jpeg"
-        alt="Genesis Agri Business"
-        width={32}
-        height={32}
-        className="w-full h-full object-cover"
-        unoptimized
-      />
-    </div>
-    {sidebarOpen && (
-      <span className="text-sm font-semibold text-gray-800 whitespace-nowrap">
-        Genesis Agri Business
-      </span>
-    )}
-  </Link>
-  <button
-    onClick={() => setSidebarOpen(!sidebarOpen)}
-    className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
-    aria-label="Toggle sidebar"
-  >
-    {sidebarOpen ? <X className="w-5 h-5 text-gray-500" /> : <Menu className="w-5 h-5 text-gray-500" />}
-  </button>
-</div>
+        {/* Logo */}
+        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
+          <Link href="/admin/dashboard" className="flex items-center space-x-2">
+            <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
+              <Image
+                src="/banners/images.jpeg"
+                alt="Genesis Agri Business"
+                width={32}
+                height={32}
+                className="w-full h-full object-cover"
+                unoptimized
+              />
+            </div>
+            {sidebarOpen && (
+              <span className="text-sm font-semibold text-gray-800 whitespace-nowrap">
+                Genesis Agri Business
+              </span>
+            )}
+          </Link>
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+            aria-label="Toggle sidebar"
+          >
+            {sidebarOpen ? <X className="w-5 h-5 text-gray-500" /> : <Menu className="w-5 h-5 text-gray-500" />}
+          </button>
+        </div>
 
         {/* Navigation */}
         <nav className="p-4 space-y-4 overflow-y-auto h-[calc(100vh-4rem)]">
