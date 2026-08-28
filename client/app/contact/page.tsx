@@ -1,32 +1,60 @@
-"use client"
+// app/contact/page.tsx
+"use client";
 
-import React, { useState } from 'react'
-import { MapPin, Phone, Mail, Clock, Send, CheckCircle } from 'lucide-react'
-import toast from 'react-hot-toast'
+import React, { useState } from 'react';
+import { MapPin, Phone, Mail, Clock, Send, CheckCircle, Loader2 } from 'lucide-react';
+import { useSettings } from '@/hooks/useSettings';
+import toast from 'react-hot-toast';
 
 export default function ContactPage() {
-  const [submitted, setSubmitted] = useState(false)
-  const [loading, setLoading] = useState(false)
+  // Pass true to use public endpoint
+  const { settings, loading } = useSettings(true);
+  const [submitted, setSubmitted] = useState(false);
+  const [sending, setSending] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
     subject: 'General Inquiry',
     message: ''
-  })
+  });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setTimeout(() => {
-      setLoading(false)
-      setSubmitted(true)
-      toast.success('Thank you! Your message has been sent to our agronomy support team.')
-    }, 800)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSending(true);
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      setSubmitted(true);
+      toast.success('Thank you! Your message has been sent to our agronomy support team.');
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
+        subject: 'General Inquiry',
+        message: ''
+      });
+    } catch (error) {
+      toast.error('Failed to send message. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-green-600 mx-auto" />
+          <p className="mt-4 text-gray-600">Loading contact information...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 py-12">
+    <main className="min-h-screen bg-gray-50 py-12 pt-32">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         
         {/* Header */}
@@ -42,7 +70,7 @@ export default function ContactPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Contact Details Card */}
+          {/* Contact Details Card - Dynamic from Settings */}
           <div className="bg-gradient-to-br from-green-800 to-emerald-900 text-white rounded-2xl p-8 space-y-8 shadow-md">
             <div>
               <h2 className="text-2xl font-bold mb-2">Contact Information</h2>
@@ -52,47 +80,68 @@ export default function ContactPage() {
             </div>
 
             <div className="space-y-6 text-sm">
+              {/* Address - Dynamic */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <MapPin size={20} className="text-green-300" />
                 </div>
                 <div>
                   <div className="font-semibold text-white">Headquarters</div>
-                  <div className="text-green-100 mt-0.5">123 Agriculture Way, Farming District, FC 12345</div>
+                  <div className="text-green-100 mt-0.5">
+                    {settings.contactAddress || '123 Agriculture Way, Farming District, FC 12345'}
+                  </div>
                 </div>
               </div>
 
+              {/* Phone - Dynamic */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <Phone size={20} className="text-green-300" />
                 </div>
                 <div>
                   <div className="font-semibold text-white">Phone Support</div>
-                  <div className="text-green-100 mt-0.5">+1 (555) 123-4567</div>
-                  <div className="text-xs text-green-300">Mon - Fri: 8:00 AM - 6:00 PM</div>
+                  <div className="text-green-100 mt-0.5">
+                    {settings.contactPhone || '+1 (555) 123-4567'}
+                  </div>
+                  <div className="text-xs text-green-300">
+                    {settings.contactHours || 'Mon-Fri: 8:00 AM - 6:00 PM'}
+                  </div>
                 </div>
               </div>
 
+              {/* Email - Dynamic */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <Mail size={20} className="text-green-300" />
                 </div>
                 <div>
                   <div className="font-semibold text-white">Email</div>
-                  <div className="text-green-100 mt-0.5">support@genesisagri.com</div>
-                  <div className="text-green-100">info@genesisagri.com</div>
+                  <div className="text-green-100 mt-0.5">
+                    {settings.supportEmail || 'support@genesisagri.com'}
+                  </div>
+                  <div className="text-green-100">
+                    {settings.infoEmail || 'info@genesisagri.com'}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-start gap-4">
-                <div className="p-2.5 bg-white/10 rounded-xl">
-                  <Clock size={20} className="text-green-300" />
+              {/* Emergency Line - Dynamic */}
+              {settings.emergencyPhone && (
+                <div className="flex items-start gap-4">
+                  <div className="p-2.5 bg-white/10 rounded-xl">
+                    <Clock size={20} className="text-green-300" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-white">Farm Emergency Line</div>
+                    <div className="text-green-100 mt-0.5">
+                      <a href={`tel:${settings.emergencyPhone}`} className="hover:text-green-300 transition">
+                        {settings.emergencyPhone}
+                      </a>
+                    </div>
+                    <div className="text-xs text-green-300">24/7 Agronomy Dispatch Available</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="font-semibold text-white">Farm Emergency Line</div>
-                  <div className="text-green-100 mt-0.5">24/7 Agronomy Dispatch Available</div>
-                </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -169,6 +218,8 @@ export default function ContactPage() {
                       <option value="Fertilizer Consultation">Fertilizer Consultation</option>
                       <option value="Farm Equipment & Delivery">Farm Equipment & Delivery</option>
                       <option value="Export & Partnerships">Export & Partnerships</option>
+                      <option value="Technical Support">Technical Support</option>
+                      <option value="Other">Other</option>
                     </select>
                   </div>
                 </div>
@@ -187,11 +238,20 @@ export default function ContactPage() {
 
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold text-sm rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
+                  disabled={sending}
+                  className="inline-flex items-center gap-2 px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold text-sm rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Send size={16} />
-                  {loading ? 'Sending...' : 'Send Message'}
+                  {sending ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send size={16} />
+                      Send Message
+                    </>
+                  )}
                 </button>
               </form>
             )}
@@ -199,5 +259,5 @@ export default function ContactPage() {
         </div>
       </div>
     </main>
-  )
+  );
 }

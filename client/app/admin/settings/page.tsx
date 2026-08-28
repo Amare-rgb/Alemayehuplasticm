@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import axios, { AxiosError } from 'axios';
+import Image from 'next/image';
 import {
   Settings,
   Save,
@@ -16,6 +17,15 @@ import {
   Store,
   Eye,
   EyeOff,
+  Upload,
+  Image as ImageIcon,
+  Trash2,
+  Mail,
+  Phone,
+  MapPin,
+  Clock,
+  MessageSquare,
+  Globe,
 } from 'lucide-react';
 
 // Create axios instance
@@ -29,32 +39,47 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Helper: single source of truth for reading the stored token.
-// Keeps the interceptor and every call site in this file in sync
-// (previously loadSettingsData() checked fewer keys than the interceptor did).
+// Helper: single source of truth for reading the stored token
 const getStoredToken = (): string | null => {
-  return (
+  const token = 
     localStorage.getItem('authToken') ||
     sessionStorage.getItem('authToken') ||
-    localStorage.getItem('token')
-  );
+    localStorage.getItem('token') ||
+    sessionStorage.getItem('token');
+  
+  console.log('🔑 Token found:', !!token);
+  return token;
 };
 
-// Add token to requests
-api.interceptors.request.use((config) => {
-  const token = getStoredToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// Add token to requests with better error handling
+api.interceptors.request.use(
+  (config) => {
+    const token = getStoredToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+      console.log(`📤 ${config.method?.toUpperCase()} request to ${config.url}`);
+    } else {
+      console.warn('⚠️ No token available for request');
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-  return config;
-});
+);
 
-// Add response interceptor for better error handling - BUT DON'T REDIRECT HERE
+// Add response interceptor for better error handling
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Just log the error, don't redirect - let the component handle it
-    console.error('API Error:', error.response?.status, error.response?.data);
+    console.error('API Error Details:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      config: {
+        url: error.config?.url,
+        method: error.config?.method,
+      }
+    });
     return Promise.reject(error);
   }
 );
@@ -185,7 +210,7 @@ const ToggleSwitch: React.FC<{
   );
 };
 
-// Define types for settings data
+// Define types for settings data - ADDED MISSING FIELDS
 interface SettingsData {
   siteName: string;
   siteDescription: string;
@@ -202,6 +227,28 @@ interface SettingsData {
   taxRate: number;
   twoFactorAuth: boolean;
   sessionTimeout: number;
+  logo: string;
+  // Contact Form Fields
+  contactEmail: string;
+  contactPhone: string;
+  contactAddress: string;
+  contactHours: string;
+  contactMapEmbed: string;
+  enableContactForm: boolean;
+  enableWhatsApp: boolean;
+  whatsAppNumber: string;
+  enableLiveChat: boolean;
+  themeColor: string;
+  darkMode: boolean;
+  emailNotifications: boolean;
+  orderNotifications: boolean;
+  productNotifications: boolean;
+  userNotifications: boolean;
+  marketingEmails: boolean;
+  // ADD THESE MISSING FIELDS
+  emergencyPhone: string;
+  supportEmail: string;
+  infoEmail: string;
 }
 
 interface PasswordData {
@@ -213,6 +260,7 @@ interface PasswordData {
 // Type for API error response
 interface ApiErrorResponse {
   error: string;
+  message?: string;
 }
 
 const defaultSettings: SettingsData = {
@@ -231,6 +279,27 @@ const defaultSettings: SettingsData = {
   taxRate: 16,
   twoFactorAuth: false,
   sessionTimeout: 60,
+  logo: '',
+  contactEmail: 'support@genesisagri.com',
+  contactPhone: '+1 (555) 123-4567',
+  contactAddress: '123 Agriculture Way, Farming District, FC 12345',
+  contactHours: 'Mon-Fri: 8:00 AM - 6:00 PM',
+  contactMapEmbed: '',
+  enableContactForm: true,
+  enableWhatsApp: true,
+  whatsAppNumber: '+254700000000',
+  enableLiveChat: false,
+  themeColor: '#22c55e',
+  darkMode: false,
+  emailNotifications: true,
+  orderNotifications: true,
+  productNotifications: true,
+  userNotifications: true,
+  marketingEmails: false,
+  // ADD THESE DEFAULT VALUES
+  emergencyPhone: '+1 (555) 999-9999',
+  supportEmail: 'support@genesisagri.com',
+  infoEmail: 'info@genesisagri.com',
 };
 
 const SettingsPage: React.FC = () => {
@@ -239,9 +308,15 @@ const SettingsPage: React.FC = () => {
   const hasInitialized = useRef(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingLogo, setSavingLogo] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState('general');
   const [showPassword, setShowPassword] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoToDelete, setLogoToDelete] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [passwordData, setPasswordData] = useState<PasswordData>({
     currentPassword: '',
     newPassword: '',
@@ -254,6 +329,7 @@ const SettingsPage: React.FC = () => {
   const tabs = [
     { id: 'general', label: 'General', icon: Settings },
     { id: 'store', label: 'Store', icon: Store },
+    { id: 'contact', label: 'Contact', icon: Mail },
     { id: 'security', label: 'Security', icon: Shield },
   ];
 
@@ -300,18 +376,47 @@ const SettingsPage: React.FC = () => {
     }));
   };
 
-  // loadSettingsData - NO REDIRECT ON 401, just use defaults
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      if (!allowedTypes.includes(file.type)) {
+        showNotification('error', 'Please select a valid image file (JPEG, PNG, GIF, WEBP, SVG)');
+        return;
+      }
+      
+      if (file.size > 5 * 1024 * 1024) {
+        showNotification('error', 'Logo file size must be less than 5MB');
+        return;
+      }
+
+      setLogoFile(file);
+      setLogoToDelete(false);
+      const previewUrl = URL.createObjectURL(file);
+      setLogoPreview(previewUrl);
+    }
+  };
+
+  const removeLogo = () => {
+    setLogoFile(null);
+    setLogoPreview(null);
+    setLogoToDelete(true);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // loadSettingsData
   const loadSettingsData = useCallback(async () => {
     setLoading(true);
 
     try {
       const token = getStoredToken();
 
-      // If no token, just use default settings and show a notification
       if (!token) {
         console.log('⚠️ No token found, using default settings');
         setFormData(defaultSettings);
-        showNotification('info', 'Using default settings');
+        setLoading(false);
         return;
       }
 
@@ -324,25 +429,27 @@ const SettingsPage: React.FC = () => {
       console.log('📦 Settings API Response:', response.data);
 
       if (response.data && isMounted.current) {
-        // The API returns settings directly
-        const settingsData = response.data;
-
-        // Merge with default settings to ensure all fields exist
+        const settingsData = response.data.data || response.data;
         setFormData(prev => ({
           ...defaultSettings,
           ...prev,
           ...settingsData
         }));
+        if (settingsData.logo) {
+          const logoUrl = settingsData.logo.startsWith('http') 
+            ? settingsData.logo 
+            : `${API_URL}${settingsData.logo}`;
+          setLogoPreview(logoUrl);
+          setLogoToDelete(false);
+        } else {
+          setLogoPreview(null);
+        }
         console.log('✅ Settings loaded successfully');
       }
     } catch (err) {
       const error = err as AxiosError<ApiErrorResponse>;
       console.error('❌ Error fetching settings:', error);
-
-      // On any error, use default settings - DON'T redirect
-      console.log('⚠️ Using default settings due to error');
       setFormData(defaultSettings);
-      showNotification('info', 'Using default settings');
     } finally {
       if (isMounted.current) {
         setLoading(false);
@@ -350,15 +457,6 @@ const SettingsPage: React.FC = () => {
     }
   }, []);
 
-  // Effect: fetch settings exactly once, but keep `isMounted` correct across
-  // every mount/cleanup cycle (React 18 StrictMode runs this effect twice in
-  // dev). `hasInitialized` gates the actual fetch so it only fires once;
-  // `isMounted` is re-armed on every run so the in-flight request's `finally`
-  // block can still find it `true` and clear the loading state. Previously
-  // `isMounted.current = true` lived inside the `hasInitialized` guard, so
-  // the second StrictMode mount skipped re-arming it, the original request
-  // resolved against a permanently-false `isMounted`, `setLoading(false)`
-  // never ran, and the page was stuck on the loading spinner.
   useEffect(() => {
     isMounted.current = true;
 
@@ -373,7 +471,7 @@ const SettingsPage: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Handle save settings
+  // Handle save settings (all settings except logo)
   const handleSave = async () => {
     setSaving(true);
 
@@ -386,20 +484,50 @@ const SettingsPage: React.FC = () => {
         return;
       }
 
-      const response = await api.post('/api/admin/settings', formData, {
-        headers: {
-          'Authorization': `Bearer ${token}`
+      console.log('📝 Saving settings...');
+
+      const formDataToSend = new FormData();
+      
+      // Append all form data fields EXCEPT logo
+      Object.keys(formData).forEach(key => {
+        if (key !== 'logo') {
+          const value = formData[key as keyof SettingsData];
+          if (value !== undefined && value !== null) {
+            const stringValue = typeof value === 'boolean' ? String(value) : String(value);
+            formDataToSend.append(key, stringValue);
+          }
         }
       });
 
-      if (response.data.success) {
+      // Keep existing logo
+      if (formData.logo) {
+        formDataToSend.append('logo', formData.logo);
+      }
+
+      console.log('📤 Sending request to /api/admin/settings');
+
+      const response = await api.post('/api/admin/settings', formDataToSend, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        }
+      });
+
+      console.log('📥 Save response:', response.data);
+
+      const isSuccess = response.data?.success || response.data?.status === 'success';
+      
+      if (isSuccess) {
         showNotification('success', response.data.message || 'Settings saved successfully! 🎉');
+        await loadSettingsData();
       } else {
-        showNotification('error', response.data.error || 'Failed to save settings');
+        const errorMsg = response.data?.error || response.data?.message || 'Failed to save settings';
+        showNotification('error', errorMsg);
       }
     } catch (err) {
       const error = err as AxiosError<ApiErrorResponse>;
-      console.error('Error saving settings:', error);
+      console.error('❌ Error saving settings:', error);
+      
       if (error.response?.status === 401) {
         showNotification('error', 'Authentication failed. Please login again.');
         router.push('/auth/signin');
@@ -408,6 +536,89 @@ const SettingsPage: React.FC = () => {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Handle save logo only - SEPARATE BUTTON
+  const handleSaveLogo = async () => {
+    setSavingLogo(true);
+
+    try {
+      const token = getStoredToken();
+      if (!token) {
+        showNotification('error', 'Authentication required. Please login again.');
+        router.push('/auth/signin');
+        setSavingLogo(false);
+        return;
+      }
+
+      if (!logoFile && !logoToDelete) {
+        showNotification('warning', 'Please select a logo to upload or click remove to delete');
+        setSavingLogo(false);
+        return;
+      }
+
+      console.log('🖼️ Saving logo only...');
+
+      const formDataToSend = new FormData();
+      
+      const currentResponse = await api.get('/api/admin/settings', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const currentSettings = currentResponse.data.data || currentResponse.data;
+      
+      Object.keys(currentSettings).forEach(key => {
+        if (key !== 'logo' && key !== 'id' && key !== 'createdAt' && key !== 'updatedAt') {
+          const value = currentSettings[key];
+          if (value !== undefined && value !== null) {
+            const stringValue = typeof value === 'boolean' ? String(value) : String(value);
+            formDataToSend.append(key, stringValue);
+          }
+        }
+      });
+
+      if (logoToDelete) {
+        formDataToSend.append('logo', '');
+        console.log('🗑️ Logo will be deleted');
+      } else if (logoFile) {
+        console.log('🖼️ Appending logo file:', logoFile.name);
+        formDataToSend.append('logo', logoFile);
+      }
+
+      const response = await api.post('/api/admin/settings', formDataToSend, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        }
+      });
+
+      const isSuccess = response.data?.success || response.data?.status === 'success';
+      
+      if (isSuccess) {
+        showNotification('success', response.data.message || 'Logo updated successfully! 🎉');
+        setLogoFile(null);
+        setLogoToDelete(false);
+        await loadSettingsData();
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      } else {
+        const errorMsg = response.data?.error || response.data?.message || 'Failed to update logo';
+        showNotification('error', errorMsg);
+      }
+    } catch (err) {
+      const error = err as AxiosError<ApiErrorResponse>;
+      console.error('❌ Error saving logo:', error);
+      
+      if (error.response?.status === 401) {
+        showNotification('error', 'Authentication failed. Please login again.');
+        router.push('/auth/signin');
+      } else {
+        showNotification('error', error.response?.data?.error || 'Failed to update logo');
+      }
+    } finally {
+      setSavingLogo(false);
     }
   };
 
@@ -490,7 +701,11 @@ const SettingsPage: React.FC = () => {
 
       if (response.data.success) {
         setFormData(defaultSettings);
+        setLogoPreview(null);
+        setLogoFile(null);
+        setLogoToDelete(false);
         showNotification('success', 'Settings reset to default successfully');
+        await loadSettingsData();
       } else {
         showNotification('error', response.data.error || 'Failed to reset settings');
       }
@@ -571,7 +786,101 @@ const SettingsPage: React.FC = () => {
         </div>
 
         <div className="p-6">
+          {/* General Tab */}
           <TabPanel active={activeTab === 'general'}>
+            <SettingSection
+              title="Logo & Branding"
+              description="Upload your website logo and configure branding"
+            >
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Website Logo
+                </label>
+                <div className="flex items-start space-x-4">
+                  <div className="relative">
+                    <div className="w-32 h-32 rounded-full border-2 border-dashed border-gray-300 overflow-hidden flex items-center justify-center bg-gray-50">
+                      {logoPreview ? (
+                        <img
+                          src={logoPreview}
+                          alt="Logo preview"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <ImageIcon className="w-12 h-12 text-gray-400" />
+                      )}
+                    </div>
+                    {logoPreview && !logoToDelete && (
+                      <button
+                        type="button"
+                        onClick={removeLogo}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex flex-col space-y-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoChange}
+                        className="hidden"
+                        id="logo-upload"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <label
+                          htmlFor="logo-upload"
+                          className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg cursor-pointer transition-colors text-sm"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>Choose Image</span>
+                        </label>
+                        
+                        <button
+                          type="button"
+                          onClick={handleSaveLogo}
+                          disabled={savingLogo || (!logoFile && !logoToDelete)}
+                          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                        >
+                          {savingLogo ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Saving Logo...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4" />
+                              <span>Save Logo</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400">
+                        Recommended: PNG or SVG, max 5MB
+                      </p>
+                      {logoPreview && !logoToDelete && (
+                        <p className="text-xs text-green-600">
+                          ✓ New logo selected - click Save Logo to update
+                        </p>
+                      )}
+                      {logoToDelete && (
+                        <p className="text-xs text-red-600">
+                          ⚠️ Logo will be removed - click Save Logo to confirm
+                        </p>
+                      )}
+                      {formData.logo && !logoPreview && !logoToDelete && (
+                        <p className="text-xs text-blue-600">
+                          ✓ Current logo is saved
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </SettingSection>
+
             <SettingSection
               title="General Settings"
               description="Basic information about your application"
@@ -680,6 +989,7 @@ const SettingsPage: React.FC = () => {
             </SettingSection>
           </TabPanel>
 
+          {/* Store Tab */}
           <TabPanel active={activeTab === 'store'}>
             <SettingSection
               title="Store Settings"
@@ -775,6 +1085,197 @@ const SettingsPage: React.FC = () => {
             </SettingSection>
           </TabPanel>
 
+          {/* Contact Tab - UPDATED WITH ALL FIELDS */}
+          <TabPanel active={activeTab === 'contact'}>
+            <SettingSection
+              title="Contact Information"
+              description="Configure contact details for your website"
+            >
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Contact Email <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="email"
+                    name="contactEmail"
+                    value={formData.contactEmail}
+                    onChange={handleChange}
+                    placeholder="support@genesisagri.com"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Support Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="email"
+                    name="supportEmail"
+                    value={formData.supportEmail || ''}
+                    onChange={handleChange}
+                    placeholder="support@genesisagri.com"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Info Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="email"
+                    name="infoEmail"
+                    value={formData.infoEmail || ''}
+                    onChange={handleChange}
+                    placeholder="info@genesisagri.com"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Contact Phone
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="tel"
+                    name="contactPhone"
+                    value={formData.contactPhone}
+                    onChange={handleChange}
+                    placeholder="+1 (555) 123-4567"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Emergency Phone
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="tel"
+                    name="emergencyPhone"
+                    value={formData.emergencyPhone || ''}
+                    onChange={handleChange}
+                    placeholder="+1 (555) 999-9999"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">24/7 Emergency support line</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Contact Address
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <textarea
+                    name="contactAddress"
+                    value={formData.contactAddress}
+                    onChange={handleChange}
+                    rows={2}
+                    placeholder="Enter your business address"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Business Hours
+                </label>
+                <div className="relative">
+                  <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    name="contactHours"
+                    value={formData.contactHours}
+                    onChange={handleChange}
+                    placeholder="Mon-Fri: 8:00 AM - 6:00 PM"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Google Maps Embed URL
+                </label>
+                <div className="relative">
+                  <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    name="contactMapEmbed"
+                    value={formData.contactMapEmbed}
+                    onChange={handleChange}
+                    placeholder="https://www.google.com/maps/embed?pb=..."
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Paste the embed URL from Google Maps</p>
+              </div>
+
+              <div className="pt-4 border-t border-gray-200 space-y-4">
+                <h4 className="text-sm font-medium text-gray-700">Contact Form Settings</h4>
+                
+                <ToggleSwitch
+                  label="Enable Contact Form"
+                  description="Show contact form on the contact page"
+                  checked={formData.enableContactForm}
+                  onChange={() => handleToggle('enableContactForm')}
+                />
+
+                <ToggleSwitch
+                  label="Enable WhatsApp"
+                  description="Show WhatsApp button on the contact page"
+                  checked={formData.enableWhatsApp}
+                  onChange={() => handleToggle('enableWhatsApp')}
+                />
+
+                {formData.enableWhatsApp && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      WhatsApp Number
+                    </label>
+                    <div className="relative">
+                      <MessageSquare className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        name="whatsAppNumber"
+                        value={formData.whatsAppNumber}
+                        onChange={handleChange}
+                        placeholder="+254700000000"
+                        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <ToggleSwitch
+                  label="Enable Live Chat"
+                  description="Show live chat widget on the website"
+                  checked={formData.enableLiveChat}
+                  onChange={() => handleToggle('enableLiveChat')}
+                />
+              </div>
+            </SettingSection>
+          </TabPanel>
+
+          {/* Security Tab */}
           <TabPanel active={activeTab === 'security'}>
             <SettingSection
               title="Security Settings"

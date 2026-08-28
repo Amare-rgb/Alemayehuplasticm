@@ -4,6 +4,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   Menu,
   X,
@@ -282,12 +283,15 @@ export const Navbar = () => {
 
   const closeMenu = () => setMenuOpen(false);
 
+  // Check if logo exists and is valid
+  const hasLogo = !loading && settings.logo && settings.logo !== '' && !logoError;
+
   return (
     <header
       className={
         isHome
           ? `fixed inset-x-0 top-0 z-50 transition-all duration-500 ${
-              scrolled ? "py-3" : "py-5"
+              scrolled ? "py-2" : "py-3"
             }`
           : "relative z-50 w-full bg-[#071a11] text-white border-b border-white/10 shadow-md"
       }
@@ -295,30 +299,54 @@ export const Navbar = () => {
       <div
         className={
           isHome
-            ? `mx-auto flex h-[70px] w-[min(1180px,calc(100%-48px))] items-center justify-between border-b transition-all duration-500 ${
+            ? `mx-auto flex h-[60px] w-[min(1180px,calc(100%-48px))] items-center justify-between border-b transition-all duration-500 ${
                 scrolled
-                  ? "rounded-full border-white/10 bg-[rgba(7,26,17,.88)] px-5 shadow-[0_15px_40px_rgba(0,0,0,.18)] backdrop-blur-xl"
+                  ? "rounded-full border-white/10 bg-[rgba(7,26,17,.88)] px-4 shadow-[0_15px_40px_rgba(0,0,0,.18)] backdrop-blur-xl"
                   : "border-white/20 px-0"
               }`
-            : "mx-auto flex h-[75px] w-[min(1180px,calc(100%-48px))] items-center justify-between px-0"
+            : "mx-auto flex h-[65px] w-[min(1180px,calc(100%-48px))] items-center justify-between px-0"
         }
       >
-        {/* =====================================================
-            LOGO / BRAND
-        ====================================================== */}
+        {/* Logo - Smaller and Circular */}
         <Link
           href="/"
-          className="group flex items-center gap-3"
+          className="group flex items-center gap-2.5"
           onClick={closeMenu}
         >
-          <BrandMark />
-
-          <div className="flex flex-col leading-none">
-            <span className="font-serif-heading text-[23px] font-semibold tracking-[-0.045em] text-white">
-              Genesis
+          {/* Dynamic Logo from Settings - Circular */}
+          {hasLogo ? (
+            <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/5 border-2 border-white/20 p-0.5">
+              <Image
+                src={settings.logo}
+                alt={settings.siteName || "Genesis"}
+                fill
+                className="object-contain rounded-full"
+                sizes="40px"
+                priority
+                onError={() => {
+                  console.log('❌ Logo failed to load:', settings.logo);
+                  setLogoError(true);
+                }}
+                onLoad={() => {
+                  console.log('✅ Logo loaded successfully');
+                  setLogoError(false);
+                }}
+              />
+            </div>
+          ) : (
+            // Fallback SVG Logo - Circular
+            <span className="brand-mark shrink-0" aria-hidden="true">
+              <span className="leaf leaf-one" />
+              <span className="leaf leaf-two" />
+              <span className="stem" />
             </span>
+          )}
 
-            <span className="mt-1 text-[8px] font-semibold uppercase tracking-[0.28em] text-white/55">
+          <div className="flex flex-col leading-tight">
+            <span className="font-serif-heading text-[18px] font-semibold tracking-[-0.03em] text-white leading-none">
+              {settings.siteName || "Genesis"}
+            </span>
+            <span className="text-[7px] font-semibold uppercase tracking-[0.25em] text-white/50 leading-none mt-0.5">
               Agro-Business
             </span>
           </div>
@@ -505,14 +533,12 @@ export const Navbar = () => {
               <Link
                 key={link.label}
                 href={link.href}
-                className="group relative py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/70 transition-colors duration-300 hover:text-white"
+                className="group relative py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition-colors duration-300 hover:text-white"
               >
                 {link.label}
-
-                {/* Animated indicator line */}
                 <span
                   className={`absolute -bottom-[1px] left-0 h-[2px] bg-[var(--lime)] transition-all duration-300 ${
-                    isActive ? "w-4" : "w-0 group-hover:w-4"
+                    isActive ? "w-3" : "w-0 group-hover:w-3"
                   }`}
                 />
               </Link>
@@ -520,14 +546,11 @@ export const Navbar = () => {
           })}
         </nav>
 
-        {/* =====================================================
-            RIGHT CONTROLS & CTA
-        ====================================================== */}
-        <div className="hidden items-center gap-4 lg:flex">
-          {/* Shopping Cart */}
+        {/* Right Controls - Smaller */}
+        <div className="hidden items-center gap-3 lg:flex">
           <Link
             href="/cart"
-            className="relative p-1.5 text-white/80 transition hover:text-white"
+            className="relative p-1 text-white/80 transition hover:text-white"
             aria-label="Shopping Cart"
           >
             <ShoppingCart className="h-5 w-5" />
@@ -538,7 +561,6 @@ export const Navbar = () => {
             )}
           </Link>
 
-          {/* User Auth controls */}
           {isAuthenticated ? (
             <div className="relative" ref={dropdownRef}>
               <button
@@ -696,10 +718,8 @@ export const Navbar = () => {
           )}
         </div>
 
-        {/* =====================================================
-            MOBILE MENU BUTTON
-        ====================================================== */}
-        <div className="flex items-center gap-3 lg:hidden">
+        {/* Mobile Menu Button - Smaller */}
+        <div className="flex items-center gap-2 lg:hidden">
           <Link
             href="/cart"
             className="relative p-1.5 text-white/80 transition hover:text-white"
@@ -712,31 +732,28 @@ export const Navbar = () => {
               </span>
             )}
           </Link>
-
           <button
             type="button"
             aria-label={menuOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(!menuOpen)}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-md transition hover:bg-white/20"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-md transition hover:bg-white/20"
           >
-            {menuOpen ? <X size={19} /> : <Menu size={19} />}
+            {menuOpen ? <X size={16} /> : <Menu size={16} />}
           </button>
         </div>
       </div>
 
-      {/* =====================================================
-          MOBILE MENU DRAWER
-      ====================================================== */}
+      {/* Mobile Menu Drawer */}
       <div
         className={
           isHome
-            ? `mx-auto mt-2 w-[min(1180px,calc(100%-48px))] overflow-hidden rounded-[24px] border border-white/10 bg-[rgba(7,26,17,.96)] shadow-[0_20px_60px_rgba(0,0,0,.3)] backdrop-blur-xl transition-all duration-300 lg:hidden ${
+            ? `mx-auto mt-1.5 w-[min(1180px,calc(100%-48px))] overflow-hidden rounded-[20px] border border-white/10 bg-[rgba(7,26,17,.96)] shadow-[0_20px_60px_rgba(0,0,0,.3)] backdrop-blur-xl transition-all duration-300 lg:hidden ${
                 menuOpen
                   ? "max-h-[700px] opacity-100"
                   : "pointer-events-none max-h-0 opacity-0"
               }`
-            : `mx-auto w-[min(1180px,calc(100%-48px))] overflow-hidden rounded-b-[20px] bg-[#071a11] transition-all duration-300 lg:hidden ${
+            : `mx-auto w-[min(1180px,calc(100%-48px))] overflow-hidden rounded-b-[16px] bg-[#071a11] transition-all duration-300 lg:hidden ${
                 menuOpen
                   ? "max-h-[700px] opacity-100 border-t border-white/10 py-2"
                   : "pointer-events-none max-h-0 opacity-0"
@@ -834,8 +851,7 @@ export const Navbar = () => {
                 </span>
                 {link.label}
               </span>
-
-              <ArrowUpRight size={16} className="text-white/40" />
+              <ArrowUpRight size={14} className="text-white/40" />
             </Link>
           ))}
 
@@ -921,10 +937,10 @@ export const Navbar = () => {
             <Link
               href="/auth/signin"
               onClick={closeMenu}
-              className="mt-1 flex items-center justify-between rounded-xl px-4 py-3 text-sm text-white/85 hover:bg-white/5"
+              className="mt-0.5 flex items-center justify-between rounded-lg px-3.5 py-2.5 text-sm text-white/85 hover:bg-white/5"
             >
               Sign In
-              <ArrowUpRight size={16} className="text-white/40" />
+              <ArrowUpRight size={14} className="text-white/40" />
             </Link>
           )}
 
