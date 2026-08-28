@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   ArrowDown,
   ArrowRight,
+  ArrowLeft,
   ArrowUp,
   ArrowUpRight,
 } from "lucide-react";
 
-type Product = {
+type CategoryItem = {
   number: string;
   title: string;
   description: string;
@@ -16,7 +17,7 @@ type Product = {
   category: string;
 };
 
-const productsData: Product[] = [
+const fallbackCategories: CategoryItem[] = [
   {
     number: "01",
     title: "Vegetables",
@@ -43,13 +44,11 @@ const productsData: Product[] = [
   },
 ];
 
-function ProductCard({ product, isWide = false }: { product: Product; isWide?: boolean }) {
+function ProductCard({ product }: { product: CategoryItem }) {
   return (
     <a
-      href={`/shop?category=${product.category}`}
-      className={`group relative block h-[70vh] lg:h-[100vh] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl ${
-        isWide ? "md:col-span-2" : "md:col-span-1"
-      }`}
+      href={`/shop?category=${encodeURIComponent(product.category)}`}
+      className="group relative block h-[70vh] lg:h-[80vh] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl"
     >
       {/* Background Image */}
       <img
@@ -57,6 +56,10 @@ function ProductCard({ product, isWide = false }: { product: Product; isWide?: b
         alt={product.title}
         loading="lazy"
         className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[101%]"
+        onError={(e) => {
+          e.currentTarget.src =
+            "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+        }}
       />
 
       {/* Dark gradient overlay at bottom */}
@@ -86,15 +89,83 @@ function ProductCard({ product, isWide = false }: { product: Product; isWide?: b
 }
 
 function ProductCards() {
+  const [categories, setCategories] = useState<CategoryItem[]>(fallbackCategories);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchCategories = async () => {
+      try {
+        const apiBaseUrl =
+          process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+        const res = await fetch(`${apiBaseUrl}/api/categories/public`);
+        if (res.ok) {
+          const data = await res.json();
+          const raw = Array.isArray(data)
+            ? data
+            : data?.categories || data?.data || [];
+
+          if (isMounted && raw.length > 0) {
+            const top = raw.filter((c: any) => !c.parentId);
+            const toMap = top.length > 0 ? top : raw;
+
+            const defaultImages = [
+              "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
+              "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
+              "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
+              "https://images.unsplash.com/photo-1527153857715-3908f2ae5e81?auto=format&fit=crop&w=1200&q=85",
+              "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=1200&q=85",
+            ];
+
+            const mapped: CategoryItem[] = toMap.map((cat: any, i: number) => {
+              let img = cat.image;
+              if (img && !img.startsWith("http")) {
+                img = `${apiBaseUrl}${img}`;
+              }
+              return {
+                number: String(i + 1).padStart(2, "0"),
+                title: cat.name,
+                description:
+                  cat.description || "Crisp, seasonal and farm-fresh produce.",
+                image: img || defaultImages[i % defaultImages.length],
+                category: cat.slug || cat.id,
+              };
+            });
+
+            setCategories(mapped);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch categories for home page:", err);
+      }
+    };
+
+    fetchCategories();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const scroll = (direction: "left" | "right") => {
+    if (scrollContainerRef.current) {
+      const offset = scrollContainerRef.current.clientWidth * 0.75;
+      scrollContainerRef.current.scrollBy({
+        left: direction === "left" ? -offset : offset,
+        behavior: "smooth",
+      });
+    }
+  };
+
   return (
     <section
       id="products"
-      className="scroll-mt-20 bg-[var(--cream)] py-[105px] px-4 sm:px-6 lg:px-10 w-full"
+      className="scroll-mt-20 bg-[var(--cream)] py-[105px] px-4 sm:px-6 lg:px-10 w-full overflow-hidden"
     >
       <div className="w-full">
         <div className="mb-[50px] flex items-end justify-between gap-14 max-md:flex-col max-md:items-start max-md:gap-5">
           <div>
-            
             <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
               Freshness you can
               <br />
@@ -104,15 +175,46 @@ function ProductCards() {
             </h2>
           </div>
 
-          <p className="max-w-[420px] text-[13px] leading-[1.8] text-[var(--muted)]">
-            From nutrient-rich vegetables to naturally grown fruits and
-            staple cereals, we bring the harvest closer to home.
-          </p>
+          <div className="flex flex-col items-start md:items-end gap-4">
+            <p className="max-w-[420px] text-[13px] leading-[1.8] text-[var(--muted)]">
+              From nutrient-rich vegetables to naturally grown fruits and
+              staple cereals, we bring the harvest closer to home.
+            </p>
+
+            {/* Horizontal Navigation scroll buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => scroll("left")}
+                aria-label="Scroll left"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] transition-all hover:bg-[var(--lime)] hover:border-[var(--lime)] hover:text-[var(--green-950)] hover:scale-105 active:scale-95 shadow-sm"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => scroll("right")}
+                aria-label="Scroll right"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] transition-all hover:bg-[var(--lime)] hover:border-[var(--lime)] hover:text-[var(--green-950)] hover:scale-105 active:scale-95 shadow-sm"
+              >
+                <ArrowRight size={18} />
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 w-full">
-          {productsData.map((product, index) => (
-            <ProductCard key={product.number} product={product} isWide={index === 0} />
+        {/* Horizontal scrollable cards container */}
+        <div
+          ref={scrollContainerRef}
+          className="flex w-full gap-6 overflow-x-auto pb-6 pt-2 scroll-smooth scrollbar-none snap-x snap-mandatory"
+        >
+          {categories.map((product) => (
+            <div
+              key={product.number}
+              className="w-[85vw] sm:w-[380px] md:w-[440px] lg:w-[480px] shrink-0 snap-start"
+            >
+              <ProductCard product={product} />
+            </div>
           ))}
         </div>
       </div>
@@ -261,7 +363,7 @@ export default function HomePage() {
 
             <div className="mt-8 flex items-center gap-6 max-sm:flex-col max-sm:items-start">
               <a
-                href="#products"
+                href="/shop"
                 className="flex min-h-[52px] items-center gap-6 bg-[var(--lime)] px-[22px] text-xs font-bold text-[var(--green-950)] transition hover:-translate-y-1 hover:shadow-xl"
               >
                 Explore Our Produce
@@ -363,7 +465,7 @@ export default function HomePage() {
             </p>
 
             <a
-              href="#about"
+              href="/about"
               className="inline-flex items-center gap-2 border-b border-[var(--green-800)] pb-1 text-xs font-bold text-[var(--green-800)]"
             >
               Learn more about Genesis

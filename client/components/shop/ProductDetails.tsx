@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Product } from "@/data/products";
+import { useCart } from "@/context/CartContext";
 
 type ProductDetailsProps = {
   product: Product;
@@ -135,13 +137,23 @@ function PhoneIcon() {
 export default function ProductDetails({
   product,
 }: ProductDetailsProps) {
+  const router = useRouter();
+  const { addToCart } = useCart();
+
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [selectedPayment, setSelectedPayment] = useState("cash");
 
+  const effectivePrice =
+    product.discountPrice !== null &&
+    product.discountPrice !== undefined &&
+    product.discountPrice < product.price
+      ? product.discountPrice
+      : product.price;
+
   const total = useMemo(
-    () => product.price * quantity,
-    [product.price, quantity]
+    () => effectivePrice * quantity,
+    [effectivePrice, quantity]
   );
 
   const paymentMethods = [
@@ -167,7 +179,59 @@ export default function ProductDetails({
   };
 
   const increaseQuantity = () => {
-    setQuantity((current) => Math.min(product.stock, current + 1));
+    setQuantity((current) =>
+      product.stock > 0 ? Math.min(product.stock, current + 1) : current + 1
+    );
+  };
+
+  const handleQuantityInputChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const val = parseInt(e.target.value, 10);
+    if (isNaN(val) || val < 1) {
+      setQuantity(1);
+    } else if (product.stock > 0 && val > product.stock) {
+      setQuantity(product.stock);
+    } else {
+      setQuantity(val);
+    }
+  };
+
+  const handleAddToCart = () => {
+    addToCart(
+      {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        price: product.price,
+        discountPrice: product.discountPrice,
+        unit: product.unit,
+        images: product.images,
+        stock: product.stock,
+        category: product.category,
+      },
+      quantity,
+      true
+    );
+  };
+
+  const handleBuyNow = () => {
+    addToCart(
+      {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        price: product.price,
+        discountPrice: product.discountPrice,
+        unit: product.unit,
+        images: product.images,
+        stock: product.stock,
+        category: product.category,
+      },
+      quantity,
+      false
+    );
+    router.push("/cart");
   };
 
   return (
@@ -191,11 +255,15 @@ export default function ProductDetails({
             {/* Image Gallery */}
             <div>
               <div className="relative overflow-hidden rounded-[2rem] bg-white shadow-[0_20px_65px_rgba(18,53,35,.09)]">
-                <div className="relative aspect-square overflow-hidden">
+                <div className="relative aspect-square overflow-hidden bg-[#0b2419]">
                   <img
                     src={product.images[selectedImage]}
                     alt={product.name}
                     className="h-full w-full object-cover transition-all duration-500"
+                    onError={(e) => {
+                      e.currentTarget.src =
+                        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+                    }}
                   />
 
                   {product.badge && (
@@ -244,71 +312,89 @@ export default function ProductDetails({
                 </span>
 
                 <span className="text-xs font-medium text-[#69736b]">
-                  Direct from farm
+                  Direct from verified farm
                 </span>
               </div>
 
-              <h1 className="font-serif-heading text-5xl font-medium leading-[0.98] tracking-[-0.045em] text-[#123523] sm:text-6xl">
+              <h1 className="font-serif-heading text-4xl sm:text-5xl font-medium leading-[0.98] tracking-[-0.045em] text-[#123523]">
                 {product.name}
               </h1>
 
-              <p className="mt-6 text-base leading-7 text-[#69736b]">
+              <p className="mt-5 text-base leading-7 text-[#69736b]">
                 {product.description}
               </p>
 
-              <div className="my-7 h-px bg-[#19472d]/10" />
+              <div className="my-6 h-px bg-[#19472d]/10" />
 
               {/* Price */}
-              <div>
+              <div className="flex items-baseline gap-3">
                 <span className="font-serif-heading text-4xl font-semibold tracking-[-0.035em] text-[#123523]">
-                  ETB {product.price.toLocaleString()}
+                  ETB {effectivePrice.toLocaleString()}
                 </span>
 
-                <span className="ml-2 text-sm text-[#69736b]">
+                <span className="text-sm text-[#69736b]">
                   per {product.unit}
                 </span>
+
+                {product.discountPrice && product.discountPrice < product.price && (
+                  <span className="text-sm text-gray-400 line-through">
+                    ETB {product.price.toLocaleString()}
+                  </span>
+                )}
               </div>
 
               {/* Stock */}
               <div className="mt-3 flex items-center gap-2 text-sm">
                 <span
-                  className={`h-2 w-2 rounded-full ${
+                  className={`h-2.5 w-2.5 rounded-full ${
                     product.stock > 0 ? "bg-[#72a84d]" : "bg-red-500"
                   }`}
                 />
 
-                <span className="text-[#69736b]">
+                <span className="text-[#69736b] font-medium text-xs">
                   {product.stock > 0
-                    ? `${product.stock} ${product.unit}s currently available`
+                    ? `${product.stock} ${product.unit}s currently in harvest stock`
                     : "Currently out of stock"}
                 </span>
               </div>
 
-              {/* Quantity */}
+              {/* Quantity Selector (Editable input + Buttons) */}
               <div className="mt-8">
-                <label className="mb-3 block text-xs font-bold uppercase tracking-[0.15em] text-[#28633e]">
-                  Quantity
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold uppercase tracking-[0.15em] text-[#28633e]">
+                    Select Quantity ({product.unit})
+                  </label>
+                  <span className="text-[11px] text-[#69736b]">
+                    Type directly or use + / -
+                  </span>
+                </div>
 
                 <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center rounded-2xl border border-[#19472d]/10 bg-white p-1">
+                  <div className="flex items-center rounded-2xl border border-[#19472d]/15 bg-white p-1 shadow-sm focus-within:ring-2 focus-within:ring-[#b9d873]">
                     <button
                       type="button"
                       onClick={decreaseQuantity}
                       disabled={quantity <= 1}
+                      aria-label="Decrease quantity"
                       className="flex h-11 w-11 items-center justify-center rounded-xl text-[#123523] transition hover:bg-[#f6f3e9] disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <MinusIcon />
                     </button>
 
-                    <span className="flex h-11 w-14 items-center justify-center text-sm font-bold text-[#123523]">
-                      {quantity}
-                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={product.stock > 0 ? product.stock : 9999}
+                      value={quantity}
+                      onChange={handleQuantityInputChange}
+                      className="h-11 w-20 text-center text-base font-bold text-[#123523] bg-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
 
                     <button
                       type="button"
                       onClick={increaseQuantity}
-                      disabled={quantity >= product.stock}
+                      disabled={product.stock > 0 && quantity >= product.stock}
+                      aria-label="Increase quantity"
                       className="flex h-11 w-11 items-center justify-center rounded-xl text-[#123523] transition hover:bg-[#f6f3e9] disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <PlusIcon />
@@ -317,26 +403,38 @@ export default function ProductDetails({
 
                   <div className="text-right">
                     <span className="block text-xs uppercase tracking-[0.12em] text-[#69736b]">
-                      Total
+                      Subtotal
                     </span>
 
-                    <span className="font-serif-heading text-2xl font-semibold text-[#123523]">
+                    <span className="font-serif-heading text-2xl font-bold text-[#123523]">
                       ETB {total.toLocaleString()}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Add to cart */}
-              <button
-                type="button"
-                disabled={product.stock <= 0}
-                className="mt-7 flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-[#123523] px-6 text-sm font-bold text-[#f6f3e9] shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#19472d] hover:shadow-xl disabled:cursor-not-allowed disabled:bg-[#69736b]"
-              >
-                <CartIcon />
-                Add {quantity} {product.unit}
-                {quantity !== 1 ? "s" : ""} to cart
-              </button>
+              {/* Action CTA Buttons: Add to Cart & Buy Now */}
+              <div className="mt-7 flex flex-col sm:flex-row items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  disabled={product.stock <= 0}
+                  className="flex h-14 w-full sm:flex-1 items-center justify-center gap-2.5 rounded-2xl border-2 border-[#123523] bg-white px-6 text-sm font-bold text-[#123523] shadow-sm transition-all duration-200 hover:bg-[#f6f3e9] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <CartIcon />
+                  <span>Add to Cart</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleBuyNow}
+                  disabled={product.stock <= 0}
+                  className="flex h-14 w-full sm:flex-1 items-center justify-center gap-2.5 rounded-2xl bg-[#123523] px-6 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-[#19472d] hover:text-[var(--lime)] hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <span>Buy Now</span>
+                  <span className="text-base font-bold">→</span>
+                </button>
+              </div>
 
               {/* Benefits */}
               <div className="mt-7 grid gap-3 sm:grid-cols-3">
@@ -373,133 +471,7 @@ export default function ProductDetails({
             </div>
           </div>
 
-          {/* Payment / Order section */}
-          <section className="mt-16 grid gap-8 lg:grid-cols-[1fr_0.9fr]">
-            {/* Payment methods */}
-            <div className="rounded-[2rem] border border-[#19472d]/10 bg-white p-6 shadow-[0_15px_50px_rgba(18,53,35,.06)] sm:p-8">
-              <div className="mb-7">
-                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#28633e]">
-                  Payment
-                </span>
-
-                <h2 className="mt-2 font-serif-heading text-3xl tracking-[-0.03em] text-[#123523]">
-                  Choose how you&apos;d like to pay
-                </h2>
-
-                <p className="mt-2 text-sm leading-6 text-[#69736b]">
-                  Select your preferred payment method. You&apos;ll confirm
-                  payment during checkout.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {paymentMethods.map((method) => {
-                  const selected = selectedPayment === method.id;
-
-                  return (
-                    <button
-                      key={method.id}
-                      type="button"
-                      onClick={() => setSelectedPayment(method.id)}
-                      className={`flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition-all ${
-                        selected
-                          ? "border-[#28633e] bg-[#f6f3e9]"
-                          : "border-[#19472d]/10 bg-white hover:border-[#28633e]/30"
-                      }`}
-                    >
-                      <span
-                        className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-                          selected
-                            ? "border-[#28633e]"
-                            : "border-[#69736b]/30"
-                        }`}
-                      >
-                        {selected && (
-                          <span className="h-2.5 w-2.5 rounded-full bg-[#28633e]" />
-                        )}
-                      </span>
-
-                      <span className="flex-1">
-                        <span className="block text-sm font-bold text-[#123523]">
-                          {method.title}
-                        </span>
-
-                        <span className="mt-1 block text-xs text-[#69736b]">
-                          {method.description}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Order summary */}
-            <div className="rounded-[2rem] bg-[#123523] p-6 text-[#f6f3e9] shadow-[0_20px_60px_rgba(18,53,35,.16)] sm:p-8">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#b9d873]">
-                Order summary
-              </span>
-
-              <div className="mt-6 flex items-start justify-between gap-5">
-                <div>
-                  <h3 className="font-serif-heading text-2xl">
-                    {product.name}
-                  </h3>
-
-                  <p className="mt-1 text-sm text-[#f6f3e9]/55">
-                    {quantity} {product.unit}
-                    {quantity !== 1 ? "s" : ""}
-                  </p>
-                </div>
-
-                <span className="text-sm font-semibold">
-                  ETB {total.toLocaleString()}
-                </span>
-              </div>
-
-              <div className="my-6 h-px bg-white/10" />
-
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-[#f6f3e9]/55">Subtotal</span>
-                  <span>ETB {total.toLocaleString()}</span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-[#f6f3e9]/55">Delivery</span>
-                  <span>Calculated at checkout</span>
-                </div>
-              </div>
-
-              <div className="my-6 h-px bg-white/10" />
-
-              <div className="flex items-end justify-between">
-                <span className="text-sm text-[#f6f3e9]/55">Estimated total</span>
-
-                <span className="font-serif-heading text-3xl text-[#b9d873]">
-                  ETB {total.toLocaleString()}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                className="mt-7 flex h-14 w-full items-center justify-center rounded-2xl bg-[#b9d873] px-6 text-sm font-bold text-[#123523] transition-all hover:-translate-y-0.5 hover:bg-[#c8e68b]"
-              >
-                Continue to checkout
-              </button>
-
-              <p className="mt-4 text-center text-xs leading-5 text-[#f6f3e9]/40">
-                Your selected payment method:{" "}
-                <span className="font-semibold text-[#f6f3e9]/70">
-                  {
-                    paymentMethods.find(
-                      (method) => method.id === selectedPayment
-                    )?.title
-                  }
-                </span>
-              </p>
-            </div>
-          </section>
+          
         </div>
       </section>
     </main>
