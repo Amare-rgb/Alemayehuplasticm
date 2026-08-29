@@ -1,10 +1,3 @@
-/**
- * Email Jobs - Background email processing
- * Handles verification emails, order confirmations, password resets, etc.
- */
-
-// For production, you would use a queue system like Bull or Agenda
-// This is a simple implementation using setTimeout for demonstration
 
 const nodemailer = require('nodemailer');
 
