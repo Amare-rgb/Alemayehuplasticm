@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "Role" AS ENUM ('USER', 'SELLER', 'ADMIN');
+CREATE TYPE "Role" AS ENUM ('USER', 'ADMIN');
 
 -- CreateEnum
 CREATE TYPE "ProductStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
@@ -32,10 +32,10 @@ CREATE TABLE "users" (
 );
 
 -- CreateTable
-CREATE TABLE "seller_profiles" (
+CREATE TABLE "profiles" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "shopName" TEXT NOT NULL,
+    "shopName" TEXT,
     "shopDesc" TEXT,
     "logo" TEXT,
     "phone" TEXT,
@@ -43,10 +43,15 @@ CREATE TABLE "seller_profiles" (
     "totalSales" INTEGER NOT NULL DEFAULT 0,
     "address" TEXT,
     "banner" TEXT,
+    "isAdmin" BOOLEAN NOT NULL DEFAULT false,
+    "adminRole" TEXT,
+    "permissions" TEXT[],
+    "lastLogin" TIMESTAMP(3),
+    "status" TEXT NOT NULL DEFAULT 'active',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "seller_profiles_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "profiles_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -239,7 +244,7 @@ CREATE TABLE "settings" (
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "seller_profiles_userId_key" ON "seller_profiles"("userId");
+CREATE UNIQUE INDEX "profiles_userId_key" ON "profiles"("userId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "categories_name_key" ON "categories"("name");
@@ -281,7 +286,7 @@ CREATE UNIQUE INDEX "blog_posts_slug_key" ON "blog_posts"("slug");
 CREATE INDEX "blog_posts_authorId_idx" ON "blog_posts"("authorId");
 
 -- AddForeignKey
-ALTER TABLE "seller_profiles" ADD CONSTRAINT "seller_profiles_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "profiles" ADD CONSTRAINT "profiles_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "categories" ADD CONSTRAINT "categories_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "categories"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -293,7 +298,7 @@ ALTER TABLE "categories" ADD CONSTRAINT "categories_createdBy_fkey" FOREIGN KEY 
 ALTER TABLE "categories" ADD CONSTRAINT "categories_approvedBy_fkey" FOREIGN KEY ("approvedBy") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "products" ADD CONSTRAINT "products_sellerId_fkey" FOREIGN KEY ("sellerId") REFERENCES "seller_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "products" ADD CONSTRAINT "products_sellerId_fkey" FOREIGN KEY ("sellerId") REFERENCES "profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "products" ADD CONSTRAINT "products_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

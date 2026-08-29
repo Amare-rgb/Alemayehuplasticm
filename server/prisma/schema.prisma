@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -64,20 +62,54 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  adminProfile AdminProfile?
-
-  orders             Order[]
-  cartItems          CartItem[]
-  reviews            Review[]
-  addresses          Address[]
-  blogPosts          BlogPost[]
-  categories         Category[] @relation("CategoryCreator")
-  approvedCategories Category[] @relation("CategoryApprover")
-  articles           Article[]  @relation("ArticleAuthor")
+  // Relationships
+  adminProfile    AdminProfile?
+  profile         Profile?        // New unified profile
+  orders          Order[]
+  cartItems       CartItem[]
+  reviews         Review[]
+  addresses       Address[]
+  blogPosts       BlogPost[]
+  categories      Category[]      @relation("CategoryCreator")
+  approvedCategories Category[]   @relation("CategoryApprover")
+  articles        Article[]       @relation("ArticleAuthor")
 
   @@map("users")
 }
 
+// ============================================
+// UNIFIED PROFILE MODEL (Replaces seller_profiles)
+// ============================================
+model Profile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  shopName     String?
+  shopDesc     String?
+  logo         String?
+  phone        String?
+  isVerified   Boolean  @default(false)
+  totalSales   Int      @default(0)
+  address      String?
+  banner       String?
+  
+  // Admin-specific fields
+  isAdmin      Boolean  @default(false)
+  adminRole    String?   // e.g., 'super_admin', 'manager', 'editor'
+  permissions  String[]  // Array of permission strings
+  lastLogin    DateTime?
+  status       String   @default("active") // 'active', 'suspended', 'banned'
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relationships
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products     Product[] // Products sold by this profile
+
+  @@map("profiles")
+}
+
+// Keep AdminProfile for backward compatibility if needed
 model AdminProfile {
   id          String   @id @default(cuid())
   userId      String   @unique
@@ -132,6 +164,7 @@ model Product {
   status            ProductStatus      @default(PENDING)
   visibility        ProductVisibility  @default(VISIBLE)
   adminNote         String?
+  sellerId          String             // References Profile.id
   categoryId        String
   subCategoryId     String?
   tags              String[]
@@ -149,12 +182,15 @@ model Product {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
-  category    Category    @relation(fields: [categoryId], references: [id])
-  subCategory Category?   @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
+  // Relationships
+  seller      Profile    @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  category    Category   @relation(fields: [categoryId], references: [id])
+  subCategory Category?  @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
   cartItems   CartItem[]
   orderItems  OrderItem[]
   reviews     Review[]
 
+  @@index([sellerId])
   @@index([categoryId])
   @@index([status])
   @@index([visibility])
@@ -274,16 +310,13 @@ model BlogPost {
   @@map("blog_posts")
 }
 
-// ============================================
-// ARTICLE MODEL - ADDED NOTE FIELD
-// ============================================
 model Article {
   id            String        @id @default(cuid())
   title         String
   author        String
   summary       String?
   content       String        @db.Text
-  note          String?       @db.Text  // ← ADDED: Writer's Note
+  note          String?       @db.Text
   pdfUrl        String
   pdfFileName   String
   pdfFileSize   Int
@@ -304,9 +337,6 @@ model Article {
   @@map("articles")
 }
 
-// ============================================
-// SETTINGS MODEL
-// ============================================
 model Settings {
   id                   String   @id @default(cuid())
   siteName             String   @default("Genesis Agri Business")
