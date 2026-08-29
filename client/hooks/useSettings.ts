@@ -29,7 +29,6 @@ export interface SettingsData {
   marketingEmails: boolean;
   themeColor: string;
   darkMode: boolean;
-  // Contact Information
   contactEmail: string;
   contactPhone: string;
   contactAddress: string;
@@ -39,21 +38,20 @@ export interface SettingsData {
   enableWhatsApp: boolean;
   whatsAppNumber: string;
   enableLiveChat: boolean;
-  // ADD THESE MISSING FIELDS
   emergencyPhone: string;
   supportEmail: string;
   infoEmail: string;
 }
 
 const defaultSettings: SettingsData = {
-  siteName: 'Genesis Agri Business',
+  siteName: 'Genesis',
   siteDescription: 'Agriculture marketplace connecting farmers and buyers',
   adminEmail: 'admin@genesisagri.com',
   adminPhone: '+1 (555) 123-4567',
   address: '123 Farm Road, Nairobi, Kenya',
   timezone: 'Africa/Nairobi',
   dateFormat: 'MM/DD/YYYY',
-  storeName: 'Genesis Agri Business',
+  storeName: 'Genesis',
   storeEmail: 'info@genesisagri.com',
   storePhone: '+1 (555) 123-4567',
   storeAddress: '123 Farm Road, Nairobi, Kenya',
@@ -79,13 +77,11 @@ const defaultSettings: SettingsData = {
   enableWhatsApp: true,
   whatsAppNumber: '+254700000000',
   enableLiveChat: false,
-  // ADD THESE DEFAULT VALUES
   emergencyPhone: '+1 (555) 999-9999',
   supportEmail: 'support@genesisagri.com',
   infoEmail: 'info@genesisagri.com',
 };
 
-// Helper to get token
 const getStoredToken = (): string | null => {
   return (
     localStorage.getItem('authToken') ||
@@ -93,6 +89,13 @@ const getStoredToken = (): string | null => {
     localStorage.getItem('token') ||
     sessionStorage.getItem('token')
   );
+};
+
+const getFullLogoUrl = (logoPath: string): string => {
+  if (!logoPath) return '';
+  if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) return logoPath;
+  const cleanPath = logoPath.startsWith('/') ? logoPath.slice(1) : logoPath;
+  return `${API_URL}/${cleanPath}`;
 };
 
 export function useSettings(usePublicEndpoint: boolean = false) {
@@ -105,71 +108,33 @@ export function useSettings(usePublicEndpoint: boolean = false) {
     try {
       const endpoint = usePublicEndpoint ? '/api/admin/settings/public' : '/api/admin/settings';
       const token = getStoredToken();
-      
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      
-      if (!usePublicEndpoint && token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const url = forceRefresh 
-        ? `${API_URL}${endpoint}?_=${Date.now()}`
-        : `${API_URL}${endpoint}`;
-
-      console.log('🔍 Fetching settings from:', url);
-      console.log('🔍 Using public endpoint:', usePublicEndpoint);
-      
-      const response = await fetch(url, {
-        headers,
-        credentials: 'include',
-        cache: 'no-store',
-      });
-
-      console.log('📥 Response status:', response.status);
-
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (!usePublicEndpoint && token) headers['Authorization'] = `Bearer ${token}`;
+      const url = forceRefresh ? `${API_URL}${endpoint}?_=${Date.now()}` : `${API_URL}${endpoint}`;
+      const response = await fetch(url, { headers, credentials: 'include', cache: 'no-store' });
       if (response.ok) {
         const data = await response.json();
-        console.log('📦 Settings data:', data);
-        
         const settingsData = data.data || data;
-        
-        // Construct full logo URL
         let logoUrl = '';
         if (settingsData.logo && settingsData.logo !== '') {
-          if (settingsData.logo.startsWith('http://') || settingsData.logo.startsWith('https://')) {
-            logoUrl = settingsData.logo;
-          } else {
-            logoUrl = `${API_URL}${settingsData.logo}`;
-          }
-          console.log('🖼️ Logo URL:', logoUrl);
+          logoUrl = getFullLogoUrl(settingsData.logo);
         }
-        
         const newSettings = {
           ...defaultSettings,
           ...settingsData,
           logo: logoUrl,
-          // Ensure these fields are included
           emergencyPhone: settingsData.emergencyPhone || defaultSettings.emergencyPhone,
           supportEmail: settingsData.supportEmail || defaultSettings.supportEmail,
           infoEmail: settingsData.infoEmail || defaultSettings.infoEmail,
         };
-        
         setSettings(newSettings);
         setError(null);
-        console.log('✅ Settings loaded successfully');
-        console.log('📧 Support Email:', newSettings.supportEmail);
-        console.log('📧 Info Email:', newSettings.infoEmail);
-        console.log('📞 Emergency Phone:', newSettings.emergencyPhone);
       } else {
         const errorData = await response.json();
-        console.error('❌ Failed to fetch settings:', errorData);
         setError(errorData.error || 'Failed to fetch settings');
         setSettings(defaultSettings);
       }
     } catch (err) {
-      console.error('❌ Failed to fetch settings:', err);
       setError('Failed to load settings');
       setSettings(defaultSettings);
     } finally {
@@ -179,17 +144,9 @@ export function useSettings(usePublicEndpoint: boolean = false) {
 
   useEffect(() => {
     let isMounted = true;
-
-    const loadSettings = async () => {
-      if (!isMounted) return;
-      await fetchSettings();
-    };
-
+    const loadSettings = async () => { if (!isMounted) return; await fetchSettings(); };
     loadSettings();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [fetchSettings]);
 
   return { settings, loading, error, refetch: () => fetchSettings(true) };

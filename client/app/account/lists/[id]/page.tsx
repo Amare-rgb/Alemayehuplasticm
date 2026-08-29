@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -15,30 +15,28 @@ export default function ListDetailsPage() {
   const params = useParams();
   const router = useRouter();
   
-  // Get the dynamic ID from the URL path
-  const listId = params.id as string; 
+  const listId = params.id as string;
 
-  const [list, setList] = useState<ListItem | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
+  // ── FIX: Initialize state lazily from localStorage to avoid cascading renders ──
+  const [allLists] = useState<ListItem[]>(() => {
+    if (typeof window === 'undefined') return [];
     try {
       const savedLists = localStorage.getItem("userLists");
       if (savedLists) {
-        const allLists: ListItem[] = JSON.parse(savedLists);
-        // Find the specific list matching our URL route ID
-        const targetList = allLists.find((l) => l.id === listId);
-        
-        if (targetList) {
-          setList(targetList);
-        }
+        return JSON.parse(savedLists) as ListItem[];
       }
     } catch (error) {
       console.error("Error fetching list details:", error);
-    } finally {
-      setLoading(false);
     }
-  }, [listId]);
+    return [];
+  });
+
+  const [loading] = useState(false);
+
+  // ── Use useMemo to find the specific list ─────────────────────────────
+  const list = useMemo(() => {
+    return allLists.find((l) => l.id === listId) || null;
+  }, [allLists, listId]);
 
   if (loading) {
     return (
@@ -64,7 +62,6 @@ export default function ListDetailsPage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white py-12 px-4">
       <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border p-6 md:p-8">
         
-        {/* Back Link Button */}
         <button 
           onClick={() => router.back()} 
           className="text-sm text-emerald-600 hover:text-emerald-700 font-medium mb-6 inline-flex items-center gap-1"
@@ -77,7 +74,6 @@ export default function ListDetailsPage() {
           {list.description && <p className="text-gray-600 mt-2 text-base">{list.description}</p>}
         </header>
 
-        {/* List Items Content Area */}
         <div className="py-8 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50">
           <div className="text-5xl mb-3">🛍️</div>
           <h3 className="text-lg font-semibold text-gray-700">Items inside this collection</h3>

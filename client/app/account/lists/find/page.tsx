@@ -21,26 +21,15 @@ interface ToastState {
 
 export default function AccountListsPage() {
   const router = useRouter()
-  const [lists, setLists] = useState<ListItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [toast, setToast] = useState<ToastState | null>(null)
-
-  // 1. Load data from localStorage on component mount
-  useEffect(() => {
-    loadLists()
-  }, [])
-
-  const loadLists = async () => {
+  
+  // ── FIX: Initialize state lazily from localStorage to prevent cascading renders ──
+  const [lists, setLists] = useState<ListItem[]>(() => {
+    if (typeof window === 'undefined') return []
     try {
-      // 💡 Production Note: In a real app, you would fetch this data from your API Route / Database.
-      // e.g., const res = await fetch('/api/account/lists'); const data = await res.json();
       const savedLists = localStorage.getItem('userLists')
-      
       if (savedLists) {
-        setLists(JSON.parse(savedLists))
+        return JSON.parse(savedLists) as ListItem[]
       } else {
-        // Initialize with default demo data if nothing is saved yet
         const demoLists: ListItem[] = [
           {
             id: '1',
@@ -52,27 +41,25 @@ export default function AccountListsPage() {
             isPublic: false
           }
         ]
-        setLists(demoLists)
         localStorage.setItem('userLists', JSON.stringify(demoLists))
+        return demoLists
       }
     } catch (error) {
       console.error('Failed to load lists:', error)
-      setLists([])
-    } finally {
-      setLoading(false)
+      return []
     }
-  }
+  })
 
-  // 2. Delete List Handler
+  const [loading, setLoading] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
+
   const handleDeleteList = async (listId: string, listTitle: string) => {
     if (!confirm(`Are you sure you want to delete "${listTitle}"? This action cannot be undone.`)) return
 
     setDeletingId(listId)
     
     try {
-      // 💡 Production Note: For Prisma/PostgreSQL, add your API call here:
-      // await fetch(`/api/account/lists/${listId}`, { method: 'DELETE' })
-
       const updatedLists = lists.filter(list => list.id !== listId)
       localStorage.setItem('userLists', JSON.stringify(updatedLists))
       setLists(updatedLists)
@@ -86,7 +73,6 @@ export default function AccountListsPage() {
     }
   }
 
-  // 3. Toggle Public / Private Visibility
   const handleTogglePublic = async (listId: string) => {
     try {
       const updatedLists = lists.map(list => 
@@ -104,13 +90,11 @@ export default function AccountListsPage() {
     }
   }
 
-  // 4. Safe React-State Trigger Toast
   const triggerToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3000)
   }
 
-  // 5. Accurate Relative Date Logic Helper
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     const now = new Date()

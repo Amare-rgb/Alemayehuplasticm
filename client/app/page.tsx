@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 import {
   ArrowDown,
   ArrowRight,
@@ -9,13 +10,30 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 
-type CategoryItem = {
+// Define proper types instead of using 'any'
+interface CategoryData {
+  id?: string;
+  name: string;
+  slug?: string;
+  description?: string | null;
+  image?: string | null;
+  parentId?: string | null;
+}
+
+interface CategoryItem {
   number: string;
   title: string;
   description: string;
   image: string;
   category: string;
-};
+}
+
+interface ValueItem {
+  number: string;
+  icon: string;
+  title: string;
+  description: string;
+}
 
 const fallbackCategories: CategoryItem[] = [
   {
@@ -46,7 +64,7 @@ const fallbackCategories: CategoryItem[] = [
 
 function ProductCard({ product }: { product: CategoryItem }) {
   return (
-    <a
+    <Link
       href={`/shop?category=${encodeURIComponent(product.category)}`}
       className="group relative block h-[70vh] lg:h-[80vh] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl"
     >
@@ -84,7 +102,7 @@ function ProductCard({ product }: { product: CategoryItem }) {
           <span className="text-sm font-bold">→</span>
         </div>
       </div>
-    </a>
+    </Link>
   );
 }
 
@@ -107,7 +125,7 @@ function ProductCards() {
             : data?.categories || data?.data || [];
 
           if (isMounted && raw.length > 0) {
-            const top = raw.filter((c: any) => !c.parentId);
+            const top = raw.filter((c: CategoryData) => !c.parentId);
             const toMap = top.length > 0 ? top : raw;
 
             const defaultImages = [
@@ -118,7 +136,7 @@ function ProductCards() {
               "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=1200&q=85",
             ];
 
-            const mapped: CategoryItem[] = toMap.map((cat: any, i: number) => {
+            const mapped: CategoryItem[] = toMap.map((cat: CategoryData, i: number) => {
               let img = cat.image;
               if (img && !img.startsWith("http")) {
                 img = `${apiBaseUrl}${img}`;
@@ -129,7 +147,7 @@ function ProductCards() {
                 description:
                   cat.description || "Crisp, seasonal and farm-fresh produce.",
                 image: img || defaultImages[i % defaultImages.length],
-                category: cat.slug || cat.id,
+                category: cat.slug || cat.id || String(i),
               };
             });
 
@@ -222,7 +240,8 @@ function ProductCards() {
   );
 }
 
-const values = [
+// Values with proper typing
+const values: ValueItem[] = [
   {
     number: "01",
     icon: "↔",
@@ -362,21 +381,21 @@ export default function HomePage() {
             </p>
 
             <div className="mt-8 flex items-center gap-6 max-sm:flex-col max-sm:items-start">
-              <a
+              <Link
                 href="/shop"
                 className="flex min-h-[52px] items-center gap-6 bg-[var(--lime)] px-[22px] text-xs font-bold text-[var(--green-950)] transition hover:-translate-y-1 hover:shadow-xl"
               >
                 Explore Our Produce
                 <ArrowRight size={17} />
-              </a>
+              </Link>
 
-              <a
+              <Link
                 href="#about"
                 className="flex items-center gap-2 border-b border-white pb-1 text-xs font-bold"
               >
                 Discover our story
                 <ArrowUpRight size={15} />
-              </a>
+              </Link>
             </div>
 
             <div className="mt-[60px] flex items-center gap-6 max-sm:gap-3">
@@ -464,13 +483,13 @@ export default function HomePage() {
               food create more value.
             </p>
 
-            <a
+            <Link
               href="/about"
               className="inline-flex items-center gap-2 border-b border-[var(--green-800)] pb-1 text-xs font-bold text-[var(--green-800)]"
             >
               Learn more about Genesis
               <ArrowRight size={15} />
-            </a>
+            </Link>
           </div>
         </div>
       </section>
@@ -481,28 +500,29 @@ export default function HomePage() {
       <ProductCards />
 
       {/* =========================================================
-          TANA FARM
+          TANA FARM - Fixed Full Image Display
       ========================================================= */}
       <section
         id="tana-farm"
         className="scroll-mt-20 bg-white py-[105px]"
       >
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[.95fr_1.05fr] items-center gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
-          {/* Image */}
+          {/* Image with local file - Full display */}
           <div className="relative min-h-[580px] max-lg:min-h-[500px]">
             <div
-              className="absolute right-0 top-0 h-[500px] w-[78%] bg-cover bg-center max-sm:h-[390px] max-sm:w-[86%]"
+              className="absolute right-0 top-0 h-[500px] w-full max-sm:h-[390px] bg-cover bg-center rounded-l-3xl"
               style={{
-                backgroundImage:
-                  'url("https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=1100&q=85")',
+                backgroundImage: 'url("/banners/tanafarm.jpg")',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
               }}
             >
-              <span className="absolute right-5 top-5 bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)]">
+              <span className="absolute right-5 top-5 bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] rounded-md shadow-md">
                 A SISTER COMPANY
               </span>
             </div>
 
-            <div className="absolute bottom-5 left-0 flex w-[260px] items-center gap-3 bg-[var(--lime)] p-5 shadow-[0_20px_45px_rgba(18,53,35,.15)] max-sm:bottom-0 max-sm:w-[215px]">
+            <div className="absolute bottom-5 left-0 flex w-[260px] items-center gap-3 bg-[var(--lime)] p-5 shadow-[0_20px_45px_rgba(18,53,35,.15)] rounded-r-xl max-sm:bottom-0 max-sm:w-[215px]">
               <span className="text-[35px]">🌱</span>
 
               <div className="grid">
@@ -549,7 +569,7 @@ export default function HomePage() {
               ].map(([icon, title, subtitle]) => (
                 <div
                   key={title}
-                  className="grid gap-0.5 bg-[var(--cream)] p-4 text-center"
+                  className="grid gap-0.5 bg-[var(--cream)] p-4 text-center rounded-lg transition-all hover:scale-105 hover:shadow-md"
                 >
                   <span className="text-[25px]">{icon}</span>
                   <strong className="text-[11px]">{title}</strong>
@@ -560,19 +580,19 @@ export default function HomePage() {
               ))}
             </div>
 
-            <a
+            <Link
               href="#contact"
-              className="mt-6 inline-flex items-center gap-6 border border-[var(--green-800)] px-[22px] py-4 text-xs font-bold text-[var(--green-800)] transition hover:bg-[var(--green-800)] hover:text-white"
+              className="mt-6 inline-flex items-center gap-6 border border-[var(--green-800)] px-[22px] py-4 text-xs font-bold text-[var(--green-800)] transition hover:bg-[var(--green-800)] hover:text-white rounded-lg"
             >
               Connect with Tana Farm
               <ArrowRight size={17} />
-            </a>
+            </Link>
           </div>
         </div>
       </section>
 
       {/* =========================================================
-          VALUES
+          VALUES - With Hover Effects and White Background Cards
       ========================================================= */}
       <section
         id="about"
@@ -608,29 +628,37 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="mt-16 grid grid-cols-4 border-t border-white/15 max-lg:grid-cols-2 max-sm:grid-cols-1">
+          {/* Values Cards with Hover Effects and White Background */}
+          <div className="mt-16 grid grid-cols-4 gap-6 max-lg:grid-cols-2 max-sm:grid-cols-1">
             {values.map((value, index) => (
               <div
                 key={value.number}
-                className={`min-h-[260px] border-r border-white/15 py-6 ${
-                  index !== 0 ? "pl-6" : "pr-6"
-                } max-lg:border-b max-sm:border-r-0 max-sm:min-h-0 max-sm:px-0`}
+                className="group relative min-h-[280px] bg-white/95 backdrop-blur-sm p-8 rounded-2xl shadow-lg transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 hover:bg-white cursor-default"
+                style={{
+                  transitionDelay: `${index * 0.1}s`,
+                }}
               >
-                <span className="text-[9px] tracking-wider text-white/40">
+                {/* Decorative accent line */}
+                <div className="absolute top-0 left-8 right-8 h-1 bg-[var(--lime)] rounded-full transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left" />
+
+                <span className="text-[9px] tracking-wider text-[var(--green-700)]/40 font-mono">
                   {value.number}
                 </span>
 
-                <span className="my-6 block text-[25px] text-[var(--lime)]">
+                <span className="my-4 block text-[28px] transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
                   {value.icon}
                 </span>
 
-                <h3 className="font-serif-heading text-[23px] font-bold">
+                <h3 className="font-serif-heading text-[22px] font-bold text-[var(--green-900)] transition-colors duration-300 group-hover:text-[var(--green-700)]">
                   {value.title}
                 </h3>
 
-                <p className="mt-2 max-w-[220px] text-[11px] leading-[1.75] text-white/55">
+                <p className="mt-3 text-[12px] leading-[1.7] text-[var(--muted)] transition-colors duration-300 group-hover:text-[var(--green-800)]/80">
                   {value.description}
                 </p>
+
+                {/* Hover glow effect */}
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[var(--lime)]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
               </div>
             ))}
           </div>
@@ -638,7 +666,7 @@ export default function HomePage() {
       </section>
 
       {/* =========================================================
-          JOURNEY
+          JOURNEY (Commented out)
       ========================================================= */}
       {/* <section className="bg-[var(--cream)] py-[105px]">
         <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
@@ -711,21 +739,21 @@ export default function HomePage() {
           </p>
 
           <div className="mt-7 flex justify-center gap-6 max-sm:flex-col max-sm:items-center">
-            <a
+            <Link
               href="tel:+251900000000"
-              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 bg-white px-5 text-xs font-bold text-[var(--green-900)] transition hover:-translate-y-1"
+              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 bg-white px-5 text-xs font-bold text-[var(--green-900)] transition hover:-translate-y-1 rounded-lg"
             >
               Call Us
               <ArrowRight size={17} />
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="mailto:info@genesisagrobusiness.com"
-              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 border border-white/35 px-5 text-xs font-bold text-white transition hover:bg-white/10"
+              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 border border-white/35 px-5 text-xs font-bold text-white transition hover:bg-white/10 rounded-lg"
             >
               Send an Email
               <ArrowUpRight size={16} />
-            </a>
+            </Link>
           </div>
         </div>
       </section>

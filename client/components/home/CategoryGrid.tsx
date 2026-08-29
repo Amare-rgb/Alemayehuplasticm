@@ -1,18 +1,11 @@
 // src/components/home/CategoryGrid.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
   Sprout,
-  Tractor,
-  Droplets,
-  Sun,
-  Wheat,
-  Apple,
-  Leaf,
-  ShoppingBag,
   TrendingUp
 } from 'lucide-react';
 
@@ -44,51 +37,87 @@ const defaultCategories: Category[] = [
   { id: '8', name: 'Tools & Machinery', slug: 'tools', icon: '🔧' },
 ];
 
+const getCategoryIcon = (name: string): string => {
+  const icons: Record<string, string> = {
+    'Vegetables': '🥬',
+    'Fruits': '🍎',
+    'Grains': '🌾',
+    'Seeds': '🌱',
+    'Fertilizers': '🧪',
+    'Equipment': '🚜',
+    'Irrigation': '💧',
+    'Livestock': '🐄',
+    'Organic': '🌿',
+    'Dairy': '🥛',
+    'Tools': '🔧',
+    'Fresh Produce': '🥬',
+  };
+  return icons[name] || '🌾';
+};
+
 export default function CategoryGrid({
   categories: propCategories,
   title = 'Shop by Category',
   limit = 8
 }: CategoryGridProps) {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [fetchedCategories, setFetchedCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(!propCategories || propCategories.length === 0);
 
+  // ── FIX: Determine if we are using props or fetched data ───────────────────
+  const displayCategories = useMemo(() => {
+    if (propCategories && propCategories.length > 0) {
+      return propCategories.slice(0, limit);
+    }
+    if (fetchedCategories.length > 0) {
+      return fetchedCategories.slice(0, limit);
+    }
+    return defaultCategories.slice(0, limit);
+  }, [propCategories, fetchedCategories, limit]);
+
+  // ── FIX: Only fetch if props are NOT provided ─────────────────────────────
   useEffect(() => {
     if (propCategories && propCategories.length > 0) {
-      // Use provided categories
-      setCategories(propCategories.slice(0, limit));
-      setLoading(false);
-      return;
+      return; // Skip fetching if categories are passed via props
     }
 
-    // Fetch categories from API
+    let isMounted = true;
+
     const fetchCategories = async () => {
       try {
         const response = await fetch('/api/categories?limit=' + limit);
         if (response.ok) {
           const data = await response.json();
-          if (data.categories && data.categories.length > 0) {
-            setCategories(data.categories.slice(0, limit));
-          } else {
-            // Use default categories if API returns empty
-            setCategories(defaultCategories.slice(0, limit));
+          if (isMounted && data.categories && data.categories.length > 0) {
+            setFetchedCategories(data.categories);
+          } else if (isMounted) {
+            setFetchedCategories(defaultCategories);
           }
-        } else {
-          // Use default categories if API fails
-          setCategories(defaultCategories.slice(0, limit));
+        } else if (isMounted) {
+          setFetchedCategories(defaultCategories);
         }
       } catch (error) {
         console.error('Failed to fetch categories:', error);
-        // Use default categories on error
-        setCategories(defaultCategories.slice(0, limit));
+        if (isMounted) {
+          setFetchedCategories(defaultCategories);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchCategories();
+
+    return () => {
+      isMounted = false;
+    };
   }, [propCategories, limit]);
 
-  if (loading) {
+  // If props are provided, we are never loading from API
+  const isLoading = propCategories && propCategories.length > 0 ? false : loading;
+
+  if (isLoading) {
     return (
       <section className="mb-12">
         <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6 flex items-center gap-3">
@@ -107,7 +136,7 @@ export default function CategoryGrid({
     );
   }
 
-  if (!categories || categories.length === 0) {
+  if (!displayCategories || displayCategories.length === 0) {
     return (
       <section className="mb-12">
         <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6 flex items-center gap-3">
@@ -138,57 +167,36 @@ export default function CategoryGrid({
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-4">
-        {categories.map((category) => {
-          // Get icon for category
-          const getCategoryIcon = (name: string) => {
-            const icons: { [key: string]: string } = {
-              'Vegetables': '🥬',
-              'Fruits': '🍎',
-              'Grains': '🌾',
-              'Seeds': '🌱',
-              'Fertilizers': '🧪',
-              'Equipment': '🚜',
-              'Irrigation': '💧',
-              'Livestock': '🐄',
-              'Organic': '🌿',
-              'Dairy': '🥛',
-              'Tools': '🔧',
-              'Fresh Produce': '🥬',
-            };
-            return icons[name] || category.icon || '🌾';
-          };
-
-          return (
-            <Link
-              key={category.id}
-              href={`/shop?category=${encodeURIComponent(category.slug)}`}
-              className="group bg-white rounded-xl p-4 text-center hover:shadow-xl transition-all duration-300 border border-gray-100 hover:border-green-300 hover:-translate-y-1"
-            >
-              <div className="w-16 h-16 mx-auto mb-3 bg-gradient-to-br from-green-50 to-emerald-50 rounded-full flex items-center justify-center group-hover:from-green-100 group-hover:to-emerald-100 transition-all">
-                {category.image ? (
-                  <div className="relative w-10 h-10">
-                    <Image
-                      src={category.image}
-                      alt={category.name}
-                      fill
-                      className="object-contain"
-                    />
-                  </div>
-                ) : (
-                  <span className="text-3xl">{getCategoryIcon(category.name)}</span>
-                )}
-              </div>
-              <h3 className="text-sm font-semibold text-gray-800 line-clamp-2">
-                {category.name}
-              </h3>
-              {category.productCount !== undefined && (
-                <p className="text-xs text-gray-400 mt-1">
-                  {category.productCount} products
-                </p>
+        {displayCategories.map((category) => (
+          <Link
+            key={category.id}
+            href={`/shop?category=${encodeURIComponent(category.slug)}`}
+            className="group bg-white rounded-xl p-4 text-center hover:shadow-xl transition-all duration-300 border border-gray-100 hover:border-green-300 hover:-translate-y-1"
+          >
+            <div className="w-16 h-16 mx-auto mb-3 bg-gradient-to-br from-green-50 to-emerald-50 rounded-full flex items-center justify-center group-hover:from-green-100 group-hover:to-emerald-100 transition-all">
+              {category.image ? (
+                <div className="relative w-10 h-10">
+                  <Image
+                    src={category.image}
+                    alt={category.name}
+                    fill
+                    className="object-contain"
+                  />
+                </div>
+              ) : (
+                <span className="text-3xl">{getCategoryIcon(category.name)}</span>
               )}
-            </Link>
-          );
-        })}
+            </div>
+            <h3 className="text-sm font-semibold text-gray-800 line-clamp-2">
+              {category.name}
+            </h3>
+            {category.productCount !== undefined && (
+              <p className="text-xs text-gray-400 mt-1">
+                {category.productCount} products
+              </p>
+            )}
+          </Link>
+        ))}
       </div>
     </section>
   );

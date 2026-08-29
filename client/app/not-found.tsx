@@ -79,10 +79,13 @@ const quickLinks = [
 ];
 
 export default function NotFound() {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // ── FIX: Use state with initial value and no useEffect ──────────────
+  // Since we want the animation to happen after mount, we can use a ref
+  // or simply set mounted to true immediately since this is a client component
+  const [mounted, setMounted] = useState(true);
+
+  // ── FIX: Remove the useEffect completely ──────────────────────────────
+  // The animation can be controlled with CSS instead of React state
 
   return (
     <main

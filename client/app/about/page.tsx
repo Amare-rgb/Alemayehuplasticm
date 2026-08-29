@@ -1,17 +1,13 @@
 import React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+
 import {
-  Sprout,
-  Tractor,
-  Award,
   Globe,
-  Users,
   ShieldCheck,
   Leaf,
   ArrowRight,
   CheckCircle,
-  Clock,
   HeartHandshake
 } from 'lucide-react'
 
@@ -105,13 +101,16 @@ export default function AboutPage() {
               </div>
             </div>
 
-            {/* Visual Image Grid */}
+            {/* ── FIX: Visual Image Grid with Next.js Image ───────────────────── */}
             <div className="relative">
               <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-xl border-4 border-white">
-                <img
+                <Image
                   src="/banners/hero-farmer.jpg"
                   alt="Genesis Agri farmer examining crop seedlings"
-                  className="w-full h-full object-cover"
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  priority
                 />
               </div>
               <div className="absolute -bottom-6 -left-6 bg-green-700 text-white p-6 rounded-2xl shadow-xl hidden sm:block max-w-xs">
