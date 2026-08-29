@@ -1,7 +1,7 @@
 "use client";
 
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 interface ListItem {
@@ -16,22 +16,15 @@ interface ListItem {
 
 export default function AccountListsPage() {
   const router = useRouter()
-  const [lists, setLists] = useState<ListItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-
-  // Load lists from localStorage on mount
-  useEffect(() => {
-    loadLists()
-  }, [])
-
-  const loadLists = () => {
+  
+  // ── FIX: Initialize state lazily from localStorage to fix hoisting and render issues ──
+  const [lists, setLists] = useState<ListItem[]>(() => {
+    if (typeof window === 'undefined') return []
     try {
       const savedLists = localStorage.getItem('userLists')
       if (savedLists) {
-        setLists(JSON.parse(savedLists))
+        return JSON.parse(savedLists) as ListItem[]
       } else {
-        // Initialize with demo data if empty
         const demoLists: ListItem[] = [
           {
             id: '1',
@@ -52,16 +45,17 @@ export default function AccountListsPage() {
             isPublic: true
           }
         ]
-        setLists(demoLists)
         localStorage.setItem('userLists', JSON.stringify(demoLists))
+        return demoLists
       }
     } catch (error) {
       console.error('Failed to load lists:', error)
-      setLists([])
-    } finally {
-      setLoading(false)
+      return []
     }
-  }
+  })
+
+  const [loading] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const handleDeleteList = async (listId: string, listTitle: string) => {
     if (!confirm(`Are you sure you want to delete "${listTitle}"? This action cannot be undone.`)) {
@@ -75,7 +69,6 @@ export default function AccountListsPage() {
       localStorage.setItem('userLists', JSON.stringify(updatedLists))
       setLists(updatedLists)
       
-      // Show success message
       showToast(`"${listTitle}" has been deleted`, 'success')
     } catch (error) {
       console.error('Failed to delete list:', error)

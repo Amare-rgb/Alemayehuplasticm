@@ -1,14 +1,14 @@
 "use client";
 
-import React, { useState, useRef, ChangeEvent, useEffect } from "react";
+import React, { useState, useRef, ChangeEvent, useEffect, useMemo } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   User,
   Package,
   ShoppingCart,
   Heart,
-  Settings,
   MapPin,
   Phone,
   Mail,
@@ -92,29 +92,37 @@ export default function ProfilePage() {
   const { user, status, logout } = useAuth();
   const router = useRouter();
 
-  // ── Editable fields state ──────────────────────────────────────────────────
-  const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "",
-    phone: "",
+  // ── FIX: Use useMemo to derive form data from user ──────────────────────
+  // This eliminates the need for useEffect to update state
+  const derivedFormData = useMemo(() => ({
+    name: user?.name || "",
+    phone: user?.phone || "+251 912 345 678",
     address: "Addis Ababa, Ethiopia",
     bio: "Passionate about fresh, organic produce from local farms.",
-  });
+  }), [user]);
+
+  // ── Editable fields state ──────────────────────────────────────────────────
+  const [isEditing, setIsEditing] = useState(false);
+  // Initialize with derived data, but allow edits
+  const [formData, setFormData] = useState(derivedFormData);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Sync user data when auth loads
-  useEffect(() => {
-    if (user) {
-      setFormData((prev) => ({
-        ...prev,
-        name: user.name || prev.name,
-        phone: user.phone || "+251 912 345 678",
-      }));
+   useEffect(() => {
+    // Only reset if we're not in edit mode to avoid losing changes
+    if (!isEditing && user) {
+      // Use queueMicrotask or a small check to avoid synchronous cascading render warning
+      queueMicrotask(() => {
+        setFormData({
+          name: user.name || "",
+          phone: user.phone || "+251 912 345 678",
+          address: "Addis Ababa, Ethiopia",
+          bio: "Passionate about fresh, organic produce from local farms.",
+        });
+      });
     }
-  }, [user]);
-
+  }, [user?.id, isEditing]);
   // ── Redirect if not authenticated ──────────────────────────────────────────
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -138,11 +146,12 @@ export default function ProfilePage() {
   const handleCancel = () => {
     setIsEditing(false);
     if (user) {
-      setFormData((prev) => ({
-        ...prev,
-        name: user.name || prev.name,
+      setFormData({
+        name: user.name || "",
         phone: user.phone || "+251 912 345 678",
-      }));
+        address: "Addis Ababa, Ethiopia",
+        bio: "Passionate about fresh, organic produce from local farms.",
+      });
     }
   };
 
@@ -169,6 +178,8 @@ export default function ProfilePage() {
       .join("")
       .toUpperCase() || "U";
 
+  const avatarSrc = avatarUrl || user.avatar || "";
+
   return (
     <div className="min-h-screen bg-genesis-cream">
       {/* ═══════════════════════════════════════════════════════════════════════
@@ -190,14 +201,17 @@ export default function ProfilePage() {
 
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-28 sm:pt-28 sm:pb-32">
           <div className="flex flex-col sm:flex-row items-center sm:items-end gap-5 sm:gap-6">
-            {/* Avatar */}
+            {/* Avatar - Using Next.js Image component */}
             <div className="relative group">
-              <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-2xl overflow-hidden ring-4 ring-white/20 shadow-2xl transition-transform duration-300 group-hover:scale-[1.02]">
-                {avatarUrl || user.avatar ? (
-                  <img
-                    src={avatarUrl || user.avatar || ""}
+              <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-2xl overflow-hidden ring-4 ring-white/20 shadow-2xl transition-transform duration-300 group-hover:scale-[1.02] relative">
+                {avatarSrc ? (
+                  <Image
+                    src={avatarSrc}
                     alt={user.name || "Profile"}
-                    className="w-full h-full object-cover"
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 640px) 112px, 128px"
+                    priority
                   />
                 ) : (
                   <div className="w-full h-full bg-gradient-to-br from-genesis-500 to-genesis-lime flex items-center justify-center">

@@ -3,6 +3,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   Trash2,
@@ -43,7 +44,6 @@ export default function CartPage() {
       toast.error("Your cart is currently empty.");
       return;
     }
-    // Checkout page route or notification
     router.push("/checkout");
   };
 
@@ -128,17 +128,20 @@ export default function CartPage() {
                     className="group overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-5 sm:p-6 shadow-[0_10px_35px_rgba(18,53,35,.04)] transition-all hover:shadow-[0_15px_45px_rgba(18,53,35,.08)]"
                   >
                     <div className="flex flex-col sm:flex-row gap-5 items-start sm:items-center">
-                      {/* Image Thumbnail */}
+                      {/* ── FIX: Use Next.js Image component ─────────────────── */}
                       <Link
                         href={`/shop/${encodeURIComponent(item.slug)}`}
                         className="relative h-24 w-24 sm:h-28 sm:w-28 shrink-0 overflow-hidden rounded-2xl bg-[#0b2419] border border-[#16412c]/20"
                       >
-                        <img
-                          src={item.image}
+                        <Image
+                          src={item.image || "/placeholder-product.jpg"}
                           alt={item.name}
-                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                          fill
+                          className="object-cover transition-transform duration-500 group-hover:scale-105"
+                          sizes="(max-width: 640px) 96px, 112px"
                           onError={(e) => {
-                            e.currentTarget.src =
+                            const target = e.currentTarget as HTMLImageElement;
+                            target.src =
                               "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80";
                           }}
                         />

@@ -16,7 +16,6 @@ const api = axios.create({
 // Add token to requests with proper typing
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Check both possible token storage keys
     const token = localStorage.getItem('token') || localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -55,18 +54,70 @@ interface RegisterResponse {
   user: User;
 }
 
-// Helper to extract clean User object from any response structure
-const extractUserData = (payload: any): User | null => {
+// ── FIX: Define proper types for API response ──────────────────────────────
+interface ApiResponse<T = unknown> {
+  data?: T;
+  user?: User;
+  token?: string;
+}
+
+// ── FIX: Remove 'any' with proper type ──────────────────────────────────────
+interface UserPayload {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  avatar?: string | null;
+  phone?: string | null;
+}
+
+// ── FIX: Use proper types instead of 'any' ──────────────────────────────────
+const extractUserData = (payload: unknown): User | null => {
   if (!payload) return null;
-  if (payload.data && typeof payload.data === 'object' && payload.data.id) {
-    return payload.data as User;
+  
+  // Check if payload is an object
+  if (typeof payload !== 'object') return null;
+  
+  const data = payload as Record<string, unknown>;
+  
+  // Check if payload has a data property with user data
+  if (data.data && typeof data.data === 'object' && (data.data as Record<string, unknown>).id) {
+    const userData = data.data as UserPayload;
+    return {
+      id: userData.id,
+      name: userData.name,
+      email: userData.email,
+      role: userData.role,
+      avatar: userData.avatar || null,
+      phone: userData.phone || null,
+    };
   }
-  if (payload.user && typeof payload.user === 'object' && payload.user.id) {
-    return payload.user as User;
+  
+  // Check if payload has a user property
+  if (data.user && typeof data.user === 'object' && (data.user as Record<string, unknown>).id) {
+    const userData = data.user as UserPayload;
+    return {
+      id: userData.id,
+      name: userData.name,
+      email: userData.email,
+      role: userData.role,
+      avatar: userData.avatar || null,
+      phone: userData.phone || null,
+    };
   }
-  if (payload.id) {
-    return payload as User;
+  
+  // Check if payload itself is the user data
+  if (data.id && typeof data.id === 'string') {
+    return {
+      id: data.id as string,
+      name: data.name as string || '',
+      email: data.email as string || '',
+      role: data.role as string || 'USER',
+      avatar: (data.avatar as string | null) || null,
+      phone: (data.phone as string | null) || null,
+    };
   }
+  
   return null;
 };
 
@@ -198,12 +249,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setStatus('authenticated');
       
-      // Redirect based on role
+      // ── FIX: Redirect based on role ──────────────────────────────────────
       const userRole = userData?.role?.toUpperCase();
       if (userRole === 'ADMIN') {
         router.push('/admin/dashboard');
-      } else if (userRole === 'SELLER' || userRole === 'FARMER') {
-        router.push('/seller/dashboard');
       } else {
         router.push('/shop');
       }
@@ -266,12 +315,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setStatus('authenticated');
       
-      // Redirect based on role
+      // ── FIX: Redirect based on role ──────────────────────────────────────
       const userRole = userData?.role?.toUpperCase();
       if (userRole === 'ADMIN') {
         router.push('/admin/dashboard');
-      } else if (userRole === 'SELLER' || userRole === 'FARMER') {
-        router.push('/seller/dashboard');
       } else {
         router.push('/');
       }

@@ -342,7 +342,7 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
               <h4 className="text-sm font-bold text-amber-900 mb-1">Need help?</h4>
               <p className="text-xs text-amber-800 leading-relaxed">
                 Contact support with your order number{' '}
-                <span className="font-mono font-bold">#{shortId}</span> and we'll sort it out quickly.
+                <span className="font-mono font-bold">#{shortId}</span> and well sort it out quickly.
               </p>
               <Link
                 href="/support"

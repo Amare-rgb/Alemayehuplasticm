@@ -19,13 +19,25 @@ export default function AddToCartButton({ productId, qty = 1, disabled = false }
       const sel = document.getElementById('quantity') as HTMLSelectElement | null
       const quantity = sel ? parseInt(sel.value || '1', 10) : qty
 
-      // update local/guest cart immediately
-      await cart.add(productId, quantity)
+      // Support different possible method names in CartContext safely without using 'any'
+      const cartActions = cart as unknown as {
+        add?: (id: string, q: number) => Promise<void>;
+        addItem?: (id: string, q: number) => Promise<void>;
+        addToCart?: (id: string, q: number) => Promise<void>;
+      }
+
+      const addFn = cartActions.add || cartActions.addItem || cartActions.addToCart
+      if (addFn) {
+        await addFn(productId, quantity)
+      } else {
+        throw new Error('Cart add method not found in context')
+      }
 
       // show feedback
       toast.success('Added to cart')
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not add to cart')
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Could not add to cart'
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

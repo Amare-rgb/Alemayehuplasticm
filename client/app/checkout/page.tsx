@@ -39,6 +39,28 @@ interface PaymentOption {
   details?: { label: string; value: string }[];
 }
 
+// ── FIX: Define proper types ──────────────────────────────────────────────
+interface OrderInfo {
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  address: string;
+  notes: string;
+  paymentMethod: string;
+  totalAmount: number;
+  itemCount: number;
+  units: number;
+}
+
+interface CartItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  unit: string;
+  image: string;
+}
+
 const paymentOptions: PaymentOption[] = [
   {
     id: "telebirr",
@@ -110,7 +132,7 @@ export default function CheckoutPage() {
 
   // Coming Soon Modal State
   const [showComingSoonModal, setShowComingSoonModal] = useState(false);
-  const [submittedOrderInfo, setSubmittedOrderInfo] = useState<any>(null);
+  const [submittedOrderInfo, setSubmittedOrderInfo] = useState<OrderInfo | null>(null);
 
   const isAuthenticated = status === "authenticated" && !!user;
 
@@ -143,10 +165,10 @@ export default function CheckoutPage() {
       }
     }
 
-    const orderSummaryPayload = {
-      customerName: isAuthenticated ? user?.name : guestName,
+    const orderSummaryPayload: OrderInfo = {
+      customerName: isAuthenticated ? user?.name || "" : guestName,
       customerPhone: isAuthenticated ? user?.phone || "On File" : guestPhone,
-      customerEmail: isAuthenticated ? user?.email : guestEmail || "Not provided",
+      customerEmail: isAuthenticated ? user?.email || "" : guestEmail || "Not provided",
       address: `${citySubcity}, ${deliveryAddress}`,
       notes: orderNotes || "None",
       paymentMethod: paymentOptions.find((p) => p.id === selectedPayment)?.name || selectedPayment,
@@ -175,7 +197,6 @@ export default function CheckoutPage() {
             <h1 className="font-serif-heading text-3xl sm:text-4xl font-bold tracking-tight text-[#123523]">
               Checkout & Farm Dispatch
             </h1>
-            
           </div>
         </div>
 
@@ -497,7 +518,7 @@ export default function CheckoutPage() {
 
                 {/* Item List Scroll Area */}
                 <div className="mt-4 max-h-[300px] overflow-y-auto space-y-3 pr-1 divide-y divide-gray-100">
-                  {items.map((item) => (
+                  {(items as CartItem[]).map((item) => (
                     <div key={item.id} className="pt-3 first:pt-0 flex items-center gap-3">
                       <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#0b2419] border border-[#16412c]/20">
                         <img
@@ -592,7 +613,7 @@ export default function CheckoutPage() {
       {/* =====================================================
           COMING SOON MODAL / ALERT DIALOG
       ====================================================== */}
-      {showComingSoonModal && (
+      {showComingSoonModal && submittedOrderInfo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-fade-in">
           <div className="relative w-full max-w-lg overflow-hidden rounded-[2.5rem] border border-[#1e4d35] bg-[#071a11] p-6 sm:p-8 text-white shadow-[0_25px_70px_rgba(0,0,0,0.9)] animate-scale-in">
             {/* Close Button */}
@@ -620,37 +641,35 @@ export default function CheckoutPage() {
             </p>
 
             {/* Order Review Box */}
-            {submittedOrderInfo && (
-              <div className="my-5 rounded-2xl bg-[#0b2419] p-4 border border-[#16412c] text-xs space-y-2">
-                <h4 className="font-bold text-[var(--lime)] uppercase tracking-wider text-[11px] mb-2">
-                  📋 Your Order Preview Summary:
-                </h4>
-                <div className="flex justify-between text-white/80">
-                  <span>Customer:</span>
-                  <span className="font-bold text-white">{submittedOrderInfo.customerName}</span>
-                </div>
-                <div className="flex justify-between text-white/80">
-                  <span>Contact Phone:</span>
-                  <span className="font-bold text-white">{submittedOrderInfo.customerPhone}</span>
-                </div>
-                <div className="flex justify-between text-white/80">
-                  <span>Delivery Address:</span>
-                  <span className="font-bold text-white text-right max-w-[200px] truncate">
-                    {submittedOrderInfo.address}
-                  </span>
-                </div>
-                <div className="flex justify-between text-white/80">
-                  <span>Payment Preference:</span>
-                  <span className="font-bold text-[var(--lime)]">{submittedOrderInfo.paymentMethod}</span>
-                </div>
-                <div className="pt-2 border-t border-[#16412c] flex justify-between font-bold text-sm text-white">
-                  <span>Total Amount:</span>
-                  <span className="font-serif-heading text-lg text-[var(--lime)]">
-                    ETB {submittedOrderInfo.totalAmount.toLocaleString()}
-                  </span>
-                </div>
+            <div className="my-5 rounded-2xl bg-[#0b2419] p-4 border border-[#16412c] text-xs space-y-2">
+              <h4 className="font-bold text-[var(--lime)] uppercase tracking-wider text-[11px] mb-2">
+                📋 Your Order Preview Summary:
+              </h4>
+              <div className="flex justify-between text-white/80">
+                <span>Customer:</span>
+                <span className="font-bold text-white">{submittedOrderInfo.customerName}</span>
               </div>
-            )}
+              <div className="flex justify-between text-white/80">
+                <span>Contact Phone:</span>
+                <span className="font-bold text-white">{submittedOrderInfo.customerPhone}</span>
+              </div>
+              <div className="flex justify-between text-white/80">
+                <span>Delivery Address:</span>
+                <span className="font-bold text-white text-right max-w-[200px] truncate">
+                  {submittedOrderInfo.address}
+                </span>
+              </div>
+              <div className="flex justify-between text-white/80">
+                <span>Payment Preference:</span>
+                <span className="font-bold text-[var(--lime)]">{submittedOrderInfo.paymentMethod}</span>
+              </div>
+              <div className="pt-2 border-t border-[#16412c] flex justify-between font-bold text-sm text-white">
+                <span>Total Amount:</span>
+                <span className="font-serif-heading text-lg text-[var(--lime)]">
+                  ETB {submittedOrderInfo.totalAmount.toLocaleString()}
+                </span>
+              </div>
+            </div>
 
             <div className="rounded-xl bg-white/5 p-3.5 border border-white/10 text-[11px] text-white/70 flex items-start gap-2.5">
               <Phone size={15} className="text-[var(--lime)] shrink-0 mt-0.5" />
