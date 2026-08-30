@@ -1,154 +1,8 @@
-// // src/app/blog/page.tsx
-// 'use client';
-
-// import { useState, useEffect } from 'react';
-// import Link from 'next/link';
-// import Image from 'next/image';
-// import { Calendar, User, ArrowRight, Clock } from 'lucide-react';
-
-// interface BlogPost {
-//   id: string;
-//   title: string;
-//   slug: string;
-//   excerpt: string;
-//   content: string;
-//   image: string;
-//   author: string;
-//   category: string;
-//   createdAt: string;
-//   readTime: number;
-//   published: boolean;
-// }
-
-// export default function BlogPage() {
-//   const [posts, setPosts] = useState<BlogPost[]>([]);
-//   const [loading, setLoading] = useState(true);
-
-//   // ✅ Fetch blog posts from your Admin API
-//   useEffect(() => {
-//     const fetchPosts = async () => {
-//       try {
-//         const res = await fetch('/api/blog?published=true');
-//         if (!res.ok) throw new Error('Failed to fetch blog posts');
-//         const data = await res.json();
-//         setPosts(data.posts || []);
-//       } catch (err) {
-//         console.error('Error fetching blog posts:', err);
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-//     fetchPosts();
-//   }, []);
-
-//   const formatDate = (dateString: string) => {
-//     const date = new Date(dateString);
-//     return date.toLocaleDateString('en-US', {
-//       month: 'long',
-//       day: 'numeric',
-//       year: 'numeric'
-//     });
-//   };
-
-//   return (
-//     <main className="min-h-screen bg-gray-50 py-12">
-//       <div className="max-w-7xl mx-auto px-4 sm:px-6">
-//         {/* Header */}
-//         <div className="text-center mb-12">
-//           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-//             GenesisAgri <span className="text-green-600">Blog</span>
-//           </h1>
-//           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-//             Insights, news, and stories from the forefront of agricultural transformation.
-//           </p>
-//         </div>
-
-//         {/* Blog Posts Grid */}
-//         {loading ? (
-//           <div className="flex justify-center items-center py-20">
-//             <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
-//           </div>
-//         ) : posts.length === 0 ? (
-//           <div className="text-center py-20">
-//             <h3 className="text-xl font-semibold text-gray-800 mb-2">No blog posts yet</h3>
-//             <p className="text-gray-600">Check back soon for updates!</p>
-//           </div>
-//         ) : (
-//           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-//             {posts.map((post) => (
-//               <article
-//                 key={post.id}
-//                 className="bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group"
-//               >
-//                 {/* Post Image */}
-//                 <div className="relative h-48 w-full bg-gray-200 overflow-hidden">
-//                   {post.image ? (
-//                     <img
-//                       src={post.image}
-//                       alt={post.title}
-//                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-//                     />
-//                   ) : (
-//                     <div className="w-full h-full flex items-center justify-center text-4xl text-gray-400">
-//                       🌾
-//                     </div>
-//                   )}
-//                   {/* Category Badge */}
-//                   <span className="absolute top-3 left-3 bg-green-600 text-white text-xs font-semibold px-3 py-1 rounded-full">
-//                     {post.category || 'Agriculture'}
-//                   </span>
-//                 </div>
-
-//                 {/* Post Content */}
-//                 <div className="p-6">
-//                   <div className="flex items-center gap-4 text-xs text-gray-500 mb-3">
-//                     <span className="flex items-center gap-1">
-//                       <Calendar size={14} />
-//                       {formatDate(post.createdAt)}
-//                     </span>
-//                     <span className="flex items-center gap-1">
-//                       <Clock size={14} />
-//                       {post.readTime || 3} min read
-//                     </span>
-//                   </div>
-
-//                   <Link href={`/blog/${post.slug}`}>
-//                     <h2 className="text-xl font-bold text-gray-900 hover:text-green-600 transition-colors line-clamp-2 mb-2">
-//                       {post.title}
-//                     </h2>
-//                   </Link>
-
-//                   <p className="text-gray-600 text-sm line-clamp-3 mb-4">
-//                     {post.excerpt || post.content?.substring(0, 120) + '...'}
-//                   </p>
-
-//                   <div className="flex items-center justify-between">
-//                     <span className="text-sm text-gray-500 flex items-center gap-1">
-//                       <User size={14} />
-//                       {post.author || 'GenesisAgri'}
-//                     </span>
-//                     <Link
-//                       href={`/blog/${post.slug}`}
-//                       className="text-green-600 hover:text-green-700 text-sm font-semibold flex items-center gap-1 group-hover:gap-2 transition-all"
-//                     >
-//                       Read More
-//                       <ArrowRight size={16} />
-//                     </Link>
-//                   </div>
-//                 </div>
-//               </article>
-//             ))}
-//           </div>
-//         )}
-//       </div>
-//     </main>
-//   );
-// }
-
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import Image from "next/image";
+import { useState, useEffect } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -159,113 +13,189 @@ import {
   Sprout,
 } from "lucide-react";
 
-const categories = [
-  "All",
-  "Farming",
-  "Sustainability",
-  "Fresh Produce",
-  "Our Farm",
-  "Stories",
-];
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
-const posts = [
-{
-    slug: "what-makes-truly-farm-fresh-produce-different",
-    category: "Farming",
-    date: "August 18, 2026",
-    readTime: "5 min read",
-    title: "What makes truly farm-fresh produce different?",
-    excerpt:
-      "Freshness starts long before produce reaches your kitchen. Here's how thoughtful farming, careful harvesting, and a shorter journey make a difference.",
-    image:
-      "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-    featured: true,
-  },
-  {
-    slug: "growing-with-the-land-not-against-it",
-    category: "Sustainability",
-    date: "August 12, 2026",
-    readTime: "6 min read",
-    title: "Growing with the land, not against it",
-    excerpt:
-      "Healthy soil is at the heart of every healthy harvest.",
-    image:
-      "https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-  {
-    slug: "from-sunrise-harvest-to-your-table",
-    category: "Fresh Produce",
-    date: "August 05, 2026",
-    readTime: "4 min read",
-    title: "From sunrise harvest to your table",
-    excerpt:
-      "A look behind the scenes at what happens between the moment a crop is picked and the moment it reaches you.",
-    image:
-      "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-  {
-    slug: "a-morning-in-the-fields-at-genesis",
-    category: "Our Farm",
-    date: "July 28, 2026",
-    readTime: "7 min read",
-    title: "A morning in the fields at Genesis",
-    excerpt:
-      "Walk with us through an ordinary morning on the farm.",
-    image:
-      "https://images.unsplash.com/photo-1492496913980-501348b61469?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-  {
-    slug: "the-people-behind-every-harvest",
-    category: "Stories",
-    date: "July 19, 2026",
-    readTime: "5 min read",
-    title: "The people behind every harvest",
-    excerpt:
-      "Farming is more than soil and sunshine. Meet some of the people whose knowledge and dedication keep Genesis growing.",
-    image:
-      "https://images.unsplash.com/photo-1592982537447-6f8f2b2d6e0f?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-  {
-    slug: "why-healthy-soil-means-a-healthier-future",
-    category: "Sustainability",
-    date: "July 10, 2026",
-    readTime: "6 min read",
-    title: "Why healthy soil means a healthier future",
-    excerpt:
-      "Good agriculture begins underground.",
-    image:
-      "https://images.unsplash.com/photo-1523742813107-8f0b6f6e5b6a?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-];
+interface BlogPost {
+  id: string;
+  slug: string;
+  category: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  image: string | null;
+  readTime: number;
+  published: boolean;
+  views: number;
+  createdAt: string;
+  author: {
+    name: string;
+    email: string;
+    avatar: string | null;
+  };
+  featured?: boolean;
+}
+
+// Default image for fallback
+const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90';
+
+// Helper function to get image URL
+const getImageUrl = (image: string | null): string => {
+  if (!image) return DEFAULT_IMAGE;
+  if (image.startsWith('http://') || image.startsWith('https://')) {
+    return image;
+  }
+  return `${API_URL}${image}`;
+};
+
+// Image Component with Next.js Image
+const BlogImage: React.FC<{ src: string; alt: string; className?: string; priority?: boolean }> = ({
+  src,
+  alt,
+  className = '',
+  priority = false
+}) => {
+  const [error, setError] = useState(false);
+  const imageUrl = getImageUrl(src);
+
+  if (error) {
+    return (
+      <div className={`flex items-center justify-center bg-gray-200 ${className}`}>
+        <Leaf className="w-8 h-8 text-gray-400" />
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={imageUrl}
+      alt={alt}
+      fill
+      className={`object-cover ${className}`}
+      onError={() => setError(true)}
+      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+      priority={priority}
+      unoptimized={imageUrl.startsWith('http')}
+    />
+  );
+};
 
 export default function BlogPage() {
+  const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Fetch blog posts from backend API
+  useEffect(() => {
+    const fetchPosts = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const url = `${API_URL}/api/blog?published=true&limit=50`;
+        console.log('📡 Fetching posts from:', url);
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch posts: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('📊 Blog posts from API:', data);
+        
+        let postsData: BlogPost[] = [];
+        if (data && data.posts) {
+          postsData = data.posts;
+        } else if (Array.isArray(data)) {
+          postsData = data;
+        }
+        
+        // Mark the first post as featured if none is marked
+        if (postsData.length > 0 && !postsData.some(p => p.featured)) {
+          postsData[0] = { ...postsData[0], featured: true };
+        }
+        
+        setPosts(postsData);
+      } catch (err) {
+        console.error('❌ Error fetching blog posts:', err);
+        setError('Failed to load blog posts. Please try again later.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchPosts();
+  }, []);
+
+  // Get unique categories from posts
+  const availableCategories = ["All", ...new Set(posts.map(p => p.category).filter(Boolean))];
 
   const filteredPosts = posts.filter((post) => {
     const matchesCategory =
       activeCategory === "All" || post.category === activeCategory;
 
     const query = searchQuery.toLowerCase();
-
     const matchesSearch =
       post.title.toLowerCase().includes(query) ||
-      post.excerpt.toLowerCase().includes(query);
+      (post.excerpt && post.excerpt.toLowerCase().includes(query)) ||
+      false;
 
     return matchesCategory && matchesSearch;
   });
 
   const featuredPost = posts.find((post) => post.featured);
+  const regularPosts = filteredPosts.filter((post) => !post.featured);
 
-  const regularPosts = filteredPosts.filter(
-    (post) => !post.featured
-  );
+  const formatDate = (dateString: string) => {
+    if (!dateString) return 'Recent';
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    } catch {
+      return 'Recent';
+    }
+  };
+
+  const getReadTime = (post: BlogPost) => {
+    const minutes = post.readTime || 3;
+    return `${minutes} min read`;
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-[var(--cream)] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-gray-600">Loading stories...</p>
+        </div>
+      </main>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <main className="min-h-screen bg-[var(--cream)] flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <Leaf className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900">Something went wrong</h2>
+          <p className="text-gray-600 mt-2">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          >
+            Try Again
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[var(--cream)] text-[var(--ink)]">
@@ -385,20 +315,10 @@ export default function BlogPage() {
           >
             {/* Image */}
             <div className="relative min-h-[430px] overflow-hidden lg:min-h-[540px]">
-
-              <img
-                src={featuredPost.image}
+              <BlogImage
+                src={featuredPost.image || DEFAULT_IMAGE}
                 alt={featuredPost.title}
-                className="
-                  absolute
-                  inset-0
-                  h-full
-                  w-full
-                  object-cover
-                  transition-transform
-                  duration-700
-                  group-hover:scale-105
-                "
+                priority={true}
               />
 
               <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
@@ -418,7 +338,7 @@ export default function BlogPage() {
                   text-[var(--green-950)]
                 "
               >
-                {featuredPost.category}
+                {featuredPost.category || 'Featured'}
               </span>
 
             </div>
@@ -430,14 +350,14 @@ export default function BlogPage() {
                 <div className="mb-10 flex items-center gap-4 text-[9px] uppercase tracking-[0.13em] text-white/45">
                   <span className="flex items-center gap-1.5">
                     <CalendarDays size={12} />
-                    {featuredPost.date}
+                    {formatDate(featuredPost.createdAt)}
                   </span>
 
                   <span className="h-3 w-px bg-white/20" />
 
                   <span className="flex items-center gap-1.5">
                     <Clock3 size={12} />
-                    {featuredPost.readTime}
+                    {getReadTime(featuredPost)}
                   </span>
                 </div>
 
@@ -446,7 +366,7 @@ export default function BlogPage() {
                 </h2>
 
                 <p className="mt-7 max-w-[430px] text-sm leading-[1.8] text-white/60">
-                  {featuredPost.excerpt}
+                  {featuredPost.excerpt || featuredPost.content?.substring(0, 150) || ''}
                 </p>
               </div>
 
@@ -539,7 +459,7 @@ export default function BlogPage() {
         {/* Category filters */}
         <div className="mb-12 flex gap-2 overflow-x-auto pb-2">
 
-          {categories.map((category) => {
+          {availableCategories.map((category) => {
             const active = activeCategory === category;
 
             return (
@@ -582,30 +502,21 @@ export default function BlogPage() {
 
             {regularPosts.map((post, index) => (
               <Link
-                key={post.slug}
+                key={post.id}
                 href={`/blog/${post.slug}`}
                 className="group"
               >
 
                 {/* Image */}
                 <div className="relative aspect-[1.18] overflow-hidden bg-[var(--cream-dark)]">
-
-                  <img
-                    src={post.image}
+                  <BlogImage
+                    src={post.image || DEFAULT_IMAGE}
                     alt={post.title}
-                    className="
-                      h-full
-                      w-full
-                      object-cover
-                      transition-transform
-                      duration-700
-                      group-hover:scale-105
-                    "
                   />
 
                   <div className="absolute left-4 top-4">
                     <span className="bg-[var(--cream)] px-3 py-2 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--green-800)]">
-                      {post.category}
+                      {post.category || 'General'}
                     </span>
                   </div>
 
@@ -621,11 +532,11 @@ export default function BlogPage() {
                 <div className="pt-5">
 
                   <div className="flex items-center gap-3 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
-                    <span>{post.date}</span>
+                    <span>{formatDate(post.createdAt)}</span>
 
                     <span className="h-3 w-px bg-[var(--line)]" />
 
-                    <span>{post.readTime}</span>
+                    <span>{getReadTime(post)}</span>
                   </div>
 
                   <h3
@@ -645,7 +556,7 @@ export default function BlogPage() {
                   </h3>
 
                   <p className="mt-3 line-clamp-2 text-[12px] leading-[1.7] text-[var(--muted)]">
-                    {post.excerpt}
+                    {post.excerpt || post.content?.substring(0, 120) || ''}
                   </p>
 
                   <div className="mt-5 flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.13em] text-[var(--green-800)]">
@@ -677,7 +588,9 @@ export default function BlogPage() {
             </h3>
 
             <p className="mt-2 text-xs text-[var(--muted)]">
-              Try another category or search term.
+              {searchQuery || activeCategory !== "All" 
+                ? "Try another category or search term." 
+                : "Check back soon for new stories."}
             </p>
 
           </div>
@@ -748,22 +661,26 @@ export default function BlogPage() {
             </div>
 
 
-            {/* Image composition */}
+            {/* Image composition - using static images since these are fixed decorative images */}
             <div className="grid grid-cols-[1.2fr_.8fr] gap-4">
 
-              <div className="aspect-[0.85] overflow-hidden">
-                <img
+              <div className="aspect-[0.85] overflow-hidden relative">
+                <Image
                   src="https://images.unsplash.com/photo-1644101211459-7f9be46fad04?q=80&w=1170&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
                   alt="Farmer working in a field"
-                  className="h-full w-full object-cover"
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 768px) 100vw, 50vw"
                 />
               </div>
 
-              <div className="mt-16 aspect-[0.75] overflow-hidden">
-                <img
+              <div className="mt-16 aspect-[0.75] overflow-hidden relative">
+                <Image
                   src="https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=800&q=85"
                   alt="Fresh agricultural field"
-                  className="h-full w-full object-cover"
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 768px) 100vw, 50vw"
                 />
               </div>
 

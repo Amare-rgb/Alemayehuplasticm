@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Product } from "@/data/products";
 import { useCart } from "@/context/CartContext";
@@ -134,6 +135,45 @@ function PhoneIcon() {
   );
 }
 
+// Product Image Component using Next.js Image
+const ProductImage: React.FC<{ 
+  src: string; 
+  alt: string; 
+  className?: string;
+  priority?: boolean;
+}> = ({ src, alt, className = "", priority = false }) => {
+  const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+  const [imgSrc, setImgSrc] = useState(src);
+  const [hasError, setHasError] = useState(false);
+
+  const handleError = () => {
+    if (!hasError) {
+      setHasError(true);
+      setImgSrc(DEFAULT_IMAGE);
+    }
+  };
+
+  if (hasError) {
+    return (
+      <div className={`flex items-center justify-center bg-gray-200 ${className}`}>
+        <span className="text-gray-400 text-sm">No image</span>
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={imgSrc}
+      alt={alt}
+      fill
+      className={`object-cover ${className}`}
+      onError={handleError}
+      sizes="(max-width: 768px) 100vw, 50vw"
+      priority={priority}
+    />
+  );
+};
+
 export default function ProductDetails({
   product,
 }: ProductDetailsProps) {
@@ -256,14 +296,11 @@ export default function ProductDetails({
             <div>
               <div className="relative overflow-hidden rounded-[2rem] bg-white shadow-[0_20px_65px_rgba(18,53,35,.09)]">
                 <div className="relative aspect-square overflow-hidden bg-[#0b2419]">
-                  <img
-                    src={product.images[selectedImage]}
+                  <ProductImage
+                    src={product.images?.[selectedImage] || product.images?.[0] || ""}
                     alt={product.name}
-                    className="h-full w-full object-cover transition-all duration-500"
-                    onError={(e) => {
-                      e.currentTarget.src =
-                        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
-                    }}
+                    className="w-full h-full"
+                    priority={true}
                   />
 
                   {product.badge && (
@@ -275,14 +312,14 @@ export default function ProductDetails({
               </div>
 
               {/* Thumbnails */}
-              {product.images.length > 1 && (
+              {product.images && product.images.length > 1 && (
                 <div className="mt-4 grid grid-cols-4 gap-3">
                   {product.images.map((image, index) => {
                     const active = selectedImage === index;
 
                     return (
                       <button
-                        key={image}
+                        key={image || index}
                         type="button"
                         onClick={() => setSelectedImage(index)}
                         className={`relative aspect-square overflow-hidden rounded-2xl border-2 transition-all ${
@@ -292,10 +329,11 @@ export default function ProductDetails({
                         }`}
                         aria-label={`View image ${index + 1}`}
                       >
-                        <img
+                        <ProductImage
                           src={image}
                           alt={`${product.name} ${index + 1}`}
-                          className="h-full w-full object-cover"
+                          className="w-full h-full"
+                          priority={false}
                         />
                       </button>
                     );
@@ -464,7 +502,7 @@ export default function ProductDetails({
                     Support
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[#69736b]">
-                    We're here to help.
+                    Were here to help.
                   </p>
                 </div>
               </div>

@@ -1,9 +1,11 @@
+// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")  // ✅ ADD THIS LINE
 }
 
 enum Role {
@@ -63,7 +65,7 @@ model User {
 
   // Relationships
   adminProfile    AdminProfile?
-  profile         Profile?        // New unified profile
+  profile         Profile?
   orders          Order[]
   cartItems       CartItem[]
   reviews         Review[]
@@ -77,7 +79,7 @@ model User {
 }
 
 // ============================================
-// UNIFIED PROFILE MODEL (Replaces seller_profiles)
+// UNIFIED PROFILE MODEL - No seller relation
 // ============================================
 model Profile {
   id           String   @id @default(cuid())
@@ -93,22 +95,19 @@ model Profile {
   
   // Admin-specific fields
   isAdmin      Boolean  @default(false)
-  adminRole    String?   // e.g., 'super_admin', 'manager', 'editor'
-  permissions  String[]  // Array of permission strings
+  adminRole    String?
+  permissions  String[]
   lastLogin    DateTime?
-  status       String   @default("active") // 'active', 'suspended', 'banned'
+  status       String   @default("active")
   
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  // Relationships
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  products     Product[] // Products sold by this profile
 
   @@map("profiles")
 }
 
-// Keep AdminProfile for backward compatibility if needed
 model AdminProfile {
   id          String   @id @default(cuid())
   userId      String   @unique
@@ -163,7 +162,6 @@ model Product {
   status            ProductStatus      @default(PENDING)
   visibility        ProductVisibility  @default(VISIBLE)
   adminNote         String?
-  sellerId          String             // References Profile.id
   categoryId        String
   subCategoryId     String?
   tags              String[]
@@ -181,15 +179,12 @@ model Product {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
-  // Relationships
-  seller      Profile    @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   category    Category   @relation(fields: [categoryId], references: [id])
   subCategory Category?  @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
   cartItems   CartItem[]
   orderItems  OrderItem[]
   reviews     Review[]
 
-  @@index([sellerId])
   @@index([categoryId])
   @@index([status])
   @@index([visibility])
@@ -309,6 +304,9 @@ model BlogPost {
   @@map("blog_posts")
 }
 
+// ============================================
+// Article Model - PDF fields are OPTIONAL
+// ============================================
 model Article {
   id            String        @id @default(cuid())
   title         String
@@ -316,9 +314,12 @@ model Article {
   summary       String?
   content       String        @db.Text
   note          String?       @db.Text
-  pdfUrl        String
-  pdfFileName   String
-  pdfFileSize   Int
+  
+  // PDF fields are optional
+  pdfUrl        String?       // Made optional with ?
+  pdfFileName   String?       // Made optional with ?
+  pdfFileSize   Int?          // Made optional with ?
+  
   status        ArticleStatus @default(PUBLISHED)
   views         Int           @default(0)
   downloads     Int           @default(0)

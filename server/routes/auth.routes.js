@@ -51,20 +51,20 @@ router.post('/register', async (req, res) => {
     const saltRounds = 12;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Create user - ✅ FIXED: Include phone in the create data
+    // Create user
     const user = await prisma.user.create({
       data: {
         name,
         email: email.toLowerCase(),
         password: hashedPassword,
-        phone: phone || null, // ✅ FIXED: Save phone number
+        phone: phone || null,
         role: role.toUpperCase()
       },
       select: {
         id: true,
         name: true,
         email: true,
-        phone: true, // ✅ FIXED: Return phone in response
+        phone: true,
         role: true,
         createdAt: true
       }
@@ -90,7 +90,7 @@ router.post('/register', async (req, res) => {
 });
 
 // ============================================
-// LOGIN - FIXED VERSION
+// LOGIN
 // POST /api/auth/login
 // ============================================
 router.post('/login', async (req, res) => {
@@ -139,7 +139,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Verify password with detailed logging
+    // Verify password
     console.log('🔐 Verifying password...');
     const isValidPassword = await bcrypt.compare(password, user.password);
     console.log('✅ Password valid:', isValidPassword);
@@ -158,7 +158,6 @@ router.post('/login', async (req, res) => {
     // Return user data (excluding password)
     const { password: _, ...userData } = user;
 
-    // Log successful login
     console.log('✅ Login successful for:', user.email);
 
     res.json({
@@ -167,7 +166,7 @@ router.post('/login', async (req, res) => {
       token,
       user: {
         ...userData,
-        role: userData.role // Ensure role is included
+        role: userData.role
       }
     });
   } catch (error) {
@@ -181,7 +180,7 @@ router.post('/login', async (req, res) => {
 });
 
 // ============================================
-// GET CURRENT USER
+// GET CURRENT USER - FIXED (removed sellerProfile)
 // GET /api/auth/me
 // ============================================
 router.get('/me', requireAuth, async (req, res) => {
@@ -194,13 +193,13 @@ router.get('/me', requireAuth, async (req, res) => {
         id: true,
         name: true,
         email: true,
-        phone: true, // ✅ FIXED: Ensure phone is returned
+        phone: true,
         role: true,
         avatar: true,
         createdAt: true,
         updatedAt: true,
-        // Include seller profile if exists
-        sellerProfile: {
+        // ✅ Keep profile (unified profile)
+        profile: {
           select: {
             id: true,
             shopName: true,
@@ -210,9 +209,20 @@ router.get('/me', requireAuth, async (req, res) => {
             phone: true,
             address: true,
             logo: true,
-            banner: true
+            banner: true,
+            isAdmin: true,
+            permissions: true
+          }
+        },
+        // ✅ Keep adminProfile for admin users
+        adminProfile: {
+          select: {
+            id: true,
+            permissions: true,
+            department: true
           }
         }
+        // ❌ REMOVED: sellerProfile (no longer exists)
       }
     });
 
@@ -326,7 +336,7 @@ router.put('/profile', requireAuth, async (req, res) => {
         id: true,
         name: true,
         email: true,
-        phone: true, // ✅ FIXED: Ensure phone is returned
+        phone: true,
         role: true,
         avatar: true,
         createdAt: true,

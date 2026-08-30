@@ -4,20 +4,16 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { PrismaClient } = require('@prisma/client');
 const jwt = require('jsonwebtoken');
-
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma');
 
 // ============================================
 // MULTER CONFIGURATION FOR PDF UPLOADS
 // ============================================
 
-// Configure multer storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadDir = path.join(__dirname, '../uploads/pdfs');
-    // Create directory if it doesn't exist
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
       console.log('✅ Created PDF uploads directory:', uploadDir);
@@ -25,7 +21,6 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    // Generate unique filename with timestamp
     const timestamp = Date.now();
     const random = Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
@@ -34,7 +29,6 @@ const storage = multer.diskStorage({
   }
 });
 
-// File filter to accept only PDFs
 const fileFilter = (req, file, cb) => {
   if (file.mimetype === 'application/pdf') {
     cb(null, true);
@@ -43,12 +37,9 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer upload
 const upload = multer({
   storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: fileFilter
 });
 
@@ -68,10 +59,8 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     
-    // Find user in database using Prisma
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId || decoded.id }
     });
@@ -129,18 +118,24 @@ router.post('/', authenticateToken, upload.single('pdfFile'), async (req, res) =
       });
     }
 
-    // PDF is now OPTIONAL - allow notes without PDF
-    let pdfUrl = '';
-    let pdfFileName = '';
-    let pdfFileSize = 0;
-    
+    // ✅ FIXED: PDF is OPTIONAL - handle both cases
+    let pdfData = {};
     if (req.file) {
-      pdfUrl = `/uploads/pdfs/${req.file.filename}`;
-      pdfFileName = req.file.originalname;
-      pdfFileSize = req.file.size;
+      pdfData = {
+        pdfUrl: `/uploads/pdfs/${req.file.filename}`,
+        pdfFileName: req.file.originalname,
+        pdfFileSize: req.file.size,
+      };
+    } else {
+      // ✅ If no PDF, set as null (or empty string based on your preference)
+      pdfData = {
+        pdfUrl: null,
+        pdfFileName: null,
+        pdfFileSize: null,
+      };
     }
 
-    // Create article/note in database using Prisma
+    // Create article/note in database
     const article = await prisma.article.create({
       data: {
         title: title.trim(),
@@ -148,13 +143,12 @@ router.post('/', authenticateToken, upload.single('pdfFile'), async (req, res) =
         summary: summary ? summary.trim() : '',
         content: content.trim(),
         note: note ? note.trim() : '',
-        pdfUrl: pdfUrl,
-        pdfFileName: pdfFileName,
-        pdfFileSize: pdfFileSize,
         status: status ? status.toUpperCase() : 'PUBLISHED',
         createdBy: req.user.id,
         publishedAt: new Date(),
-        tags: tags ? JSON.parse(tags) : []
+        tags: tags ? JSON.parse(tags) : [],
+        // ✅ Spread the PDF data (optional fields)
+        ...pdfData
       }
     });
 
@@ -192,7 +186,6 @@ router.get('/', async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
-    // Build where clause
     let where = {};
     if (status) {
       where.status = status.toUpperCase();
@@ -205,7 +198,6 @@ router.get('/', async (req, res) => {
       ];
     }
 
-    // Execute queries with Prisma
     const [articles, total] = await Promise.all([
       prisma.article.findMany({
         where,
@@ -277,7 +269,7 @@ router.get('/:id', async (req, res) => {
 
 /**
  * PUT /api/articles/:id
- * Update an article with Note (PDF optional)
+ * Update an article with optional PDF
  */
 router.put('/:id', authenticateToken, upload.single('pdfFile'), async (req, res) => {
   try {
@@ -308,7 +300,7 @@ router.put('/:id', authenticateToken, upload.single('pdfFile'), async (req, res)
       tags: tags ? JSON.parse(tags) : existingArticle.tags
     };
 
-    // Handle PDF update if new file is uploaded (optional)
+    // ✅ Handle PDF update if new file is uploaded (optional)
     if (req.file) {
       // Delete old PDF file if exists
       if (existingArticle.pdfUrl) {
@@ -326,6 +318,7 @@ router.put('/:id', authenticateToken, upload.single('pdfFile'), async (req, res)
       updateData.pdfFileName = req.file.originalname;
       updateData.pdfFileSize = req.file.size;
     }
+    // ✅ If no new PDF, keep existing PDF data (don't change it)
 
     // Update article
     const updatedArticle = await prisma.article.update({
@@ -341,7 +334,6 @@ router.put('/:id', authenticateToken, upload.single('pdfFile'), async (req, res)
 
   } catch (error) {
     console.error('Error updating note:', error);
-    // If there's an error and file was uploaded, delete it
     if (req.file) {
       try {
         fs.unlinkSync(req.file.path);
@@ -413,7 +405,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 router.patch('/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
-    // Use UPPERCASE values: PUBLISHED, DRAFT, ARCHIVED
     const validStatuses = ['DRAFT', 'PUBLISHED', 'ARCHIVED'];
 
     if (!status) {

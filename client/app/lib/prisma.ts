@@ -1,99 +1,64 @@
-// src/app/lib/prisma.ts
+// client/app/lib/prisma.ts
 
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client';
 
-// ── FIX: Define proper types instead of 'any' ──────────────────────────────
-type PrismaClientLike = {
-  $connect?: () => Promise<void>
-  $disconnect?: () => Promise<void>
-  $transaction?: <T>(callback: () => Promise<T>) => Promise<T>
-  [key: string]: unknown
-}
-
-type DummyProxyTarget = Record<string, unknown>
-
-// ── FIX: Create a properly typed dummy proxy ───────────────────────────────
-const createDummyProxy = (): PrismaClientLike => {
-  const handler: ProxyHandler<DummyProxyTarget> = {
-    get: (_target: DummyProxyTarget, prop: string | symbol) => {
-      if (prop === 'then') return undefined
-      if (prop === '$connect') return () => Promise.resolve()
-      if (prop === '$disconnect') return () => Promise.resolve()
-      if (prop === '$transaction') {
-        return (callback: () => unknown) => Promise.resolve(callback())
-      }
-      return () => Promise.resolve([])
-    },
-    apply: () => Promise.resolve([]),
-  }
-  
-  return new Proxy({} as DummyProxyTarget, handler) as PrismaClientLike
-}
-
-// ── FIX: Properly typed globalThis extension ──────────────────────────────
+// Properly typed globalThis extension for Next.js hot reload
 interface GlobalWithPrisma {
-  prisma?: PrismaClient
+  prisma?: PrismaClient;
 }
 
 declare global {
   // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined
+  var prisma: PrismaClient | undefined;
 }
 
-// ── FIX: Initialize PrismaClient with proper typing ────────────────────────
-let prismaInstance: PrismaClient | PrismaClientLike
+// ✅ FIX: Initialize PrismaClient WITHOUT adapter
+const initializePrisma = (): PrismaClient => {
+  const globalWithPrisma = globalThis as typeof globalThis & GlobalWithPrisma;
 
-const initializePrisma = (): PrismaClient | PrismaClientLike => {
-  try {
-    const globalWithPrisma = globalThis as typeof globalThis & GlobalWithPrisma
-    
-    if (!globalWithPrisma.prisma) {
-      const client = new PrismaClient()
-      if (process.env.NODE_ENV !== 'production') {
-        globalWithPrisma.prisma = client
-      }
-      return client
-    }
-    
-    return globalWithPrisma.prisma
-  } catch (error) {
-    console.warn('⚠️ PrismaClient not available, using dummy proxy')
-    return createDummyProxy()
+  // Check if we already have a prisma instance in global (for development hot reload)
+  if (globalWithPrisma.prisma) {
+    return globalWithPrisma.prisma;
   }
-}
+
+  try {
+    // ✅ Create Prisma Client WITHOUT adapter
+    const client = new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    });
+
+    // Store in global for development hot reload
+    if (process.env.NODE_ENV !== 'production') {
+      globalWithPrisma.prisma = client;
+    }
+
+    return client;
+  } catch (error) {
+    console.error('❌ Failed to initialize PrismaClient:', error);
+    throw new Error('Failed to initialize database connection. Please check your DATABASE_URL in .env file.');
+  }
+};
 
 // Initialize prisma instance
-try {
-  prismaInstance = initializePrisma()
-} catch (error) {
-  console.warn('⚠️ Failed to initialize PrismaClient, using dummy proxy')
-  prismaInstance = createDummyProxy()
-}
+const prisma = initializePrisma();
 
-// ── FIX: Type guard to check if prisma is available ────────────────────────
-const isRealPrisma = (instance: PrismaClient | PrismaClientLike): instance is PrismaClient => {
-  return !!(instance && 
-    typeof instance === 'object' && 
-    '$connect' in instance && 
-    typeof instance.$connect === 'function')
-}
+// ── Export the prisma instance ──────────────────────────────────────────────
+export { prisma };
 
-export const prisma = prismaInstance
-
-// ── FIX: Type guard for prisma availability ────────────────────────────────
+// ── Helper to check if prisma is available ──────────────────────────────────
 export const isPrismaAvailable = (): boolean => {
-  return isRealPrisma(prismaInstance)
-}
+  return !!prisma && typeof prisma === 'object';
+};
 
-// ── FIX: Helper to get typed prisma client with error handling ─────────────
+// ── Helper to get typed prisma client with error handling ──────────────────
 export const getSafePrisma = (): PrismaClient => {
   if (!isPrismaAvailable()) {
-    throw new Error('PrismaClient is not available. Please ensure the database is connected and @prisma/client is installed.')
+    throw new Error('PrismaClient is not available. Please ensure the database is connected and @prisma/client is installed.');
   }
-  return prismaInstance as PrismaClient
-}
+  return prisma;
+};
 
-// ── FIX: Export model names for type safety ────────────────────────────────
+// ── Export model names for type safety ──────────────────────────────────────
 export const PRISMA_MODELS = {
   USER: 'user',
   PRODUCT: 'product',
@@ -108,6 +73,6 @@ export const PRISMA_MODELS = {
   ADDRESS: 'address',
   BLOG_POST: 'blog_post',
   ARTICLE: 'article',
-} as const
+} as const;
 
-export default prisma
+export default prisma;
