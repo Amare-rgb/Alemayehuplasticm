@@ -1,154 +1,8 @@
-// // src/app/blog/page.tsx
-// 'use client';
-
-// import { useState, useEffect } from 'react';
-// import Link from 'next/link';
-// import Image from 'next/image';
-// import { Calendar, User, ArrowRight, Clock } from 'lucide-react';
-
-// interface BlogPost {
-//   id: string;
-//   title: string;
-//   slug: string;
-//   excerpt: string;
-//   content: string;
-//   image: string;
-//   author: string;
-//   category: string;
-//   createdAt: string;
-//   readTime: number;
-//   published: boolean;
-// }
-
-// export default function BlogPage() {
-//   const [posts, setPosts] = useState<BlogPost[]>([]);
-//   const [loading, setLoading] = useState(true);
-
-//   // ✅ Fetch blog posts from your Admin API
-//   useEffect(() => {
-//     const fetchPosts = async () => {
-//       try {
-//         const res = await fetch('/api/blog?published=true');
-//         if (!res.ok) throw new Error('Failed to fetch blog posts');
-//         const data = await res.json();
-//         setPosts(data.posts || []);
-//       } catch (err) {
-//         console.error('Error fetching blog posts:', err);
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-//     fetchPosts();
-//   }, []);
-
-//   const formatDate = (dateString: string) => {
-//     const date = new Date(dateString);
-//     return date.toLocaleDateString('en-US', {
-//       month: 'long',
-//       day: 'numeric',
-//       year: 'numeric'
-//     });
-//   };
-
-//   return (
-//     <main className="min-h-screen bg-gray-50 py-12">
-//       <div className="max-w-7xl mx-auto px-4 sm:px-6">
-//         {/* Header */}
-//         <div className="text-center mb-12">
-//           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-//             GenesisAgri <span className="text-green-600">Blog</span>
-//           </h1>
-//           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-//             Insights, news, and stories from the forefront of agricultural transformation.
-//           </p>
-//         </div>
-
-//         {/* Blog Posts Grid */}
-//         {loading ? (
-//           <div className="flex justify-center items-center py-20">
-//             <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
-//           </div>
-//         ) : posts.length === 0 ? (
-//           <div className="text-center py-20">
-//             <h3 className="text-xl font-semibold text-gray-800 mb-2">No blog posts yet</h3>
-//             <p className="text-gray-600">Check back soon for updates!</p>
-//           </div>
-//         ) : (
-//           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-//             {posts.map((post) => (
-//               <article
-//                 key={post.id}
-//                 className="bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group"
-//               >
-//                 {/* Post Image */}
-//                 <div className="relative h-48 w-full bg-gray-200 overflow-hidden">
-//                   {post.image ? (
-//                     <img
-//                       src={post.image}
-//                       alt={post.title}
-//                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-//                     />
-//                   ) : (
-//                     <div className="w-full h-full flex items-center justify-center text-4xl text-gray-400">
-//                       🌾
-//                     </div>
-//                   )}
-//                   {/* Category Badge */}
-//                   <span className="absolute top-3 left-3 bg-green-600 text-white text-xs font-semibold px-3 py-1 rounded-full">
-//                     {post.category || 'Agriculture'}
-//                   </span>
-//                 </div>
-
-//                 {/* Post Content */}
-//                 <div className="p-6">
-//                   <div className="flex items-center gap-4 text-xs text-gray-500 mb-3">
-//                     <span className="flex items-center gap-1">
-//                       <Calendar size={14} />
-//                       {formatDate(post.createdAt)}
-//                     </span>
-//                     <span className="flex items-center gap-1">
-//                       <Clock size={14} />
-//                       {post.readTime || 3} min read
-//                     </span>
-//                   </div>
-
-//                   <Link href={`/blog/${post.slug}`}>
-//                     <h2 className="text-xl font-bold text-gray-900 hover:text-green-600 transition-colors line-clamp-2 mb-2">
-//                       {post.title}
-//                     </h2>
-//                   </Link>
-
-//                   <p className="text-gray-600 text-sm line-clamp-3 mb-4">
-//                     {post.excerpt || post.content?.substring(0, 120) + '...'}
-//                   </p>
-
-//                   <div className="flex items-center justify-between">
-//                     <span className="text-sm text-gray-500 flex items-center gap-1">
-//                       <User size={14} />
-//                       {post.author || 'GenesisAgri'}
-//                     </span>
-//                     <Link
-//                       href={`/blog/${post.slug}`}
-//                       className="text-green-600 hover:text-green-700 text-sm font-semibold flex items-center gap-1 group-hover:gap-2 transition-all"
-//                     >
-//                       Read More
-//                       <ArrowRight size={16} />
-//                     </Link>
-//                   </div>
-//                 </div>
-//               </article>
-//             ))}
-//           </div>
-//         )}
-//       </div>
-//     </main>
-//   );
-// }
-
+// app/blog/page.tsx
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -156,704 +10,479 @@ import {
   Clock3,
   Leaf,
   Search,
-  Sprout,
+  Eye,
+  RefreshCw,
 } from "lucide-react";
-
-const categories = [
-  "All",
-  "Farming",
-  "Sustainability",
-  "Fresh Produce",
-  "Our Farm",
-  "Stories",
-];
-
-const posts = [
-{
-    slug: "what-makes-truly-farm-fresh-produce-different",
-    category: "Farming",
-    date: "August 18, 2026",
-    readTime: "5 min read",
-    title: "What makes truly farm-fresh produce different?",
-    excerpt:
-      "Freshness starts long before produce reaches your kitchen. Here's how thoughtful farming, careful harvesting, and a shorter journey make a difference.",
-    image:
-      "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-    featured: true,
-  },
-  {
-    slug: "growing-with-the-land-not-against-it",
-    category: "Sustainability",
-    date: "August 12, 2026",
-    readTime: "6 min read",
-    title: "Growing with the land, not against it",
-    excerpt:
-      "Healthy soil is at the heart of every healthy harvest.",
-    image:
-      "https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-  {
-    slug: "from-sunrise-harvest-to-your-table",
-    category: "Fresh Produce",
-    date: "August 05, 2026",
-    readTime: "4 min read",
-    title: "From sunrise harvest to your table",
-    excerpt:
-      "A look behind the scenes at what happens between the moment a crop is picked and the moment it reaches you.",
-    image:
-      "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-  {
-    slug: "a-morning-in-the-fields-at-genesis",
-    category: "Our Farm",
-    date: "July 28, 2026",
-    readTime: "7 min read",
-    title: "A morning in the fields at Genesis",
-    excerpt:
-      "Walk with us through an ordinary morning on the farm.",
-    image:
-      "https://images.unsplash.com/photo-1492496913980-501348b61469?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-  {
-    slug: "the-people-behind-every-harvest",
-    category: "Stories",
-    date: "July 19, 2026",
-    readTime: "5 min read",
-    title: "The people behind every harvest",
-    excerpt:
-      "Farming is more than soil and sunshine. Meet some of the people whose knowledge and dedication keep Genesis growing.",
-    image:
-      "https://images.unsplash.com/photo-1592982537447-6f8f2b2d6e0f?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-  {
-    slug: "why-healthy-soil-means-a-healthier-future",
-    category: "Sustainability",
-    date: "July 10, 2026",
-    readTime: "6 min read",
-    title: "Why healthy soil means a healthier future",
-    excerpt:
-      "Good agriculture begins underground.",
-    image:
-      "https://images.unsplash.com/photo-1523742813107-8f0b6f6e5b6a?auto=format&fit=crop&w=2200&q=90",
-    author: "Genesis Farm Team",
-  },
-];
+import {
+  BlogPost,
+  FALLBACK_BLOG_POSTS,
+  formatBlogImage,
+  formatBlogDate,
+} from "@/data/blog";
+import { useLanguage } from "@/context/LanguageContext";
 
 export default function BlogPage() {
+  const { t } = useLanguage();
+  const [posts, setPosts] = useState<BlogPost[]>(FALLBACK_BLOG_POSTS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredPosts = posts.filter((post) => {
-    const matchesCategory =
-      activeCategory === "All" || post.category === activeCategory;
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-    const query = searchQuery.toLowerCase();
+  // Helper for category label
+  const getCategoryLabel = (cat: string) => {
+    const lower = (cat || "").toLowerCase().trim();
+    if (lower === "all") return t("blog.cat_all", "All");
+    if (lower === "farming") return t("blog.cat_farming", "Farming");
+    if (lower === "sustainability") return t("blog.cat_sustainability", "Sustainability");
+    if (lower === "fresh produce" || lower === "produce") return t("blog.cat_fresh_produce", "Fresh Produce");
+    if (lower === "our farm" || lower === "farm") return t("blog.cat_our_farm", "Our Farm");
+    if (lower === "stories" || lower === "story") return t("blog.cat_stories", "Stories");
+    return cat;
+  };
 
-    const matchesSearch =
-      post.title.toLowerCase().includes(query) ||
-      post.excerpt.toLowerCase().includes(query);
+  // Fetch blog posts from backend
+  useEffect(() => {
+    let isMounted = true;
 
-    return matchesCategory && matchesSearch;
-  });
+    const fetchPosts = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/blog?published=true&limit=50`, {
+          headers: {
+            Accept: "application/json",
+          },
+        });
 
-  const featuredPost = posts.find((post) => post.featured);
+        if (!res.ok) {
+          throw new Error(`Failed to load blog posts (Status: ${res.status})`);
+        }
 
-  const regularPosts = filteredPosts.filter(
-    (post) => !post.featured
-  );
+        const data = await res.json();
+        if (isMounted) {
+          if (data && Array.isArray(data.posts) && data.posts.length > 0) {
+            setPosts(data.posts);
+          } else {
+            // Keep fallback posts if backend has no posts yet
+            setPosts(FALLBACK_BLOG_POSTS);
+          }
+        }
+      } catch (err: any) {
+        console.warn("Backend blog fetch error, using fallback posts:", err.message);
+        if (isMounted) {
+          setPosts(FALLBACK_BLOG_POSTS);
+          setError("Using cached journal articles (backend connecting...)");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchPosts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [apiBaseUrl]);
+
+  // Extract unique categories dynamically from loaded posts
+  const categories = useMemo(() => {
+    const cats = new Set<string>();
+    cats.add("All");
+    posts.forEach((p) => {
+      if (p.category && typeof p.category === "string" && p.category.trim() !== "") {
+        cats.add(p.category.trim());
+      }
+    });
+    return Array.from(cats);
+  }, [posts]);
+
+  // Filter posts by category and search term
+  const filteredPosts = useMemo(() => {
+    return posts.filter((post) => {
+      const matchesCategory =
+        activeCategory === "All" ||
+        post.category?.toLowerCase() === activeCategory.toLowerCase();
+
+      const query = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        query === "" ||
+        post.title.toLowerCase().includes(query) ||
+        (post.excerpt && post.excerpt.toLowerCase().includes(query)) ||
+        (post.content && post.content.toLowerCase().includes(query)) ||
+        (post.category && post.category.toLowerCase().includes(query));
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [posts, activeCategory, searchQuery]);
+
+  // Determine featured post
+  const featuredPost = useMemo(() => {
+    if (filteredPosts.length === 0) return null;
+    return filteredPosts.find((p) => p.featured) || filteredPosts[0];
+  }, [filteredPosts]);
+
+  // Regular posts (excluding the featured one)
+  const regularPosts = useMemo(() => {
+    if (!featuredPost) return filteredPosts;
+    return filteredPosts.filter((p) => (p.id ? p.id !== featuredPost.id : p.slug !== featuredPost.slug));
+  }, [filteredPosts, featuredPost]);
 
   return (
     <main className="min-h-screen bg-[var(--cream)] text-[var(--ink)]">
-
       {/* =========================================================
-          BLOG HERO
+          BLOG HERO SECTION
       ========================================================= */}
       <section className="relative overflow-hidden bg-[var(--green-950)] text-white">
-
-        {/* Decorative circle */}
-        <div
-          className="
-            absolute
-            -right-40
-            -top-40
-            h-[520px]
-            w-[520px]
-            rounded-full
-            bg-[var(--green-800)]
-            opacity-40
-            blur-3xl
-          "
-        />
-
-        <div
-          className="
-            absolute
-            bottom-[-180px]
-            left-[-120px]
-            h-[400px]
-            w-[400px]
-            rounded-full
-            bg-[var(--lime)]
-            opacity-10
-            blur-3xl
-          "
-        />
+        {/* Decorative ambient glows */}
+        <div className="absolute -right-40 -top-40 h-[520px] w-[520px] rounded-full bg-[var(--green-800)] opacity-40 blur-3xl" />
+        <div className="absolute bottom-[-180px] left-[-120px] h-[400px] w-[400px] rounded-full bg-[var(--lime)] opacity-10 blur-3xl" />
 
         <div className="relative mx-auto w-[min(1180px,calc(100%-48px))]">
-
           {/* Breadcrumb */}
-          <div className="flex items-center gap-2 pt-36 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
-            <Link
-              href="/"
-              className="transition hover:text-[var(--lime)]"
-            >
-              Genesis
+          <div className="flex items-center gap-2 pt-32 sm:pt-36 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+            <Link href="/" className="transition hover:text-[var(--lime)]">
+              {t("blog.breadcrumb_home", "Genesis")}
             </Link>
-
             <span>/</span>
-
-            <span className="text-white/75">Journal</span>
+            <span className="text-white/75">{t("blog.breadcrumb_journal", "Journal")}</span>
           </div>
 
-          <div className="grid items-end gap-12 pb-20 pt-8 lg:grid-cols-[1fr_380px]">
-
+          <div className="grid items-end gap-10 pb-20 pt-8 lg:grid-cols-[1fr_380px]">
             <div>
               <div className="mb-6 flex items-center gap-3">
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)]">
                   <Leaf size={16} />
                 </span>
-
                 <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--lime)]">
-                  The Genesis Journal
+                  {t("blog.hero_badge", "The Genesis Journal")}
                 </span>
               </div>
 
-              <h1 className="max-w-[780px] font-serif-heading text-[clamp(56px,8vw,100px)] font-medium leading-[0.92] tracking-[-0.055em]">
-                Stories from
+              <h1 className="max-w-[780px] font-serif-heading text-[clamp(46px,7vw,92px)] font-medium leading-[0.92] tracking-[-0.055em]">
+                {t("blog.hero_title_prefix", "Stories from")}
                 <br />
-                the <em className="text-[var(--lime)]">field.</em>
+                <em className="text-[var(--lime)]">
+                  {t("blog.hero_title_accent", "the field.")}
+                </em>
               </h1>
             </div>
 
             <div className="lg:pb-2">
               <p className="max-w-[360px] text-[15px] leading-[1.8] text-white/65">
-                Ideas, stories, and insights from Genesis — about
-                farming, sustainability, fresh food, and the people
-                who make it all possible.
+                {t(
+                  "blog.hero_subtitle",
+                  "Ideas, stories, and agronomy insights from Genesis — about regenerative farming, harvest logistics, and local agriculture."
+                )}
               </p>
             </div>
-
           </div>
         </div>
       </section>
-
 
       {/* =========================================================
           FEATURED ARTICLE
       ========================================================= */}
       {featuredPost && (
-        <section className="relative mx-auto w-[min(1180px,calc(100%-48px))] py-20">
-
-          <div className="mb-7 flex items-center justify-between">
+        <section className="relative mx-auto w-[min(1180px,calc(100%-48px))] py-16 sm:py-20">
+          <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="h-2 w-2 rounded-full bg-[var(--lime)]" />
-
               <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--green-700)]">
-                Featured story
+                {t("blog.featured_story", "Featured story")}
               </span>
             </div>
-
             <span className="hidden text-[10px] font-medium uppercase tracking-[0.15em] text-[var(--muted)] md:block">
-              01 / Featured
+              {t("blog.highlights", "01 / Highlights")}
             </span>
           </div>
 
           <Link
-            href={`/blog/${featuredPost.slug}`}
-            className="
-              group
-              grid
-              overflow-hidden
-              bg-[var(--green-900)]
-              lg:grid-cols-[1.2fr_0.8fr]
-            "
+            href={`/blog/${encodeURIComponent(featuredPost.slug)}`}
+            className="group grid overflow-hidden rounded-[2.5rem] bg-[#071a11] shadow-[0_20px_60px_rgba(18,53,35,.12)] lg:grid-cols-[1.2fr_0.8fr]"
           >
-            {/* Image */}
-            <div className="relative min-h-[430px] overflow-hidden lg:min-h-[540px]">
-
+            {/* Featured Image */}
+            <div className="relative min-h-[380px] overflow-hidden lg:min-h-[480px]">
               <img
-                src={featuredPost.image}
+                src={formatBlogImage(featuredPost.image)}
                 alt={featuredPost.title}
-                className="
-                  absolute
-                  inset-0
-                  h-full
-                  w-full
-                  object-cover
-                  transition-transform
-                  duration-700
-                  group-hover:scale-105
-                "
+                className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                onError={(e) => {
+                  e.currentTarget.src =
+                    "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90";
+                }}
               />
-
-              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-
-              <span
-                className="
-                  absolute
-                  left-6
-                  top-6
-                  bg-[var(--lime)]
-                  px-3
-                  py-2
-                  text-[9px]
-                  font-bold
-                  uppercase
-                  tracking-[0.15em]
-                  text-[var(--green-950)]
-                "
-              >
-                {featuredPost.category}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent" />
+              <span className="absolute left-6 top-6 rounded-full bg-[var(--lime)] px-3.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--green-950)] shadow-md">
+                {getCategoryLabel(featuredPost.category)}
               </span>
-
             </div>
 
-            {/* Content */}
-            <div className="flex flex-col justify-between p-8 text-white sm:p-12 lg:p-14">
-
+            {/* Featured Content */}
+            <div className="flex flex-col justify-between p-8 text-white sm:p-10 lg:p-12">
               <div>
-                <div className="mb-10 flex items-center gap-4 text-[9px] uppercase tracking-[0.13em] text-white/45">
+                <div className="mb-8 flex items-center gap-4 text-[9px] uppercase tracking-[0.13em] text-white/50">
                   <span className="flex items-center gap-1.5">
-                    <CalendarDays size={12} />
-                    {featuredPost.date}
+                    <CalendarDays size={12} className="text-[var(--lime)]" />
+                    {formatBlogDate(featuredPost.createdAt)}
                   </span>
-
                   <span className="h-3 w-px bg-white/20" />
-
                   <span className="flex items-center gap-1.5">
-                    <Clock3 size={12} />
-                    {featuredPost.readTime}
+                    <Clock3 size={12} className="text-[var(--lime)]" />
+                    {featuredPost.readTime || 4} {t("blog.min_read", "min read")}
                   </span>
+                  {featuredPost.views > 0 && (
+                    <>
+                      <span className="h-3 w-px bg-white/20" />
+                      <span className="flex items-center gap-1">
+                        <Eye size={12} className="text-[var(--lime)]" />
+                        {featuredPost.views} {t("blog.views", "views")}
+                      </span>
+                    </>
+                  )}
                 </div>
 
-                <h2 className="max-w-[520px] font-serif-heading text-[clamp(34px,4vw,54px)] font-medium leading-[1.02] tracking-[-0.04em]">
+                <h2 className="font-serif-heading text-[clamp(28px,3.5vw,46px)] font-medium leading-[1.05] tracking-[-0.04em] group-hover:text-[var(--lime)] transition-colors">
                   {featuredPost.title}
                 </h2>
 
-                <p className="mt-7 max-w-[430px] text-sm leading-[1.8] text-white/60">
+                <p className="mt-5 text-sm leading-[1.8] text-white/70 line-clamp-3">
                   {featuredPost.excerpt}
                 </p>
               </div>
 
-              <div className="mt-12 flex items-center justify-between border-t border-white/10 pt-6">
+              <div className="mt-8 flex items-center justify-between border-t border-white/10 pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] font-bold text-xs">
+                    {featuredPost.author?.name ? featuredPost.author.name.charAt(0).toUpperCase() : "G"}
+                  </div>
+                  <span className="text-xs font-semibold text-white/90">
+                    {featuredPost.author?.name || "Genesis Farm Team"}
+                  </span>
+                </div>
 
-                <span className="text-[10px] font-bold uppercase tracking-[0.15em]">
-                  Read article
+                <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--lime)] group-hover:translate-x-1 transition-transform">
+                  {t("blog.read_article", "Read Article")}
+                  <ArrowRight size={15} />
                 </span>
-
-                <span
-                  className="
-                    flex
-                    h-11
-                    w-11
-                    items-center
-                    justify-center
-                    rounded-full
-                    bg-[var(--lime)]
-                    text-[var(--green-950)]
-                    transition-transform
-                    duration-300
-                    group-hover:rotate-45
-                  "
-                >
-                  <ArrowUpRight size={18} />
-                </span>
-
               </div>
-
             </div>
           </Link>
         </section>
       )}
 
+      {/* =========================================================
+          CONTROLS: SEARCH & CATEGORY FILTER TABS
+      ========================================================= */}
+      <section className="border-y border-[#19472d]/10 bg-white py-6">
+        <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+            {/* Category Pills */}
+            <div className="flex flex-wrap items-center gap-2">
+              {categories.map((cat) => {
+                const isActive = activeCategory.toLowerCase() === cat.toLowerCase();
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setActiveCategory(cat)}
+                    className={`rounded-full px-4 py-2 text-xs font-bold transition-all ${
+                      isActive
+                        ? "bg-[#123523] text-white shadow-md"
+                        : "bg-gray-100/80 text-[#123523] hover:bg-[#f6f3e9] hover:text-[#28633e]"
+                    }`}
+                  >
+                    {getCategoryLabel(cat)}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search Input Box */}
+            <div className="relative min-w-[260px] max-w-sm">
+              <Search
+                size={16}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#69736b]"
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t("blog.search_placeholder", "Search farm stories & insights...")}
+                className="w-full rounded-full border border-gray-200 bg-gray-50/70 py-2.5 pl-10 pr-4 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* =========================================================
-          ARTICLES / FILTERS
+          ARTICLE GRID SECTION
       ========================================================= */}
-      <section
-        id="articles"
-        className="mx-auto w-[min(1180px,calc(100%-48px))] pb-24"
-      >
-
-        {/* Section heading */}
-        <div className="mb-10 flex flex-col justify-between gap-6 border-b border-[var(--line)] pb-7 md:flex-row md:items-end">
-
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--green-700)]">
-              Explore the journal
-            </span>
-
-            <h2 className="mt-3 font-serif-heading text-[clamp(38px,5vw,56px)] font-medium leading-none tracking-[-0.04em]">
-              Latest stories
-            </h2>
-          </div>
-
-          {/* Search */}
-          <div className="relative w-full md:w-[250px]">
-            <Search
-              size={15}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]"
-            />
-
-            <input
-              type="text"
-              placeholder="Search stories..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="
-                h-11
-                w-full
-                rounded-full
-                border
-                border-[var(--line)]
-                bg-white/60
-                pl-10
-                pr-4
-                text-xs
-                outline-none
-                transition
-                placeholder:text-[var(--muted)]
-                focus:border-[var(--green-700)]
-                focus:bg-white
-              "
-            />
-          </div>
-        </div>
-
-
-        {/* Category filters */}
-        <div className="mb-12 flex gap-2 overflow-x-auto pb-2">
-
-          {categories.map((category) => {
-            const active = activeCategory === category;
-
-            return (
-              <button
-                key={category}
-                onClick={() => setActiveCategory(category)}
-                className={`
-                  shrink-0
-                  rounded-full
-                  border
-                  px-5
-                  py-2.5
-                  text-[10px]
-                  font-bold
-                  uppercase
-                  tracking-[0.08em]
-                  transition-all
-                  duration-300
-
-                  ${
-                    active
-                      ? "border-[var(--green-950)] bg-[var(--green-950)] text-white"
-                      : "border-[var(--line)] bg-transparent text-[var(--green-800)] hover:border-[var(--green-700)] hover:bg-white"
-                  }
-                `}
+      <section className="mx-auto w-[min(1180px,calc(100%-48px))] py-16 sm:py-20">
+        {loading ? (
+          /* Loading Skeletons */
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((idx) => (
+              <div
+                key={idx}
+                className="overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.07)] bg-white p-5 animate-pulse"
               >
-                {category}
-              </button>
-            );
-          })}
-
-        </div>
-
-
-        {/* =====================================================
-            ARTICLE GRID
-        ====================================================== */}
-        {regularPosts.length > 0 ? (
-          <div className="grid gap-x-7 gap-y-14 md:grid-cols-2 lg:grid-cols-3">
-
-            {regularPosts.map((post, index) => (
-              <Link
-                key={post.slug}
-                href={`/blog/${post.slug}`}
-                className="group"
+                <div className="aspect-[16/10] w-full rounded-2xl bg-gray-200" />
+                <div className="mt-5 space-y-3">
+                  <div className="h-4 w-20 rounded bg-gray-200" />
+                  <div className="h-6 w-full rounded bg-gray-200" />
+                  <div className="h-4 w-3/4 rounded bg-gray-200" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredPosts.length === 0 ? (
+          /* Empty Search Result */
+          <div className="rounded-[2.5rem] border border-[rgba(20,33,25,.08)] bg-white p-12 text-center shadow-sm">
+            <Leaf size={36} className="mx-auto mb-4 text-[#28633e]" />
+            <h3 className="font-serif-heading text-2xl font-bold text-[#123523]">
+              {t("blog.no_articles_found", "No matching articles found")}
+            </h3>
+            <p className="mt-2 text-xs text-[#69736b]">
+              {t("blog.no_articles_desc", "Try adjusting your search keywords or switching category filters.")}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveCategory("All");
+                setSearchQuery("");
+              }}
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#123523] px-6 py-2.5 text-xs font-bold text-white hover:bg-[#19472d] transition"
+            >
+              <RefreshCw size={13} />
+              {t("blog.reset_filters", "Reset Filters")}
+            </button>
+          </div>
+        ) : (
+          /* Posts Grid */
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {regularPosts.map((post) => (
+              <article
+                key={post.id || post.slug}
+                className="group flex flex-col justify-between overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.08)] bg-white shadow-[0_10px_30px_rgba(18,53,35,.04)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(18,53,35,.09)]"
               >
+                <div>
+                  {/* Article Thumbnail */}
+                  <Link
+                    href={`/blog/${encodeURIComponent(post.slug)}`}
+                    className="relative block aspect-[16/10] overflow-hidden bg-[#071a11]"
+                  >
+                    <img
+                      src={formatBlogImage(post.image)}
+                      alt={post.title}
+                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                      onError={(e) => {
+                        e.currentTarget.src =
+                          "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1200&q=85";
+                      }}
+                    />
+                    <span className="absolute left-4 top-4 rounded-full bg-[#123523]/90 backdrop-blur-md px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-[var(--lime)] shadow-sm">
+                      {getCategoryLabel(post.category)}
+                    </span>
+                  </Link>
 
-                {/* Image */}
-                <div className="relative aspect-[1.18] overflow-hidden bg-[var(--cream-dark)]">
+                  {/* Body Info */}
+                  <div className="p-6">
+                    <div className="mb-3 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-wider text-[#69736b]">
+                      <span className="flex items-center gap-1">
+                        <CalendarDays size={12} className="text-[#28633e]" />
+                        {formatBlogDate(post.createdAt)}
+                      </span>
+                      <span>•</span>
+                      <span className="flex items-center gap-1">
+                        <Clock3 size={12} className="text-[#28633e]" />
+                        {post.readTime || 3} {t("blog.min_read", "min read")}
+                      </span>
+                    </div>
 
-                  <img
-                    src={post.image}
-                    alt={post.title}
-                    className="
-                      h-full
-                      w-full
-                      object-cover
-                      transition-transform
-                      duration-700
-                      group-hover:scale-105
-                    "
-                  />
+                    <Link href={`/blog/${encodeURIComponent(post.slug)}`}>
+                      <h3 className="font-serif-heading text-xl font-bold leading-snug text-[#123523] group-hover:text-[#28633e] transition-colors line-clamp-2">
+                        {post.title}
+                      </h3>
+                    </Link>
 
-                  <div className="absolute left-4 top-4">
-                    <span className="bg-[var(--cream)] px-3 py-2 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--green-800)]">
-                      {post.category}
+                    <p className="mt-2.5 text-xs leading-relaxed text-[#69736b] line-clamp-3">
+                      {post.excerpt || post.content}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer Author & Action */}
+                <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] text-[10px] font-bold">
+                      {post.author?.name ? post.author.name.charAt(0).toUpperCase() : "G"}
+                    </div>
+                    <span className="text-[11px] font-medium text-[#123523] truncate max-w-[110px]">
+                      {post.author?.name || "Genesis Farm"}
                     </span>
                   </div>
 
-                  {/* Number */}
-                  <div className="absolute bottom-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(11,36,25,.8)] text-[9px] font-bold text-white backdrop-blur-md">
-                    {String(index + 1).padStart(2, "0")}
-                  </div>
-
-                </div>
-
-
-                {/* Content */}
-                <div className="pt-5">
-
-                  <div className="flex items-center gap-3 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
-                    <span>{post.date}</span>
-
-                    <span className="h-3 w-px bg-[var(--line)]" />
-
-                    <span>{post.readTime}</span>
-                  </div>
-
-                  <h3
-                    className="
-                      mt-4
-                      font-serif-heading
-                      text-[25px]
-                      font-medium
-                      leading-[1.08]
-                      tracking-[-0.025em]
-                      transition-colors
-                      duration-300
-                      group-hover:text-[var(--green-700)]
-                    "
+                  <Link
+                    href={`/blog/${encodeURIComponent(post.slug)}`}
+                    className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#28633e] group-hover:text-[#123523] transition-colors"
                   >
-                    {post.title}
-                  </h3>
-
-                  <p className="mt-3 line-clamp-2 text-[12px] leading-[1.7] text-[var(--muted)]">
-                    {post.excerpt}
-                  </p>
-
-                  <div className="mt-5 flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.13em] text-[var(--green-800)]">
-                    Read story
-
-                    <ArrowRight
-                      size={13}
-                      className="transition-transform duration-300 group-hover:translate-x-1"
-                    />
-                  </div>
-
+                    <span>{t("blog.read_card", "Read")}</span>
+                    <ArrowRight size={13} className="transition-transform group-hover:translate-x-1" />
+                  </Link>
                 </div>
-
-              </Link>
+              </article>
             ))}
-
-          </div>
-        ) : (
-          /* Empty state */
-          <div className="flex min-h-[300px] flex-col items-center justify-center border border-dashed border-[var(--line)] text-center">
-
-            <Leaf
-              size={28}
-              className="mb-4 text-[var(--green-700)]"
-            />
-
-            <h3 className="font-serif-heading text-2xl">
-              No stories found
-            </h3>
-
-            <p className="mt-2 text-xs text-[var(--muted)]">
-              Try another category or search term.
-            </p>
-
           </div>
         )}
-
       </section>
 
-
       {/* =========================================================
-          FROM THE FIELD
+          NEWSLETTER / STAY CONNECTED CTA
       ========================================================= */}
-      <section className="overflow-hidden bg-[var(--cream-dark)] py-24">
-
-        <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
-
-          <div className="grid items-center gap-12 lg:grid-cols-[0.8fr_1.2fr]">
-
-            {/* Text */}
-            <div>
-
-              <div className="mb-5 flex items-center gap-3">
-                <Sprout
-                  size={17}
-                  className="text-[var(--green-700)]"
-                />
-
-                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--green-700)]">
-                  From the field
-                </span>
-              </div>
-
-              <h2 className="max-w-[470px] font-serif-heading text-[clamp(42px,5vw,64px)] font-medium leading-[0.98] tracking-[-0.045em]">
-                There is a story behind
-                <em className="text-[var(--green-700)]">
-                  {" "}every harvest.
-                </em>
-              </h2>
-
-              <p className="mt-6 max-w-[420px] text-sm leading-[1.8] text-[var(--muted)]">
-                We believe people should know where their food comes
-                from. Our journal takes you closer to the fields,
-                the farmers, and the ideas shaping the future of
-                agriculture.
-              </p>
-
-              <Link
-                href="#articles"
-                className="
-                  mt-8
-                  inline-flex
-                  items-center
-                  gap-3
-                  border-b
-                  border-[var(--green-800)]
-                  pb-2
-                  text-[10px]
-                  font-bold
-                  uppercase
-                  tracking-[0.13em]
-                  text-[var(--green-800)]
-                "
-              >
-                Explore all stories
-
-                <ArrowUpRight size={14} />
-              </Link>
-
-            </div>
-
-
-            {/* Image composition */}
-            <div className="grid grid-cols-[1.2fr_.8fr] gap-4">
-
-              <div className="aspect-[0.85] overflow-hidden">
-                <img
-                  src="https://images.unsplash.com/photo-1644101211459-7f9be46fad04?q=80&w=1170&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
-                  alt="Farmer working in a field"
-                  className="h-full w-full object-cover"
-                />
-              </div>
-
-              <div className="mt-16 aspect-[0.75] overflow-hidden">
-                <img
-                  src="https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=800&q=85"
-                  alt="Fresh agricultural field"
-                  className="h-full w-full object-cover"
-                />
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </section>
-
-
-      {/* =========================================================
-          NEWSLETTER
-      ========================================================= */}
-      <section className="bg-[var(--green-950)] py-24 text-white">
-
-        <div className="mx-auto w-[min(900px,calc(100%-48px))] text-center">
-
-          <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)]">
+      <section className="bg-[var(--green-950)] px-6 py-20 text-center text-white">
+        <div className="mx-auto max-w-[700px]">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)]">
             <Leaf size={20} />
           </div>
-
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--lime)]">
-            Stay close to the farm
-          </span>
-
-          <h2 className="mx-auto mt-5 max-w-[700px] font-serif-heading text-[clamp(42px,6vw,68px)] font-medium leading-[0.98] tracking-[-0.045em]">
-            Fresh stories,
-            <br />
-            <em className="text-[var(--lime)]">straight to you.</em>
-          </h2>
-
-          <p className="mx-auto mt-6 max-w-[480px] text-sm leading-[1.8] text-white/55">
-            Get occasional stories from Genesis — farm updates,
-            seasonal produce, sustainability ideas, and more.
+          <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--lime)]">
+            {t("blog.hero_badge", "The Genesis Journal")}
           </p>
-
-          <form className="mx-auto mt-9 flex max-w-[500px] gap-2 max-sm:flex-col">
-
-            <input
-              type="email"
-              placeholder="Your email address"
-              className="
-                h-14
-                flex-1
-                rounded-full
-                border
-                border-white/10
-                bg-white/10
-                px-6
-                text-sm
-                text-white
-                outline-none
-                placeholder:text-white/35
-                focus:border-[var(--lime)]
-              "
-            />
-
-            <button
-              type="submit"
-              className="
-                flex
-                h-14
-                items-center
-                justify-center
-                gap-2
-                rounded-full
-                bg-[var(--lime)]
-                px-7
-                text-[10px]
-                font-bold
-                uppercase
-                tracking-[0.1em]
-                text-[var(--green-950)]
-                transition
-                hover:-translate-y-0.5
-                hover:shadow-lg
-              "
-            >
-              Subscribe
-              <ArrowUpRight size={15} />
-            </button>
-
-          </form>
-
+          <h2 className="mt-4 font-serif-heading text-[clamp(36px,5.5vw,58px)] font-medium leading-none tracking-[-0.045em]">
+            {t("blog.cta_title_prefix", "Stay connected")}
+            <br />
+            <em className="text-[var(--lime)]">{t("blog.cta_title_accent", "to the harvest.")}</em>
+          </h2>
+          <p className="mx-auto mt-5 max-w-[450px] text-xs leading-[1.8] text-white/60">
+            {t(
+              "blog.cta_subtitle",
+              "Discover seasonal agricultural updates, farming insights, and local marketplace stories from Genesis."
+            )}
+          </p>
+          <Link
+            href="/shop"
+            className="mt-7 inline-flex items-center gap-2 rounded-full bg-[var(--lime)] px-7 py-3.5 text-xs font-bold uppercase tracking-[0.12em] text-[var(--green-950)] transition hover:-translate-y-0.5 shadow-lg"
+          >
+            {t("blog.cta_btn", "Explore Fresh Marketplace")}
+            <ArrowUpRight size={15} />
+          </Link>
         </div>
-
       </section>
-
     </main>
   );
 }

@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -9,8 +10,9 @@ import {
   ArrowUp,
   ArrowUpRight,
 } from "lucide-react";
+import { useSettings } from "@/context/SettingsContext";
+import { useLanguage } from "@/context/LanguageContext";
 
-// Define proper types instead of using 'any'
 interface CategoryData {
   id?: string;
   name: string;
@@ -35,34 +37,9 @@ interface ValueItem {
   description: string;
 }
 
-const fallbackCategories: CategoryItem[] = [
-  {
-    number: "01",
-    title: "Vegetables",
-    description: "Crisp, seasonal and farm-fresh.",
-    image:
-      "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-    category: "vegetables",
-  },
-  {
-    number: "02",
-    title: "Fruits",
-    description: "Picked for flavor and freshness.",
-    image:
-      "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
-    category: "fruits",
-  },
-  {
-    number: "03",
-    title: "Cereals",
-    description: "Reliable staples for every home.",
-    image:
-      "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-    category: "cereals",
-  },
-];
-
 function ProductCard({ product }: { product: CategoryItem }) {
+  const { t } = useLanguage();
+
   return (
     <Link
       href={`/shop?category=${encodeURIComponent(product.category)}`}
@@ -98,7 +75,7 @@ function ProductCard({ product }: { product: CategoryItem }) {
         </p>
 
         <div className="inline-flex items-center gap-2 text-xs font-semibold text-white/90 group-hover:text-[var(--lime)] group-hover:translate-x-1 transition-all duration-300">
-          <span>View selection</span>
+          <span>{t("home.view_selection", "View selection")}</span>
           <span className="text-sm font-bold">→</span>
         </div>
       </div>
@@ -107,6 +84,34 @@ function ProductCard({ product }: { product: CategoryItem }) {
 }
 
 function ProductCards() {
+  const { t } = useLanguage();
+  const fallbackCategories: CategoryItem[] = [
+    {
+      number: "01",
+      title: t("home.cat_veg_title", "Vegetables"),
+      description: t("home.cat_veg_desc", "Crisp, seasonal and farm-fresh."),
+      image:
+        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
+      category: "vegetables",
+    },
+    {
+      number: "02",
+      title: t("home.cat_fruit_title", "Fruits"),
+      description: t("home.cat_fruit_desc", "Picked for flavor and freshness."),
+      image:
+        "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
+      category: "fruits",
+    },
+    {
+      number: "03",
+      title: t("home.cat_cereal_title", "Cereals"),
+      description: t("home.cat_cereal_desc", "Reliable staples for every home."),
+      image:
+        "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
+      category: "cereals",
+    },
+  ];
+
   const [categories, setCategories] = useState<CategoryItem[]>(fallbackCategories);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -145,7 +150,7 @@ function ProductCards() {
                 number: String(i + 1).padStart(2, "0"),
                 title: cat.name,
                 description:
-                  cat.description || "Crisp, seasonal and farm-fresh produce.",
+                  cat.description || t("home.cat_default_desc", "Crisp, seasonal and farm-fresh produce."),
                 image: img || defaultImages[i % defaultImages.length],
                 category: cat.slug || cat.id || String(i),
               };
@@ -164,7 +169,7 @@ function ProductCards() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [t]);
 
   const scroll = (direction: "left" | "right") => {
     if (scrollContainerRef.current) {
@@ -185,18 +190,20 @@ function ProductCards() {
         <div className="mb-[50px] flex items-end justify-between gap-14 max-md:flex-col max-md:items-start max-md:gap-5">
           <div>
             <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-              Freshness you can
+              {t("home.products_heading_prefix", "Freshness you can")}
               <br />
               <em className="font-semibold text-[var(--green-700)]">
-                taste.
+                {t("home.products_heading_accent", "taste.")}
               </em>
             </h2>
           </div>
 
           <div className="flex flex-col items-start md:items-end gap-4">
             <p className="max-w-[420px] text-[13px] leading-[1.8] text-[var(--muted)]">
-              From nutrient-rich vegetables to naturally grown fruits and
-              staple cereals, we bring the harvest closer to home.
+              {t(
+                "home.products_subtitle",
+                "From nutrient-rich vegetables to naturally grown fruits and staple cereals, we bring the harvest closer to home."
+              )}
             </p>
 
             {/* Horizontal Navigation scroll buttons */}
@@ -204,7 +211,7 @@ function ProductCards() {
               <button
                 type="button"
                 onClick={() => scroll("left")}
-                aria-label="Scroll left"
+                aria-label={t("home.products_scroll_left", "Scroll left")}
                 className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] transition-all hover:bg-[var(--lime)] hover:border-[var(--lime)] hover:text-[var(--green-950)] hover:scale-105 active:scale-95 shadow-sm"
               >
                 <ArrowLeft size={18} />
@@ -212,7 +219,7 @@ function ProductCards() {
               <button
                 type="button"
                 onClick={() => scroll("right")}
-                aria-label="Scroll right"
+                aria-label={t("home.products_scroll_right", "Scroll right")}
                 className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] transition-all hover:bg-[var(--lime)] hover:border-[var(--lime)] hover:text-[var(--green-950)] hover:scale-105 active:scale-95 shadow-sm"
               >
                 <ArrowRight size={18} />
@@ -240,79 +247,6 @@ function ProductCards() {
   );
 }
 
-// Values with proper typing
-const values: ValueItem[] = [
-  {
-    number: "01",
-    icon: "↔",
-    title: "Direct Connection",
-    description:
-      "We reduce unnecessary layers between farms and consumers, creating a simpler supply chain.",
-  },
-  {
-    number: "02",
-    icon: "✦",
-    title: "Freshness First",
-    description:
-      "Shorter journeys mean our produce reaches your home fresher and closer to the harvest.",
-  },
-  {
-    number: "03",
-    icon: "₿",
-    title: "Fair Prices",
-    description:
-      "By cutting out resellers and unnecessary markups, we work toward prices that make sense.",
-  },
-  {
-    number: "04",
-    icon: "♧",
-    title: "Responsible Growth",
-    description:
-      "We are building an agricultural business that values quality, people and long-term sustainability.",
-  },
-];
-
-const journey = [
-  {
-    number: "01",
-    icon: "🌱",
-    title: "We Grow",
-    description:
-      "Quality produce starts with healthy soil and careful farming.",
-  },
-  {
-    number: "02",
-    icon: "🧺",
-    title: "We Harvest",
-    description:
-      "Produce is selected and prepared for its journey to consumers.",
-  },
-  {
-    number: "03",
-    icon: "🚚",
-    title: "We Deliver",
-    description:
-      "We shorten the chain and move products closer to the people.",
-  },
-  {
-    number: "04",
-    icon: "🍽️",
-    title: "You Enjoy",
-    description:
-      "Fresh farm products become part of your everyday table.",
-  },
-];
-
-function BrandMark() {
-  return (
-    <span className="brand-mark" aria-hidden="true">
-      <span className="leaf leaf-one" />
-      <span className="leaf leaf-two" />
-      <span className="stem" />
-    </span>
-  );
-}
-
 function Eyebrow({
   children,
   light = false,
@@ -334,6 +268,51 @@ function Eyebrow({
 
 export default function HomePage() {
   const [showBackTop, setShowBackTop] = useState(false);
+  const { settings } = useSettings();
+  const { t } = useLanguage();
+
+  const contactPhone = settings?.contactPhone || '+251 900 000 000';
+  const contactEmail = settings?.contactEmail || 'info@genesisagri.com';
+  const cleanPhone = contactPhone.replace(/\s/g, '');
+
+  const values: ValueItem[] = [
+    {
+      number: "01",
+      icon: "↔",
+      title: t("home.v1_title", "Direct Connection"),
+      description: t(
+        "home.v1_desc",
+        "We reduce unnecessary layers between farms and consumers, creating a simpler supply chain."
+      ),
+    },
+    {
+      number: "02",
+      icon: "✦",
+      title: t("home.v2_title", "Freshness First"),
+      description: t(
+        "home.v2_desc",
+        "Shorter journeys mean our produce reaches your home fresher and closer to the harvest."
+      ),
+    },
+    {
+      number: "03",
+      icon: "₿",
+      title: t("home.v3_title", "Fair Prices"),
+      description: t(
+        "home.v3_desc",
+        "By cutting out resellers and unnecessary markups, we work toward prices that make sense."
+      ),
+    },
+    {
+      number: "04",
+      icon: "♧",
+      title: t("home.v4_title", "Responsible Growth"),
+      description: t(
+        "home.v4_desc",
+        "We are building an agricultural business that values quality, people and long-term sustainability."
+      ),
+    },
+  ];
 
   useEffect(() => {
     const handleScroll = () => {
@@ -370,22 +349,19 @@ export default function HomePage() {
         <div className="relative mx-auto flex w-[min(1180px,calc(100%-48px))] items-center justify-between gap-[70px] pt-[90px]">
           <div className="max-w-[720px] animate-fade-in-up">
             <h1 className="font-serif-heading text-[clamp(48px,6vw,80px)] font-extrabold leading-[1.03] tracking-[-0.045em] mb-[10rem]">
-              Fresh from our{" "}
+              {t("home.hero_title_prefix", "Fresh from our")}{" "}
               <em className="font-semibold text-[var(--lime)]">
-                fields
+                {t("home.hero_title_accent", "fields")}
               </em>{" "}
-              to your table.
+              {t("home.hero_title_suffix", "to your table.")}
             </h1>
-
-            <p className="mt-6 max-w-[580px] text-[16px] leading-[1.8] text-white/75">
-            </p>
 
             <div className="mt-8 flex items-center gap-6 max-sm:flex-col max-sm:items-start">
               <Link
                 href="/shop"
                 className="flex min-h-[52px] items-center gap-6 bg-[var(--lime)] px-[22px] text-xs font-bold text-[var(--green-950)] transition hover:-translate-y-1 hover:shadow-xl"
               >
-                Explore Our Produce
+                {t("home.hero_btn_explore", "Explore Our Produce")}
                 <ArrowRight size={17} />
               </Link>
 
@@ -393,34 +369,34 @@ export default function HomePage() {
                 href="#about"
                 className="flex items-center gap-2 border-b border-white pb-1 text-xs font-bold"
               >
-                Discover our story
+                {t("home.hero_btn_story", "Discover our story")}
                 <ArrowUpRight size={15} />
               </Link>
             </div>
 
             <div className="mt-[60px] flex items-center gap-6 max-sm:gap-3">
               <div className="grid gap-0.5">
-                <strong className="text-base">100%</strong>
+                <strong className="text-base">{t("home.hero_stat_fresh_val", "100%")}</strong>
                 <span className="text-[9px] uppercase tracking-wider text-white/60">
-                  Farm Fresh
+                  {t("home.hero_stat_fresh_lbl", "Farm Fresh")}
                 </span>
               </div>
 
               <div className="h-[30px] w-px bg-white/25" />
 
               <div className="grid gap-0.5">
-                <strong className="text-base">Direct</strong>
+                <strong className="text-base">{t("home.hero_stat_direct_val", "Direct")}</strong>
                 <span className="text-[9px] uppercase tracking-wider text-white/60">
-                  From Our Farms
+                  {t("home.hero_stat_direct_lbl", "From Our Farms")}
                 </span>
               </div>
 
               <div className="h-[30px] w-px bg-white/25" />
 
               <div className="grid gap-0.5">
-                <strong className="text-base">Fair</strong>
+                <strong className="text-base">{t("home.hero_stat_fair_val", "Fair")}</strong>
                 <span className="text-[9px] uppercase tracking-wider text-white/60">
-                  Everyday Prices
+                  {t("home.hero_stat_fair_lbl", "Everyday Prices")}
                 </span>
               </div>
             </div>
@@ -430,29 +406,29 @@ export default function HomePage() {
           <div className="w-[300px] shrink-0 bg-white/95 text-[var(--ink)] shadow-[0_25px_60px_rgba(18,53,35,.12)] backdrop-blur-md max-lg:hidden">
             <div className="border-b border-[var(--line)] px-[18px] py-[15px] text-[9px] font-bold tracking-[0.12em]">
               <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#6aa94c] shadow-[0_0_0_4px_rgba(106,169,76,.12)]" />
-              HARVESTED TODAY
+              {t("home.hero_card_badge", "HARVESTED TODAY")}
             </div>
 
             <div className="flex items-center gap-4 px-5 py-7">
               <span className="text-[34px]">🌿</span>
 
               <div>
-                <strong className="text-sm">Seasonal Produce</strong>
+                <strong className="text-sm">{t("home.hero_card_title", "Seasonal Produce")}</strong>
                 <p className="mt-0.5 text-[10px] text-[var(--muted)]">
-                  Freshly picked, carefully selected.
+                  {t("home.hero_card_subtitle", "Freshly picked, carefully selected.")}
                 </p>
               </div>
             </div>
 
             <div className="flex justify-between bg-[var(--green-900)] px-[18px] py-3 text-[9px] uppercase tracking-wider text-white">
-              <span>Farm → You</span>
-              <span>100% Fresh</span>
+              <span>{t("home.hero_card_farm_to_you", "Farm → You")}</span>
+              <span>{t("home.hero_card_100_fresh", "100% Fresh")}</span>
             </div>
           </div>
         </div>
 
         <div className="absolute bottom-7 right-9 hidden items-center text-[9px] tracking-[0.16em] opacity-65 md:flex">
-          SCROLL TO EXPLORE
+          {t("home.hero_scroll", "SCROLL TO EXPLORE")}
           <ArrowDown size={15} className="ml-2" />
         </div>
       </section>
@@ -463,31 +439,31 @@ export default function HomePage() {
       <section className="bg-white py-[105px]">
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[1.15fr_.85fr] items-end gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
           <div>
-            <Eyebrow>THE GENESIS DIFFERENCE</Eyebrow>
+            <Eyebrow>{t("home.intro_eyebrow", "THE GENESIS DIFFERENCE")}</Eyebrow>
 
             <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-              Good food shouldnt
+              {t("home.intro_heading_prefix", "Good food shouldnt")}
               <br />
               <em className="font-semibold text-[var(--green-700)]">
-                cost more
+                {t("home.intro_heading_accent", "cost more")}
               </em>{" "}
-              than it has to.
+              {t("home.intro_heading_suffix", "than it has to.")}
             </h2>
           </div>
 
           <div>
-            
             <p className="mb-6 text-sm leading-[1.8] text-[var(--muted)]">
-              We connect our farms directly with consumers, giving you fresher
-              products at honest prices while ensuring the people who grow your
-              food create more value.
+              {t(
+                "home.intro_p1",
+                "We connect our farms directly with consumers, giving you fresher products at honest prices while ensuring the people who grow your food create more value."
+              )}
             </p>
 
             <Link
               href="/about"
               className="inline-flex items-center gap-2 border-b border-[var(--green-800)] pb-1 text-xs font-bold text-[var(--green-800)]"
             >
-              Learn more about Genesis
+              {t("home.intro_btn", "Learn more about Genesis")}
               <ArrowRight size={15} />
             </Link>
           </div>
@@ -495,19 +471,19 @@ export default function HomePage() {
       </section>
 
       {/* =========================================================
-          PRODUCTS CARDS SECTION (New ProductCards Component)
+          PRODUCTS CARDS SECTION
       ========================================================= */}
       <ProductCards />
 
       {/* =========================================================
-          TANA FARM - Fixed Full Image Display
+          TANA FARM
       ========================================================= */}
       <section
         id="tana-farm"
         className="scroll-mt-20 bg-white py-[105px]"
       >
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[.95fr_1.05fr] items-center gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
-          {/* Image with local file - Full display */}
+          {/* Image with local file */}
           <div className="relative min-h-[580px] max-lg:min-h-[500px]">
             <div
               className="absolute right-0 top-0 h-[500px] w-full max-sm:h-[390px] bg-cover bg-center rounded-l-3xl"
@@ -518,7 +494,7 @@ export default function HomePage() {
               }}
             >
               <span className="absolute right-5 top-5 bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] rounded-md shadow-md">
-                A SISTER COMPANY
+                {t("home.tana_badge", "A SISTER COMPANY")}
               </span>
             </div>
 
@@ -527,11 +503,11 @@ export default function HomePage() {
 
               <div className="grid">
                 <strong className="font-serif-heading text-[21px]">
-                  Tana Farm
+                  {t("home.tana_title", "Tana Farm")}
                 </strong>
 
                 <small className="text-[9px] uppercase tracking-wider">
-                  Pure. Fresh. Local.
+                  {t("home.tana_motto", "Pure. Fresh. Local.")}
                 </small>
               </div>
             </div>
@@ -539,33 +515,35 @@ export default function HomePage() {
 
           {/* Content */}
           <div>
-            <Eyebrow>MEET TANA FARM</Eyebrow>
+            <Eyebrow>{t("home.tana_eyebrow", "MEET TANA FARM")}</Eyebrow>
 
             <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-              Straight from
+              {t("home.tana_heading_prefix", "Straight from")}
               <br />
-              the land.
+              <em className="font-semibold text-[var(--green-700)]">
+                {t("home.tana_heading_accent", "the land.")}
+              </em>
             </h2>
 
             <p className="mt-6 text-[18px] leading-[1.65] text-[var(--green-800)]">
-              Our sister company,{" "}
-              <strong className="font-semibold">Tana Farm</strong>, produces
-              organic products straight from its own land.
+              {t("home.tana_lead_1", "Our sister company,")}{" "}
+              <strong className="font-semibold">{t("home.tana_title", "Tana Farm")}</strong>
+              {t("home.tana_lead_2", ", produces organic products straight from its own land.")}
             </p>
 
             <p className="mt-4 max-w-[550px] text-sm leading-[1.85] text-[var(--muted)]">
-              Tana Farm extends our farm-to-table philosophy by growing and
-              providing fresh, organic products directly from the farm. No
-              unnecessary middlemen. No unnecessary distance. Just products
-              that come straight from the land to the people.
+              {t(
+                "home.tana_body",
+                "Tana Farm extends our farm-to-table philosophy by growing and providing fresh, organic products directly from the farm. No unnecessary middlemen. No unnecessary distance. Just products that come straight from the land to the people."
+              )}
             </p>
 
             <div className="mt-8 grid grid-cols-4 gap-2 max-sm:grid-cols-2">
               {[
-                ["🌱", "Organic", "Naturally grown"],
-                ["🌾", "Fresh", "From the land"],
-                ["🚜", "Local", "Farm produced"],
-                ["🥬", "Healthy", "Quality focused"],
+                ["🌱", t("home.tana_f1_title", "Organic"), t("home.tana_f1_sub", "Naturally grown")],
+                ["🌾", t("home.tana_f2_title", "Fresh"), t("home.tana_f2_sub", "From the land")],
+                ["🚜", t("home.tana_f3_title", "Local"), t("home.tana_f3_sub", "Farm produced")],
+                ["🥬", t("home.tana_f4_title", "Healthy"), t("home.tana_f4_sub", "Quality focused")],
               ].map(([icon, title, subtitle]) => (
                 <div
                   key={title}
@@ -584,7 +562,7 @@ export default function HomePage() {
               href="#contact"
               className="mt-6 inline-flex items-center gap-6 border border-[var(--green-800)] px-[22px] py-4 text-xs font-bold text-[var(--green-800)] transition hover:bg-[var(--green-800)] hover:text-white rounded-lg"
             >
-              Connect with Tana Farm
+              {t("home.tana_btn", "Connect with Tana Farm")}
               <ArrowRight size={17} />
             </Link>
           </div>
@@ -592,7 +570,7 @@ export default function HomePage() {
       </section>
 
       {/* =========================================================
-          VALUES - With Hover Effects and White Background Cards
+          VALUES
       ========================================================= */}
       <section
         id="about"
@@ -612,23 +590,25 @@ export default function HomePage() {
       >
         <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
           <div className="max-w-[850px]">
-            <Eyebrow light>WHY GENESIS</Eyebrow>
+            <Eyebrow light>{t("home.values_eyebrow", "WHY GENESIS")}</Eyebrow>
 
             <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-white">
-              A simpler food system.
+              {t("home.values_heading_line1", "A simpler food system.")}
               <br />
               <em className="font-semibold text-[var(--lime)]">
-                A better deal for everyone.
+                {t("home.values_heading_line2", "A better deal for everyone.")}
               </em>
             </h2>
 
             <p className="mt-5 max-w-[560px] text-sm leading-[1.8] text-white/60">
-              We believe agriculture works best when the distance between the
-              farmer and the family buying their food is kept short.
+              {t(
+                "home.values_subtitle",
+                "We believe agriculture works best when the distance between the farmer and the family buying their food is kept short."
+              )}
             </p>
           </div>
 
-          {/* Values Cards with Hover Effects and White Background */}
+          {/* Values Cards */}
           <div className="mt-16 grid grid-cols-4 gap-6 max-lg:grid-cols-2 max-sm:grid-cols-1">
             {values.map((value, index) => (
               <div
@@ -666,53 +646,6 @@ export default function HomePage() {
       </section>
 
       {/* =========================================================
-          JOURNEY (Commented out)
-      ========================================================= */}
-      {/* <section className="bg-[var(--cream)] py-[105px]">
-        <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
-          <div className="mb-10 flex flex-col items-center text-center">
-            <Eyebrow>THE JOURNEY</Eyebrow>
-
-            <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-              We keep the route{" "}
-              <em className="font-semibold text-[var(--green-700)]">
-                straightforward.
-              </em>
-            </h2>
-
-            <p className="mt-5 max-w-[470px] text-[13px] leading-[1.8] text-[var(--muted)]">
-              the value stays where it
-              belongs.
-            </p>
-          </div>
-
-          <div className="relative grid grid-cols-4 gap-9 max-md:grid-cols-2 max-sm:grid-cols-1">
-            <div className="absolute left-[8%] right-[8%] top-10 border-t border-dashed border-[rgba(40,99,62,.3)] max-md:hidden" />
-
-            {journey.map((step) => (
-              <div key={step.number} className="relative z-10 text-center">
-                <div className="mx-auto mb-[18px] grid h-20 w-20 place-items-center rounded-full border border-[var(--line)] bg-white text-[28px]">
-                  {step.icon}
-                </div>
-
-                <strong className="text-[9px] tracking-[0.15em] text-[var(--green-700)]">
-                  {step.number}
-                </strong>
-
-                <h3 className="mt-1 font-serif-heading text-[22px] font-bold">
-                  {step.title}
-                </h3>
-
-                <p className="mx-auto mt-1 max-w-[190px] text-[11px] text-[var(--muted)]">
-                  {step.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section> */}
-
-      {/* =========================================================
           CONTACT CTA
       ========================================================= */}
       <section
@@ -724,34 +657,35 @@ export default function HomePage() {
         </div>
 
         <div className="relative mx-auto max-w-[800px] px-6 text-center">
-
           <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-white">
-            Bring the farm
+            {t("home.cta_heading_prefix", "Bring the farm")}
             <br />
             <em className="font-semibold text-[var(--lime)]">
-              closer to home.
+              {t("home.cta_heading_accent", "closer to home.")}
             </em>
           </h2>
 
           <p className="mx-auto mt-5 max-w-[510px] text-[13px] leading-[1.8] text-white/65">
-            Interested in our products, availability or a direct order?
-            We&apos;d love to hear from you.
+            {t(
+              "home.cta_subtitle",
+              "Interested in our products, availability or a direct order? We'd love to hear from you."
+            )}
           </p>
 
           <div className="mt-7 flex justify-center gap-6 max-sm:flex-col max-sm:items-center">
             <Link
-              href="tel:+251900000000"
+              href={`tel:${cleanPhone}`}
               className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 bg-white px-5 text-xs font-bold text-[var(--green-900)] transition hover:-translate-y-1 rounded-lg"
             >
-              Call Us
+              {t("home.cta_btn_call", "Call Us")}
               <ArrowRight size={17} />
             </Link>
 
             <Link
-              href="mailto:info@genesisagrobusiness.com"
+              href={`mailto:${contactEmail}`}
               className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 border border-white/35 px-5 text-xs font-bold text-white transition hover:bg-white/10 rounded-lg"
             >
-              Send an Email
+              {t("home.cta_btn_email", "Send an Email")}
               <ArrowUpRight size={16} />
             </Link>
           </div>
@@ -763,7 +697,7 @@ export default function HomePage() {
       ========================================================= */}
       <button
         type="button"
-        aria-label="Back to top"
+        aria-label={t("home.back_to_top", "Back to top")}
         onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
         className={`fixed bottom-5 right-5 z-40 grid h-[42px] w-[42px] place-items-center rounded-full bg-[var(--lime)] text-[var(--green-950)] shadow-lg transition-all duration-300 ${
           showBackTop

@@ -1,3 +1,4 @@
+// components/shop/ProductDetails.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -5,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Product } from "@/data/products";
 import { useCart } from "@/context/CartContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 type ProductDetailsProps = {
   product: Product;
@@ -139,10 +141,10 @@ export default function ProductDetails({
 }: ProductDetailsProps) {
   const router = useRouter();
   const { addToCart } = useCart();
+  const { t } = useLanguage();
 
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
-  const [selectedPayment, setSelectedPayment] = useState("cash");
 
   const effectivePrice =
     product.discountPrice !== null &&
@@ -155,24 +157,6 @@ export default function ProductDetails({
     () => effectivePrice * quantity,
     [effectivePrice, quantity]
   );
-
-  const paymentMethods = [
-    {
-      id: "cash",
-      title: "Cash on Delivery",
-      description: "Pay when your order arrives.",
-    },
-    {
-      id: "telebirr",
-      title: "Telebirr",
-      description: "Fast and convenient mobile payment.",
-    },
-    {
-      id: "bank",
-      title: "Bank Transfer",
-      description: "Transfer directly to our account.",
-    },
-  ];
 
   const decreaseQuantity = () => {
     setQuantity((current) => Math.max(1, current - 1));
@@ -244,7 +228,7 @@ export default function ProductDetails({
             className="inline-flex items-center gap-2 text-sm font-semibold text-[#28633e] transition hover:text-[#123523]"
           >
             <ArrowLeft />
-            Back to products
+            {t("product.back_to_products", "Back to products")}
           </Link>
         </div>
       </div>
@@ -268,7 +252,9 @@ export default function ProductDetails({
 
                   {product.badge && (
                     <span className="absolute left-6 top-6 rounded-full bg-[#f6f3e9]/95 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-[#28633e] shadow-sm backdrop-blur">
-                      {product.badge}
+                      {product.badge === "Special Offer"
+                        ? t("product.special_offer", "Special Offer")
+                        : product.badge}
                     </span>
                   )}
                 </div>
@@ -312,7 +298,7 @@ export default function ProductDetails({
                 </span>
 
                 <span className="text-xs font-medium text-[#69736b]">
-                  Direct from verified farm
+                  {t("product.direct_from_farm", "Direct from verified farm")}
                 </span>
               </div>
 
@@ -333,7 +319,7 @@ export default function ProductDetails({
                 </span>
 
                 <span className="text-sm text-[#69736b]">
-                  per {product.unit}
+                  {t("product.per", "per")} {product.unit}
                 </span>
 
                 {product.discountPrice && product.discountPrice < product.price && (
@@ -353,19 +339,22 @@ export default function ProductDetails({
 
                 <span className="text-[#69736b] font-medium text-xs">
                   {product.stock > 0
-                    ? `${product.stock} ${product.unit}s currently in harvest stock`
-                    : "Currently out of stock"}
+                    ? `${product.stock} ${product.unit}s ${t(
+                        "product.in_harvest_stock",
+                        "currently in harvest stock"
+                      )}`
+                    : t("product.out_of_stock", "Currently out of stock")}
                 </span>
               </div>
 
-              {/* Quantity Selector (Editable input + Buttons) */}
+              {/* Quantity Selector */}
               <div className="mt-8">
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-xs font-bold uppercase tracking-[0.15em] text-[#28633e]">
-                    Select Quantity ({product.unit})
+                    {t("product.select_quantity", "Select Quantity")} ({product.unit})
                   </label>
                   <span className="text-[11px] text-[#69736b]">
-                    Type directly or use + / -
+                    {t("product.quantity_hint", "Type directly or use + / -")}
                   </span>
                 </div>
 
@@ -403,7 +392,7 @@ export default function ProductDetails({
 
                   <div className="text-right">
                     <span className="block text-xs uppercase tracking-[0.12em] text-[#69736b]">
-                      Subtotal
+                      {t("product.subtotal", "Subtotal")}
                     </span>
 
                     <span className="font-serif-heading text-2xl font-bold text-[#123523]">
@@ -422,7 +411,7 @@ export default function ProductDetails({
                   className="flex h-14 w-full sm:flex-1 items-center justify-center gap-2.5 rounded-2xl border-2 border-[#123523] bg-white px-6 text-sm font-bold text-[#123523] shadow-sm transition-all duration-200 hover:bg-[#f6f3e9] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <CartIcon />
-                  <span>Add to Cart</span>
+                  <span>{t("product.add_to_cart", "Add to Cart")}</span>
                 </button>
 
                 <button
@@ -431,7 +420,7 @@ export default function ProductDetails({
                   disabled={product.stock <= 0}
                   className="flex h-14 w-full sm:flex-1 items-center justify-center gap-2.5 rounded-2xl bg-[#123523] px-6 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-[#19472d] hover:text-[var(--lime)] hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <span>Buy Now</span>
+                  <span>{t("product.buy_now", "Buy Now")}</span>
                   <span className="text-base font-bold">→</span>
                 </button>
               </div>
@@ -441,37 +430,35 @@ export default function ProductDetails({
                 <div className="rounded-2xl bg-white p-4">
                   <TruckIcon />
                   <p className="mt-3 text-xs font-bold uppercase tracking-wider text-[#123523]">
-                    Farm Fresh
+                    {t("product.benefit_fresh_title", "Farm Fresh")}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[#69736b]">
-                    Freshly sourced.
+                    {t("product.benefit_fresh_desc", "Freshly sourced.")}
                   </p>
                 </div>
 
                 <div className="rounded-2xl bg-white p-4">
                   <CheckIcon />
                   <p className="mt-3 text-xs font-bold uppercase tracking-wider text-[#123523]">
-                    Fair Price
+                    {t("product.benefit_price_title", "Fair Price")}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[#69736b]">
-                    No reseller markup.
+                    {t("product.benefit_price_desc", "No reseller markup.")}
                   </p>
                 </div>
 
                 <div className="rounded-2xl bg-white p-4">
                   <PhoneIcon />
                   <p className="mt-3 text-xs font-bold uppercase tracking-wider text-[#123523]">
-                    Support
+                    {t("product.benefit_support_title", "Support")}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[#69736b]">
-                    We're here to help.
+                    {t("product.benefit_support_desc", "We're here to help.")}
                   </p>
                 </div>
               </div>
             </div>
           </div>
-
-          
         </div>
       </section>
     </main>
