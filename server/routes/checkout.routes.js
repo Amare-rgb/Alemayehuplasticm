@@ -2,29 +2,45 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, optionalAuth } = require('../middleware/auth');
 
 // ============================================
-// CREATE CHECKOUT (No Stripe)
+// CREATE CHECKOUT (Supports both Auth & Guest)
 // POST /api/checkout
 // ============================================
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', optionalAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { productId, quantity = 1 } = req.body;
+    const userId = req.user?.id || null;
+    const { productId, quantity = 1, guestInfo, addressId, notes, paymentMethod, items: requestItems } = req.body;
 
     let items = [];
+    let finalAddressId = null;
+    let finalUserId = userId;
 
-    // Single product checkout
-    if (productId) {
-      const product = await prisma.product.findUnique({ 
-        where: { id: productId } 
+    // Track whether items came from the DB cart, so we know whether it's
+    // safe/expected to clear that cart after the order is placed.
+    let sourceCartId = null;
+
+    // ── PRIORITY 1: Use items from request (frontend cart) ──
+    if (requestItems && Array.isArray(requestItems) && requestItems.length > 0) {
+      items = requestItems.map(item => ({
+        productId: item.productId,
+        name: item.name || 'Product',
+        price: Number(item.price),
+        quantity: Number(item.quantity) || 1,
+        image: item.image || null
+      }));
+    }
+    // ── PRIORITY 2: Single product checkout ──
+    else if (productId) {
+      const product = await prisma.product.findUnique({
+        where: { id: productId }
       });
-      
+
       if (!product) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           success: false,
-          error: 'Product not found' 
+          error: 'Product not found'
         });
       }
 
@@ -36,38 +52,44 @@ router.post('/', requireAuth, async (req, res) => {
         productId: product.id,
         name: product.name,
         price: finalPrice,
-        quantity: quantity,
+        quantity: quantity || 1,
         image: product.images?.[0] || null
       });
-    } 
-    // Cart checkout
-    else {
-      const cart = await prisma.cart.findUnique({
-        where: { userId: userId }
+    }
+    // ── PRIORITY 3: Get items from database cart ──
+    else if (userId) {
+      let cart = await prisma.cart.findUnique({
+        where: { userId: userId },
+        include: {
+          items: {
+            include: { product: true }
+          }
+        }
       });
 
       if (!cart) {
-        return res.status(400).json({
-          success: false,
-          error: 'Cart not found'
+        cart = await prisma.cart.create({
+          data: { userId: userId },
+          include: {
+            items: {
+              include: { product: true }
+            }
+          }
         });
       }
 
-      const cartItems = await prisma.cartItem.findMany({
-        where: { cartId: cart.id },
-        include: { product: true }
-      });
-
-      if (!cartItems || cartItems.length === 0) {
+      if (!cart.items || cart.items.length === 0) {
         return res.status(400).json({
           success: false,
-          error: 'Cart is empty'
+          error: 'Your cart is empty. Please add items before checking out.'
         });
       }
 
-      items = cartItems.map(cartItem => {
-        const finalPrice = cartItem.product.discountPrice && 
-          cartItem.product.discountPrice > 0 && 
+      sourceCartId = cart.id;
+
+      items = cart.items.map(cartItem => {
+        const finalPrice = cartItem.product.discountPrice &&
+          cartItem.product.discountPrice > 0 &&
           cartItem.product.discountPrice < cartItem.product.price
           ? Number(cartItem.product.discountPrice)
           : Number(cartItem.product.price);
@@ -80,82 +102,221 @@ router.post('/', requireAuth, async (req, res) => {
           image: cartItem.product.images?.[0] || null
         };
       });
-    }
-
-    // Calculate total
-    const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-
-    // Get user's default address
-    const defaultAddress = await prisma.address.findFirst({
-      where: { 
-        userId: userId,
-        isDefault: true 
-      }
-    });
-
-    if (!defaultAddress) {
+    } else {
       return res.status(400).json({
         success: false,
-        error: 'Please add a shipping address before checkout'
+        error: 'Please add items to your cart before checking out.'
       });
     }
 
-    // Create order
-    const order = await prisma.order.create({
-      data: {
-        userId: userId,
-        total: total,
-        status: 'PENDING',
-        paymentStatus: 'UNPAID',
-        addressId: defaultAddress.id,
-        items: {
-          create: items.map(item => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            price: item.price
-          }))
+    // ── Validate items ──
+    if (!items || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No items to checkout. Please add items to your cart.'
+      });
+    }
+
+    for (const item of items) {
+      if (!item.productId) {
+        return res.status(400).json({ success: false, error: 'Each item requires a productId' });
+      }
+      if (!Number.isFinite(item.price) || item.price <= 0) {
+        return res.status(400).json({ success: false, error: `Invalid price for item ${item.productId}` });
+      }
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        return res.status(400).json({ success: false, error: `Invalid quantity for item ${item.productId}` });
+      }
+    }
+
+    // ── Verify every productId actually exists before we try to insert
+    //    OrderItems — this is what was causing the P2003 foreign key
+    //    violation (order_items_productId_fkey) and the raw 500. ──
+    const productIds = [...new Set(items.map(item => item.productId))];
+    const existingProducts = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true }
+    });
+    const existingIds = new Set(existingProducts.map(p => p.id));
+    const missingIds = productIds.filter(id => !existingIds.has(id));
+
+    if (missingIds.length > 0) {
+      console.warn('⚠️ Checkout referenced missing product id(s):', missingIds);
+      return res.status(400).json({
+        success: false,
+        error: 'Some items in your cart are no longer available and were removed. Please refresh your cart and try again.',
+        missingProductIds: missingIds
+      });
+    }
+
+    // ── Handle Address ──
+    if (userId) {
+      if (addressId) {
+        const address = await prisma.address.findFirst({
+          where: {
+            id: addressId,
+            userId: userId
+          }
+        });
+        if (address) {
+          finalAddressId = address.id;
+        } else {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid address selected'
+          });
         }
-      },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: {
-                name: true,
-                images: true
+      } else {
+        const userAddresses = await prisma.address.findMany({
+          where: { userId: userId }
+        });
+
+        if (userAddresses.length === 0) {
+          if (guestInfo && guestInfo.address) {
+            const newAddress = await prisma.address.create({
+              data: {
+                userId: userId,
+                fullName: guestInfo.name || req.user?.name || 'Valued Customer',
+                phone: guestInfo.phone || req.user?.phone || 'N/A',
+                street: guestInfo.address,
+                city: guestInfo.city || 'Addis Ababa',
+                state: 'Ethiopia',
+                zip: '0000',
+                country: 'Ethiopia',
+                isDefault: true
               }
-            }
+            });
+            finalAddressId = newAddress.id;
+          } else {
+            return res.status(400).json({
+              success: false,
+              error: 'Please add a shipping address. You can add one in your profile or enter it manually.'
+            });
           }
-        },
-        address: true,
-        user: {
-          select: {
-            name: true,
-            email: true,
-            phone: true
-          }
+        } else {
+          finalAddressId = userAddresses[0].id;
         }
       }
-    });
+    } else {
+      // ── Guest checkout ──
+      if (!guestInfo) {
+        return res.status(400).json({
+          success: false,
+          error: 'Guest information is required for checkout'
+        });
+      }
 
-    // Clear cart items after order creation
-    if (!productId) {
-      await prisma.cartItem.deleteMany({
-        where: { userId: userId }
+      if (!guestInfo.name || !guestInfo.phone || !guestInfo.address) {
+        return res.status(400).json({
+          success: false,
+          error: 'Name, phone, and address are required for guest checkout'
+        });
+      }
+
+      const guestUser = await prisma.user.create({
+        data: {
+          name: guestInfo.name,
+          email: guestInfo.email || `guest_${Date.now()}@temp.com`,
+          phone: guestInfo.phone,
+          password: 'GUEST_TEMP_' + Date.now(),
+          role: 'GUEST'
+        }
+      });
+
+      finalUserId = guestUser.id;
+
+      const guestAddress = await prisma.address.create({
+        data: {
+          userId: guestUser.id,
+          fullName: guestInfo.name,
+          phone: guestInfo.phone,
+          street: guestInfo.address,
+          city: guestInfo.city || 'Addis Ababa',
+          state: 'Ethiopia',
+          zip: '0000',
+          country: 'Ethiopia',
+          isDefault: true
+        }
+      });
+
+      finalAddressId = guestAddress.id;
+    }
+
+    // ── Calculate total ──
+    const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+    if (total <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Order total must be greater than 0'
       });
     }
+
+    // ── Create order, decrement stock is NOT done here (only on payment
+    //    completion, per your /complete/:orderId route) — but order
+    //    creation + cart clearing must succeed or fail together. ──
+    const order = await prisma.$transaction(async (tx) => {
+      const createdOrder = await tx.order.create({
+        data: {
+          userId: finalUserId,
+          total: total,
+          status: 'PENDING',
+          paymentStatus: 'UNPAID',
+          addressId: finalAddressId,
+          notes: notes || '',
+          items: {
+            create: items.map(item => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              price: item.price
+            }))
+          }
+        },
+        include: {
+          items: {
+            include: {
+              product: {
+                select: {
+                  name: true,
+                  images: true
+                }
+              }
+            }
+          },
+          address: true,
+          user: {
+            select: {
+              name: true,
+              email: true,
+              phone: true
+            }
+          }
+        }
+      });
+
+      // Only clear the DB cart when the items actually came from it
+      // (Priority 3). CartItem has no userId field — it's related via cartId.
+      if (sourceCartId) {
+        await tx.cartItem.deleteMany({
+          where: { cartId: sourceCartId }
+        });
+      }
+
+      return createdOrder;
+    });
 
     res.status(201).json({
       success: true,
       message: 'Order created successfully',
       data: {
         order,
-        items: items
+        items: items,
+        isGuest: !userId
       }
     });
 
   } catch (error) {
-    console.error('❌ Checkout error:', error);
+    console.error('❌ Checkout error:', error.code || '', error.message, error);
     res.status(500).json({
       success: false,
       error: 'Failed to create order',
@@ -173,7 +334,7 @@ router.get('/', (req, res) => {
     success: true,
     configured: true,
     message: 'Checkout is configured for manual order processing',
-    paymentMethods: ['Cash on Delivery', 'Bank Transfer'],
+    paymentMethods: ['Cash on Delivery', 'Bank Transfer', 'Telebirr', 'Chapa'],
     status: 'available'
   });
 });
@@ -186,8 +347,7 @@ router.get('/summary', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Get user's cart
-    const cart = await prisma.cart.findUnique({
+    let cart = await prisma.cart.findUnique({
       where: { userId: userId },
       include: {
         items: {
@@ -207,24 +367,59 @@ router.get('/summary', requireAuth, async (req, res) => {
       }
     });
 
-    if (!cart || cart.items.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Cart is empty'
+    if (!cart) {
+      cart = await prisma.cart.create({
+        data: { userId: userId },
+        include: {
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                  discountPrice: true,
+                  images: true,
+                  stock: true
+                }
+              }
+            }
+          }
+        }
       });
     }
 
-    // Calculate totals
+    const addresses = await prisma.address.findMany({
+      where: { userId: userId },
+      orderBy: { isDefault: 'desc' }
+    });
+
+    if (!cart.items || cart.items.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          items: [],
+          subtotal: 0,
+          tax: 0,
+          taxRate: 0.16,
+          total: 0,
+          addresses: addresses,
+          paymentMethods: ['Cash on Delivery', 'Bank Transfer', 'Telebirr', 'Chapa'],
+          cartEmpty: true
+        }
+      });
+    }
+
     let subtotal = 0;
     const items = cart.items.map(item => {
-      const price = item.product.discountPrice && 
-        item.product.discountPrice > 0 && 
+      const price = item.product.discountPrice &&
+        item.product.discountPrice > 0 &&
         item.product.discountPrice < item.product.price
         ? Number(item.product.discountPrice)
         : Number(item.product.price);
-      
+
       subtotal += price * item.quantity;
-      
+
       return {
         productId: item.productId,
         name: item.product.name,
@@ -235,13 +430,6 @@ router.get('/summary', requireAuth, async (req, res) => {
       };
     });
 
-    // Get user's addresses
-    const addresses = await prisma.address.findMany({
-      where: { userId: userId },
-      orderBy: { isDefault: 'desc' }
-    });
-
-    // Calculate tax (assuming 16% tax)
     const taxRate = 0.16;
     const tax = subtotal * taxRate;
     const total = subtotal + tax;
@@ -255,7 +443,8 @@ router.get('/summary', requireAuth, async (req, res) => {
         taxRate: taxRate,
         total: total,
         addresses: addresses,
-        paymentMethods: ['Cash on Delivery', 'Bank Transfer']
+        paymentMethods: ['Cash on Delivery', 'Bank Transfer', 'Telebirr', 'Chapa'],
+        cartEmpty: false
       }
     });
 
@@ -310,33 +499,35 @@ router.post('/complete/:orderId', requireAuth, async (req, res) => {
       });
     }
 
-    // Update order status
-    const updatedOrder = await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: 'PROCESSING',
-        paymentStatus: 'PAID',
-        paymentRef: paymentRef || 'Manual payment'
-      },
-      include: {
-        items: {
-          include: {
-            product: true
-          }
-        },
-        address: true
-      }
-    });
-
-    // Update product stock
-    for (const item of updatedOrder.items) {
-      await prisma.product.update({
-        where: { id: item.productId },
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
         data: {
-          stock: { decrement: item.quantity }
+          status: 'PROCESSING',
+          paymentStatus: 'PAID',
+          paymentRef: paymentRef || 'Manual payment'
+        },
+        include: {
+          items: {
+            include: {
+              product: true
+            }
+          },
+          address: true
         }
       });
-    }
+
+      for (const item of updated.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            stock: { decrement: item.quantity }
+          }
+        });
+      }
+
+      return updated;
+    });
 
     res.json({
       success: true,
@@ -345,7 +536,7 @@ router.post('/complete/:orderId', requireAuth, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Complete order error:', error);
+    console.error('❌ Complete order error:', error.code || '', error.message, error);
     res.status(500).json({
       success: false,
       error: 'Failed to complete order'
@@ -452,10 +643,10 @@ router.post('/cancel/:orderId', requireAuth, async (req, res) => {
       });
     }
 
-    if (order.status === 'DELIVERED') {
+    if (order.status === 'DELIVERED' || order.status === 'COMPLETED') {
       return res.status(400).json({
         success: false,
-        error: 'Cannot cancel delivered order'
+        error: 'Cannot cancel delivered or completed order'
       });
     }
 

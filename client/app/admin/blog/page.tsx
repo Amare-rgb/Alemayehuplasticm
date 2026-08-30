@@ -19,22 +19,12 @@ import {
   Tag,
   CheckCircle,
   XCircle,
-  EyeOff,
-  MoreVertical,
-  Download,
   RefreshCw,
-  PenTool,
   Image as ImageIcon,
   User,
   AlertCircle,
   Info,
-  X,
-  Upload,
   FileText,
-  Users,
-  Leaf,
-  Video,
-  Play,
   Film
 } from 'lucide-react';
 
@@ -49,7 +39,7 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests - FIXED: Use 'authToken' instead of 'token'
+// Add token to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('authToken') || 
                 sessionStorage.getItem('authToken') ||
@@ -162,7 +152,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
-// Helper function to detect if URL is a video
+// ✅ Video detection helper
 const isVideoUrl = (url: string | null): boolean => {
   if (!url) return false;
   const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
@@ -170,10 +160,12 @@ const isVideoUrl = (url: string | null): boolean => {
   return videoExtensions.some(ext => lowerUrl.includes(ext)) || 
          lowerUrl.includes('video') ||
          lowerUrl.includes('stream') ||
-         lowerUrl.includes('uploads/blog') && (lowerUrl.includes('.mp4') || lowerUrl.includes('.webm'));
+         lowerUrl.includes('youtube.com') ||
+         lowerUrl.includes('youtu.be') ||
+         lowerUrl.includes('vimeo.com');
 };
 
-// Media Renderer Component - Properly handles both images and videos
+// ✅ Media Renderer Component - Handles both images and videos
 const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: string }> = ({ 
   src, 
   alt, 
@@ -192,6 +184,7 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
 
   const fullUrl = src.startsWith('http') ? src : `${API_URL}${src}`;
 
+  // ✅ Render video with controls
   if (isVideo) {
     return (
       <div className={`relative bg-black w-full h-full ${className}`}>
@@ -215,6 +208,7 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
     );
   }
 
+  // ✅ Render image
   return (
     <div className={`relative w-full h-full ${className}`}>
       <Image
@@ -274,7 +268,7 @@ const BlogPage: React.FC = () => {
     return status ? 'Published' : 'Draft';
   };
 
-  // ✅ FIXED: fetchPosts function
+  // ✅ Fetch posts function
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
@@ -355,7 +349,7 @@ const BlogPage: React.FC = () => {
     }
   }, [selectedStatus, searchQuery, currentPage, pageSize, router]);
 
-  // ✅ FIXED: Initial load - only runs once
+  // ✅ Initial load
   useEffect(() => {
     isMounted.current = true;
     
@@ -368,16 +362,16 @@ const BlogPage: React.FC = () => {
       isMounted.current = false;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only runs once
+  }, []);
 
-  // ✅ FIXED: Handle status and search changes
+  // ✅ Handle status and search changes
   useEffect(() => {
     if (isInitialMount.current) return;
     fetchPosts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStatus, searchQuery, currentPage]);
 
-  // ✅ FIXED: Handler functions - no setState in effects
+  // ✅ Handler functions
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
     setCurrentPage(1);
@@ -615,6 +609,7 @@ const BlogPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* ✅ Video badge */}
                   {imageUrl && isVideo && (
                     <div className="mt-2">
                       <span className="inline-flex items-center space-x-1 text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">

@@ -2,9 +2,9 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 
-type CartItem = { 
-  productId: string; 
-  quantity: number 
+type CartItem = {
+  productId: string;
+  quantity: number
 }
 
 type CartItemResponse = {
@@ -19,6 +19,7 @@ type CartContextValue = {
   remove: (productId: string) => Promise<void>
   update: (productId: string, quantity: number) => Promise<void>
   clear: () => Promise<void>
+  validate: () => Promise<void>
 }
 
 const CartContext = createContext<CartContextValue | undefined>(undefined)
@@ -27,7 +28,7 @@ const STORAGE_KEY = 'shophub_cart_v1'
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession()
-  
+
   // ── FIX: Initialize state lazily from localStorage to avoid cascading renders ──
   const [items, setItems] = useState<CartItem[]>(() => {
     if (typeof window === 'undefined') return []
@@ -45,6 +46,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [isInitialized] = useState(true)
   const isFirstRender = useRef(true)
   const hasSyncedSession = useRef(false)
+  const hasValidated = useRef(false)
 
   // ── FIX 2: Persist guest cart to localStorage ──────────────────────────────
   useEffect(() => {
@@ -52,15 +54,47 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       isFirstRender.current = false
       return
     }
-    
+
     if (!isInitialized) return
-    
+
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
     } catch {
       // ignore
     }
   }, [items, isInitialized])
+
+  // ── FIX 6: Drop any items whose product no longer exists in the DB. ──────
+  // This is what prevents stale localStorage/DB-cart entries (e.g. after a
+  // reseed, or a product being deleted) from surviving all the way to
+  // checkout and blowing up on the order_items_productId_fkey constraint.
+  const validate = useCallback(async () => {
+    setItems((current) => {
+      if (current.length === 0) return current
+
+      const productIds = current.map((it) => it.productId)
+
+      fetch('/api/products/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIds })
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { validIds?: string[] } | null) => {
+          if (!data?.validIds) return
+          const validSet = new Set(data.validIds)
+          setItems((prev) => {
+            const cleaned = prev.filter((p) => validSet.has(p.productId))
+            return cleaned.length === prev.length ? prev : cleaned
+          })
+        })
+        .catch(() => {
+          // Network hiccup — don't wipe the cart over a failed check
+        })
+
+      return current
+    })
+  }, [])
 
   // ── FIX 3: Sync from server when logged in ──────────────────────────────────
   const syncFromServer = useCallback(async () => {
@@ -93,6 +127,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       hasSyncedSession.current = false
     }
   }, [session])
+
+  // ── FIX 7: Validate once on mount (covers the guest/localStorage cart), ──
+  // and again any time the logged-in items finish syncing from the server.
+  useEffect(() => {
+    if (!isInitialized || hasValidated.current) return
+    hasValidated.current = true
+    validate()
+  }, [isInitialized, validate])
 
   const add = useCallback(async (productId: string, quantity = 1) => {
     if (session) {
@@ -186,6 +228,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     remove,
     update,
     clear,
+    validate,
   }
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>

@@ -1,8 +1,7 @@
 // routes/admin.dashboard.js
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma'); // shared, adapter-configured PrismaClient instance
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 // Import enums from Prisma client
