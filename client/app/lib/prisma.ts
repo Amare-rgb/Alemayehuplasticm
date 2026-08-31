@@ -1,4 +1,4 @@
-// src/app/lib/prisma.ts
+// client/app/lib/prisma.ts
 
 // ── FIX: Define proper types instead of 'any' ──────────────────────────────
 type PrismaClientLike = {
@@ -55,12 +55,12 @@ const initializePrisma = (): any => {
       }
       return client
     }
-    
-    return globalWithPrisma.prisma
+
+    return client;
   } catch (error) {
     return createDummyProxy()
   }
-}
+};
 
 // Initialize prisma instance
 try {
@@ -79,20 +79,20 @@ const isRealPrisma = (instance: any): boolean => {
 
 export const prisma = prismaInstance
 
-// ── FIX: Type guard for prisma availability ────────────────────────────────
+// ── Helper to check if prisma is available ──────────────────────────────────
 export const isPrismaAvailable = (): boolean => {
-  return isRealPrisma(prismaInstance)
-}
+  return !!prisma && typeof prisma === 'object';
+};
 
 // ── FIX: Helper to get typed prisma client with error handling ─────────────
 export const getSafePrisma = (): any => {
   if (!isPrismaAvailable()) {
-    throw new Error('PrismaClient is not available. Please ensure the database is connected and @prisma/client is installed.')
+    throw new Error('PrismaClient is not available. Please ensure the database is connected and @prisma/client is installed.');
   }
   return prismaInstance
 }
 
-// ── FIX: Export model names for type safety ────────────────────────────────
+// ── Export model names for type safety ──────────────────────────────────────
 export const PRISMA_MODELS = {
   USER: 'user',
   PRODUCT: 'product',

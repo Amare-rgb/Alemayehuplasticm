@@ -6,11 +6,21 @@ const { requireAuth } = require('../middleware/auth');
 // Get cart
 router.get('/', requireAuth, async (req, res) => {
   try {
+    const userId = req.session.user?.id || req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
     const items = await prisma.cartItem.findMany({
-      where: { userId: req.session.user.id },
+      where: { userId: userId },
       include: {
         product: {
-          include: { seller: { select: { shopName: true } } },
+          include: {
+            category: true,
+            subCategory: true,
+            // ❌ REMOVED: seller (no longer exists)
+          },
         },
       },
     });
@@ -25,23 +35,52 @@ router.get('/', requireAuth, async (req, res) => {
 // Add to cart
 router.post('/', requireAuth, async (req, res) => {
   try {
+    const userId = req.session.user?.id || req.user?.id;
     const { productId, quantity = 1 } = req.body;
 
-    const product = await prisma.product.findUnique({ where: { id: productId } });
-    if (!product || product.status !== 'APPROVED') {
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    if (!productId) {
+      return res.status(400).json({ error: 'Product ID is required' });
+    }
+
+    const product = await prisma.product.findUnique({ 
+      where: { id: productId } 
+    });
+    
+    if (!product || product.status !== 'APPROVED' || product.visibility !== 'VISIBLE') {
       return res.status(404).json({ error: 'Product not available' });
     }
 
-    const cart = await prisma.cart.upsert({
-      where: { userId: req.session.user.id },
-      update: {},
-      create: { userId: req.session.user.id },
+    // Check if user has a cart, if not create one
+    let cart = await prisma.cart.findUnique({
+      where: { userId: userId }
     });
 
+    if (!cart) {
+      cart = await prisma.cart.create({
+        data: { userId: userId }
+      });
+    }
+
     const item = await prisma.cartItem.upsert({
-      where: { userId_productId: { userId: req.session.user.id, productId } },
-      update: { quantity: { increment: quantity } },
-      create: { userId: req.session.user.id, productId, quantity, cartId: cart.id },
+      where: { 
+        userId_productId: { 
+          userId: userId, 
+          productId: productId 
+        } 
+      },
+      update: { 
+        quantity: { increment: quantity } 
+      },
+      create: { 
+        userId: userId, 
+        productId: productId, 
+        quantity: quantity, 
+        cartId: cart.id 
+      },
     });
 
     res.json({ item });
@@ -51,17 +90,25 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-// Update cart item
+// Update cart item by itemId
 router.patch('/', requireAuth, async (req, res) => {
   try {
+    const userId = req.session.user?.id || req.user?.id;
     const { itemId, quantity } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
     if (!itemId || typeof quantity !== 'number') {
       return res.status(400).json({ error: 'Missing parameters' });
     }
 
-    const item = await prisma.cartItem.findUnique({ where: { id: itemId } });
-    if (!item || item.userId !== req.session.user.id) {
+    const item = await prisma.cartItem.findUnique({ 
+      where: { id: itemId } 
+    });
+    
+    if (!item || item.userId !== userId) {
       return res.status(404).json({ error: 'Not found' });
     }
 
@@ -85,7 +132,12 @@ router.patch('/', requireAuth, async (req, res) => {
 // Update cart by productId
 router.put('/', requireAuth, async (req, res) => {
   try {
+    const userId = req.session.user?.id || req.user?.id;
     const { productId, quantity } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
     if (!productId || typeof quantity !== 'number') {
       return res.status(400).json({ error: 'Missing parameters' });
@@ -93,17 +145,17 @@ router.put('/', requireAuth, async (req, res) => {
 
     if (quantity <= 0) {
       await prisma.cartItem.deleteMany({
-        where: { userId: req.session.user.id, productId }
+        where: { userId: userId, productId: productId }
       });
       return res.json({ success: true });
     }
 
-    await prisma.cartItem.updateMany({
-      where: { userId: req.session.user.id, productId },
+    const updated = await prisma.cartItem.updateMany({
+      where: { userId: userId, productId: productId },
       data: { quantity },
     });
 
-    res.json({ success: true });
+    res.json({ success: true, count: updated.count });
   } catch (error) {
     console.error('Error updating cart:', error);
     res.status(500).json({ error: 'Failed to update cart' });
@@ -113,18 +165,23 @@ router.put('/', requireAuth, async (req, res) => {
 // Delete from cart
 router.delete('/', requireAuth, async (req, res) => {
   try {
+    const userId = req.session.user?.id || req.user?.id;
     const { productId, itemId } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
     if (itemId) {
       await prisma.cartItem.deleteMany({
-        where: { id: itemId, userId: req.session.user.id }
+        where: { id: itemId, userId: userId }
       });
       return res.json({ success: true });
     }
 
     if (productId) {
       await prisma.cartItem.deleteMany({
-        where: { userId: req.session.user.id, productId }
+        where: { userId: userId, productId: productId }
       });
       return res.json({ success: true });
     }

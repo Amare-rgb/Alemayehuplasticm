@@ -81,6 +81,80 @@ const requireAuth = (req, res, next) => {
   }
 };
 
+// ============================================
+// OPTIONAL AUTH - Allows both authenticated and guest requests
+// ============================================
+const optionalAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+
+    // If no token, continue as guest
+    if (!token) {
+      console.log('👤 Guest access (no token)');
+      req.user = null;
+      return next();
+    }
+
+    // Try to verify the token
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      
+      // Get user ID from token
+      const userId = decoded.userId || decoded.id || decoded.user_id;
+      
+      if (!userId) {
+        console.log('👤 Guest access (invalid token - no user ID)');
+        req.user = null;
+        return next();
+      }
+
+      // Fetch user from database to ensure they exist
+      // FIXED: Removed emailVerified - not in your schema
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          // emailVerified removed - field doesn't exist in your User model
+        }
+      });
+
+      if (!user) {
+        console.log('👤 Guest access (user not found in DB)');
+        req.user = null;
+        return next();
+      }
+
+      // Set authenticated user
+      req.user = {
+        id: user.id,
+        userId: user.id,
+        email: user.email,
+        role: user.role || 'USER',
+        name: user.name || '',
+        phone: user.phone || '',
+        ...decoded
+      };
+
+      console.log('✅ Optional auth - User authenticated:', req.user.email);
+      next();
+    } catch (jwtError) {
+      // Token is invalid but we allow guest access
+      console.log('👤 Guest access (invalid token):', jwtError.message);
+      req.user = null;
+      next();
+    }
+  } catch (error) {
+    console.error('❌ Optional auth error:', error);
+    req.user = null;
+    next();
+  }
+};
+
 // Admin authorization middleware
 const requireAdmin = (req, res, next) => {
   // First authenticate
@@ -148,6 +222,7 @@ const isAdmin = (req, res, next) => {
 
 module.exports = {
   requireAuth,
+  optionalAuth,
   requireAdmin,
   requireSeller,
   requireSellerOrAdmin,

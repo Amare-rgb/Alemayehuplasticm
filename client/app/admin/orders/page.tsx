@@ -3,8 +3,9 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import axios, { AxiosError } from 'axios';
+import { ordersApi } from '@/lib/api';
 import {
   ShoppingCart,
   Search,
@@ -17,11 +18,7 @@ import {
   Truck,
   Package,
   DollarSign,
-  Calendar,
-  Download,
   RefreshCw,
-  MoreVertical,
-  ArrowUpDown,
   AlertCircle,
   Info,
   X,
@@ -33,47 +30,8 @@ import {
   Banknote,
   Wallet,
   Building,
-  Home
 } from 'lucide-react';
-
-// Create axios instance
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-
-const api = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  withCredentials: true,
-});
-
-// Add token to requests - FIXED: Use 'authToken' instead of 'token'
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('authToken') || 
-                sessionStorage.getItem('authToken') ||
-                localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Add response interceptor for better error handling
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('authToken');
-      sessionStorage.removeItem('authToken');
-      localStorage.removeItem('user');
-      sessionStorage.removeItem('user');
-      if (typeof window !== 'undefined') {
-        window.location.href = '/auth/signin';
-      }
-    }
-    return Promise.reject(error);
-  }
-);
+import toast from 'react-hot-toast';
 
 // Types
 interface Address {
@@ -184,7 +142,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
           }}
           className="text-gray-400 hover:text-gray-600 transition-colors"
         >
-          <XCircle className="w-4 h-4" />
+          <X className="w-4 h-4" />
         </button>
       </div>
     </div>
@@ -206,6 +164,16 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
 
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
+    // Fix: Use toast with proper type handling
+    if (type === 'info') {
+      toast(message, { icon: 'ℹ️' });
+    } else if (type === 'warning') {
+      toast.error(message, { icon: '⚠️' });
+    } else if (type === 'success') {
+      toast.success(message);
+    } else if (type === 'error') {
+      toast.error(message);
+    }
   };
 
   const clearNotification = () => {
@@ -288,42 +256,23 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
 
     setUpdating(true);
     try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-      if (!token) {
-        showNotification('error', 'Authentication required');
-        setUpdating(false);
-        return;
-      }
+      const response = await ordersApi.updateOrder({
+        orderId: order.id,
+        status: selectedStatus,
+      });
 
-      const response = await api.patch(
-        '/api/orders',
-        {
-          orderId: order.id,
-          status: selectedStatus,
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (response.data.success) {
+      if (response.success) {
         showNotification('success', `Order status updated to ${getStatusLabel(selectedStatus)}`);
         onStatusUpdate();
         setTimeout(() => {
           onClose();
         }, 1500);
       } else {
-        showNotification('error', response.data.error || 'Failed to update order status');
+        showNotification('error', response.message || 'Failed to update order status');
       }
     } catch (err) {
       console.error('Error updating order:', err);
-      if (axios.isAxiosError(err)) {
-        showNotification('error', err.response?.data?.error || 'Failed to update order status');
-      } else {
-        showNotification('error', 'An unexpected error occurred');
-      }
+      showNotification('error', 'Failed to update order status');
     } finally {
       setUpdating(false);
     }
@@ -511,14 +460,17 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                          <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0 relative">
                             {item.product.images && item.product.images.length > 0 ? (
-                              <img
+                              <Image
                                 src={item.product.images[0]}
                                 alt={item.product.name}
-                                className="w-full h-full object-cover"
+                                fill
+                                className="object-cover"
+                                sizes="40px"
                                 onError={(e) => {
-                                  (e.target as HTMLImageElement).src = '/placeholder-image.png';
+                                  const target = e.currentTarget as HTMLImageElement;
+                                  target.style.display = 'none';
                                 }}
                               />
                             ) : (
@@ -576,14 +528,24 @@ const OrdersPage: React.FC = () => {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
 
   const isMounted = useRef(true);
-  const isInitialMount = useRef(true);
+  const initialLoadDone = useRef(false);
 
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
+    // Fix: Use proper toast methods
+    if (type === 'info') {
+      toast(message, { icon: 'ℹ️' });
+    } else if (type === 'warning') {
+      toast.error(message, { icon: '⚠️' });
+    } else if (type === 'success') {
+      toast.success(message);
+    } else if (type === 'error') {
+      toast.error(message);
+    }
   };
 
   const clearNotification = () => {
@@ -659,79 +621,49 @@ const OrdersPage: React.FC = () => {
 
   const statuses = ['ALL', 'PENDING', 'PROCESSING', 'SHIPPED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
 
-  // Fetch orders
+  // Fetch orders using ordersApi
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-      if (!token) {
-        showNotification('error', 'Authentication required. Please login again.');
-        router.push('/auth/signin');
-        setLoading(false);
-        return;
-      }
-
-      const params = new URLSearchParams();
-      if (selectedStatus !== 'ALL') params.append('status', selectedStatus);
-      
-      const url = `/api/orders?${params.toString()}`;
-      
-      const response = await api.get(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      const response = await ordersApi.getOrders({
+        status: selectedStatus,
+        page: currentPage,
+        limit: pageSize,
       });
 
       if (!isMounted.current) return;
 
-      console.log('📊 Orders loaded:', response.data);
+      console.log('📊 Orders loaded:', response);
       
-      let ordersData = response.data;
-      if (response.data && response.data.orders) {
-        ordersData = response.data.orders;
-      }
-      
-      if (Array.isArray(ordersData)) {
-        setOrders(ordersData);
-        setTotal(ordersData.length);
-        setTotalPages(Math.ceil(ordersData.length / pageSize));
+      if (response && response.orders) {
+        setOrders(response.orders);
+        setTotal(response.total);
+        setTotalPages(response.pages || Math.ceil(response.total / pageSize));
       } else {
         setOrders([]);
         setTotal(0);
         setTotalPages(0);
       }
       
-    } catch (err: unknown) {
+    } catch (err) {
       console.error('❌ Fetch error:', err);
       if (!isMounted.current) return;
       
-      if (axios.isAxiosError(err)) {
-        const axiosError = err as AxiosError<{ error: string }>;
-        if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
-          showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('authToken');
-          sessionStorage.removeItem('authToken');
-          router.push('/auth/signin');
-        } else {
-          showNotification('error', axiosError.response?.data?.error || 'Failed to fetch orders');
-        }
-      } else {
-        showNotification('error', err instanceof Error ? err.message : 'An unexpected error occurred');
-      }
+      showNotification('error', 'Failed to fetch orders');
     } finally {
       if (isMounted.current) {
         setLoading(false);
       }
     }
-  }, [selectedStatus, pageSize, router]);
+  }, [selectedStatus, currentPage, pageSize]);
 
-  // ✅ FIXED: Initial load - only runs once
+  // Initial load - only runs once
   useEffect(() => {
     isMounted.current = true;
     
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    if (!initialLoadDone.current) {
+      initialLoadDone.current = true;
       fetchOrders();
     }
     
@@ -739,30 +671,30 @@ const OrdersPage: React.FC = () => {
       isMounted.current = false;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only runs once
+  }, []);
 
-  // ✅ FIXED: Status changes - uses a ref to track initialization
+  // Reload when status or page changes (skip initial load)
   useEffect(() => {
-    // Skip on initial mount to avoid double fetch
-    if (isInitialMount.current) return;
+    // Skip if initial load hasn't completed
+    if (!initialLoadDone.current) return;
     
     fetchOrders();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStatus]);
+  }, [selectedStatus, currentPage]);
 
-  // Handle search change - NO setState in effect
+  // Handle search change
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
     setCurrentPage(1);
   };
 
-  // Handle status filter change - NO setState in effect
+  // Handle status filter change
   const handleStatusChange = (value: string) => {
     setSelectedStatus(value);
     setCurrentPage(1);
   };
 
-  // Handle clear filters - NO setState in effect
+  // Handle clear filters
   const handleClearFilters = () => {
     setSelectedStatus('ALL');
     setSearchQuery('');
@@ -801,7 +733,6 @@ const OrdersPage: React.FC = () => {
   const processingOrders = orders.filter(o => o.status === 'PROCESSING').length;
   const shippedOrders = orders.filter(o => o.status === 'SHIPPED').length;
   const completedOrders = orders.filter(o => o.status === 'COMPLETED').length;
-  const cancelledOrders = orders.filter(o => o.status === 'CANCELLED' || o.status === 'REJECTED').length;
 
   const handleViewOrder = (order: Order) => {
     setSelectedOrder(order);
@@ -853,7 +784,7 @@ const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Total</p>
           <p className="text-lg font-bold text-gray-900">{totalOrders}</p>
@@ -869,10 +800,6 @@ const OrdersPage: React.FC = () => {
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Processing</p>
           <p className="text-lg font-bold text-blue-600">{processingOrders}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-3">
-          <p className="text-xs text-gray-500">Shipped</p>
-          <p className="text-lg font-bold text-purple-600">{shippedOrders}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Completed</p>

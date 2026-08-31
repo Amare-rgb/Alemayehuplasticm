@@ -1,7 +1,7 @@
 // app/cart/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -16,14 +16,34 @@ import {
   Truck,
   Leaf,
   CheckCircle2,
+  Loader2,
 } from "lucide-react";
-import { useCart, CartItem } from "@/context/CartContext";
+import { useCart } from "@/context/CartContext";
+import { useAuth } from "@/app/providers";
 import toast from "react-hot-toast";
+
+// Types
+interface CartItem {
+  id: string;
+  productId: string;
+  name: string;
+  slug: string;
+  price: number;
+  quantity: number;
+  unit: string;
+  image: string;
+  stock: number;
+  category?: string;
+}
 
 export default function CartPage() {
   const router = useRouter();
+  const { user, status } = useAuth();
   const { items, cartCount, totalUnits, cartTotal, updateQuantity, removeFromCart, clearCart, isLoading } = useCart();
-  const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState<Record<string, boolean>>({});
+  const [isClearing, setIsClearing] = useState(false);
+
+  const isAuthenticated = status === "authenticated" && !!user;
 
   const handleQuantityInputChange = (
     item: CartItem,
@@ -39,6 +59,52 @@ export default function CartPage() {
     }
   };
 
+  const handleUpdateQuantity = async (productId: string, newQuantity: number) => {
+    if (newQuantity < 1) {
+      await removeFromCart(productId);
+      return;
+    }
+    
+    setIsUpdating(prev => ({ ...prev, [productId]: true }));
+    try {
+      await updateQuantity(productId, newQuantity);
+    } catch (error) {
+      console.error("Error updating quantity:", error);
+      toast.error("Failed to update quantity");
+    } finally {
+      setIsUpdating(prev => ({ ...prev, [productId]: false }));
+    }
+  };
+
+  const handleRemoveItem = async (productId: string, itemName: string) => {
+    try {
+      await removeFromCart(productId);
+      toast.success(`${itemName} removed from cart`);
+    } catch (error) {
+      console.error("Error removing item:", error);
+      toast.error("Failed to remove item");
+    }
+  };
+
+  const handleClearCart = async () => {
+    if (items.length === 0) return;
+    
+    if (!confirm("Are you sure you want to clear your entire cart?")) {
+      return;
+    }
+
+    setIsClearing(true);
+    try {
+      await clearCart();
+      toast.success("Cart cleared successfully");
+    } catch (error) {
+      console.error("Error clearing cart:", error);
+      toast.error("Failed to clear cart");
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   const handleProceedToCheckout = () => {
     if (items.length === 0) {
       toast.error("Your cart is currently empty.");
@@ -46,6 +112,18 @@ export default function CartPage() {
     }
     router.push("/checkout");
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <main className="min-h-screen bg-[var(--cream)] pt-28 sm:pt-32 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-[#28633e] mx-auto" />
+          <p className="mt-4 text-sm text-[#69736b]">Loading your cart...</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[var(--cream)] pb-20 pt-28 sm:pt-32">
@@ -71,11 +149,16 @@ export default function CartPage() {
           {items.length > 0 && (
             <button
               type="button"
-              onClick={clearCart}
-              className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-red-200 bg-red-50/80 px-3.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-100 hover:border-red-300 transition shadow-sm"
+              onClick={handleClearCart}
+              disabled={isClearing}
+              className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-red-200 bg-red-50/80 px-3.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-100 hover:border-red-300 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Trash2 size={14} />
-              Clear Cart
+              {isClearing ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
+              {isClearing ? "Clearing..." : "Clear Cart"}
             </button>
           )}
         </div>
@@ -121,6 +204,7 @@ export default function CartPage() {
               {items.map((item) => {
                 const itemSubtotal = item.price * item.quantity;
                 const isOutOfStock = item.stock > 0 && item.quantity > item.stock;
+                const isUpdatingItem = isUpdating[item.productId] || false;
 
                 return (
                   <div
@@ -128,7 +212,7 @@ export default function CartPage() {
                     className="group overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-5 sm:p-6 shadow-[0_10px_35px_rgba(18,53,35,.04)] transition-all hover:shadow-[0_15px_45px_rgba(18,53,35,.08)]"
                   >
                     <div className="flex flex-col sm:flex-row gap-5 items-start sm:items-center">
-                      {/* ── FIX: Use Next.js Image component ─────────────────── */}
+                      {/* Product Image */}
                       <Link
                         href={`/shop/${encodeURIComponent(item.slug)}`}
                         className="relative h-24 w-24 sm:h-28 sm:w-28 shrink-0 overflow-hidden rounded-2xl bg-[#0b2419] border border-[#16412c]/20"
@@ -191,10 +275,8 @@ export default function CartPage() {
                         <div className="flex items-center rounded-xl border border-[#19472d]/15 bg-[#f6f3e9]/60 p-1 focus-within:ring-2 focus-within:ring-[#b9d873]">
                           <button
                             type="button"
-                            onClick={() =>
-                              updateQuantity(item.productId, item.quantity - 1)
-                            }
-                            disabled={item.quantity <= 1}
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
+                            disabled={item.quantity <= 1 || isUpdatingItem}
                             aria-label="Decrease quantity"
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-[#123523] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                           >
@@ -206,24 +288,23 @@ export default function CartPage() {
                             min={1}
                             max={item.stock > 0 ? item.stock : 9999}
                             value={item.quantity}
-                            onChange={(e) =>
-                              handleQuantityInputChange(item, e)
-                            }
-                            className="h-8 w-14 text-center text-xs font-bold text-[#123523] bg-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            onChange={(e) => handleQuantityInputChange(item, e)}
+                            disabled={isUpdatingItem}
+                            className="h-8 w-14 text-center text-xs font-bold text-[#123523] bg-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
                           />
 
                           <button
                             type="button"
-                            onClick={() =>
-                              updateQuantity(item.productId, item.quantity + 1)
-                            }
-                            disabled={
-                              item.stock > 0 && item.quantity >= item.stock
-                            }
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
+                            disabled={(item.stock > 0 && item.quantity >= item.stock) || isUpdatingItem}
                             aria-label="Increase quantity"
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-[#123523] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                           >
-                            <Plus size={14} />
+                            {isUpdatingItem ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Plus size={14} />
+                            )}
                           </button>
                         </div>
 
@@ -237,8 +318,9 @@ export default function CartPage() {
                         {/* Remove Item Button */}
                         <button
                           type="button"
-                          onClick={() => removeFromCart(item.productId)}
-                          className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          onClick={() => handleRemoveItem(item.productId, item.name)}
+                          disabled={isUpdatingItem}
+                          className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           aria-label="Remove produce"
                           title="Remove item"
                         >

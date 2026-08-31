@@ -9,7 +9,6 @@ import axios, { AxiosError } from 'axios';
 import {
   ArrowLeft,
   Save,
-  X,
   Image as ImageIcon,
   Upload,
   CheckCircle,
@@ -17,15 +16,14 @@ import {
   Info,
   XCircle,
   Trash2,
-
   FileText,
   Plus,
   Minus,
   Loader2,
   Settings,
-  
   Play,
-  Film
+  Film,
+  Link2,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
@@ -38,7 +36,7 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests - FIXED: Use 'authToken'
+// Add token to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('authToken') || 
                 sessionStorage.getItem('authToken') ||
@@ -151,7 +149,7 @@ const isVideoUrl = (url: string | null): boolean => {
   return false;
 };
 
-// Media Renderer Component
+// Media Renderer Component - Handles both images and videos
 const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: string }> = ({ 
   src, 
   alt, 
@@ -170,6 +168,7 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
   const fullUrl = src.startsWith('http') ? src : `${API_URL}${src}`;
   const isVideo = isVideoUrl(fullUrl);
 
+  // Render video with controls
   if (isVideo) {
     return (
       <div className={`relative bg-black w-full h-full ${className}`}>
@@ -202,6 +201,7 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
     );
   }
 
+  // Render image
   if (error) {
     return (
       <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${className}`}>
@@ -236,9 +236,12 @@ const EditBlogPostPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
+  // ✅ FIXED: mediaType type - removed 'url'
   const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
+  const [showVideoUrlInput, setShowVideoUrlInput] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
 
-  // ✅ FIXED: Authentication state
+  // Authentication state
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -276,7 +279,7 @@ const EditBlogPostPage: React.FC = () => {
     setNotification(null);
   };
 
-  // ✅ FIXED: Authentication check on mount
+  // Authentication check on mount
   useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
@@ -397,6 +400,7 @@ const EditBlogPostPage: React.FC = () => {
     }));
   };
 
+  // Handle media upload (image or video)
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -421,23 +425,26 @@ const EditBlogPostPage: React.FC = () => {
       }
 
       const formDataUpload = new FormData();
-      formDataUpload.append('image', file); // Use 'image' field
+      formDataUpload.append('media', file);
 
-      // Use /api/upload endpoint instead of /api/blog/upload
-      const response = await api.post('/api/upload', formDataUpload, {
+      console.log('📤 Uploading media...', file.name, file.size, 'isVideo:', isVideo);
+      
+      const response = await api.post('/api/blog/upload', formDataUpload, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
         },
       });
 
+      console.log('📊 Upload response:', response.data);
+
       let mediaUrl = null;
-      if (response.data && response.data.url) {
+      if (response.data && response.data.mediaUrl) {
+        mediaUrl = response.data.mediaUrl;
+      } else if (response.data && response.data.url) {
         mediaUrl = response.data.url;
       } else if (response.data && response.data.imageUrl) {
         mediaUrl = response.data.imageUrl;
-      } else if (response.data && response.data.image) {
-        mediaUrl = response.data.image;
       }
 
       if (mediaUrl) {
@@ -448,6 +455,7 @@ const EditBlogPostPage: React.FC = () => {
           ...(isVideo ? { image: '' } : { video: '' })
         }));
         setMediaType(isVideo ? 'video' : 'image');
+        setShowVideoUrlInput(false);
         showNotification('success', `${isVideo ? 'Video' : 'Image'} uploaded successfully`);
       } else {
         showNotification('error', 'Failed to get media URL from server');
@@ -471,6 +479,32 @@ const EditBlogPostPage: React.FC = () => {
     }
   };
 
+  // Handle video URL insertion
+  const handleVideoUrlInsert = () => {
+    if (!videoUrl.trim()) {
+      showNotification('error', 'Please enter a valid video URL');
+      return;
+    }
+
+    try {
+      new URL(videoUrl);
+    } catch {
+      showNotification('error', 'Please enter a valid URL');
+      return;
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      video: videoUrl.trim(),
+      image: '' // Clear image if video is added
+    }));
+    // ✅ FIXED: Don't set mediaType to 'url'
+    setMediaType('video');
+    setShowVideoUrlInput(false);
+    setVideoUrl('');
+    showNotification('success', 'Video URL added successfully');
+  };
+
   const handleRemoveMedia = () => {
     setFormData(prev => ({
       ...prev,
@@ -478,6 +512,8 @@ const EditBlogPostPage: React.FC = () => {
       video: ''
     }));
     setMediaType(null);
+    setShowVideoUrlInput(false);
+    setVideoUrl('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -505,12 +541,15 @@ const EditBlogPostPage: React.FC = () => {
         return;
       }
 
+      // Use video field if present, otherwise use image
+      const mediaField = formData.video || formData.image || '';
+
       const submitData = {
         title: formData.title.trim(),
         content: formData.content.trim(),
         excerpt: formData.excerpt.trim() || formData.content.substring(0, 150),
-        image: formData.image || formData.video || '',
-        video: formData.video || '',
+        image: mediaField, // Store media in image field
+        video: formData.video || '', // Keep video field for reference
         category: formData.category,
         readTime: formData.readTime || 3,
         published: formData.published,
@@ -674,6 +713,7 @@ const EditBlogPostPage: React.FC = () => {
           </div>
 
           <div className="space-y-6">
+            {/* Media Upload */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
                 <ImageIcon className="w-4 h-4 text-green-600" />
@@ -699,33 +739,83 @@ const EditBlogPostPage: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="aspect-video border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-green-500 transition-colors cursor-pointer group"
-                >
-                  <div className="text-center">
-                    {uploadingMedia ? (
-                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600 mx-auto" />
-                    ) : (
-                      <>
-                        <Upload className="w-10 h-10 text-gray-400 mx-auto group-hover:text-green-500 transition-colors" />
-                        <span className="text-sm text-gray-500 group-hover:text-green-500 transition-colors block mt-2">
-                          Upload Image or Video
-                        </span>
-                        <span className="text-xs text-gray-400">PNG, JPG, WebP, MP4, WebM (Max 50MB)</span>
-                      </>
-                    )}
+                <div className="space-y-3">
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="aspect-video border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-green-500 transition-colors cursor-pointer group"
+                  >
+                    <div className="text-center">
+                      {uploadingMedia ? (
+                        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600 mx-auto" />
+                      ) : (
+                        <>
+                          <Upload className="w-10 h-10 text-gray-400 mx-auto group-hover:text-green-500 transition-colors" />
+                          <span className="text-sm text-gray-500 group-hover:text-green-500 transition-colors block mt-2">
+                            Upload Image or Video
+                          </span>
+                          <span className="text-xs text-gray-400">PNG, JPG, WebP, MP4, WebM (Max 50MB)</span>
+                        </>
+                      )}
+                    </div>
                   </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    onChange={handleMediaUpload}
+                    className="hidden"
+                    multiple={false}
+                  />
+                  
+                  {/* OR Divider */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 border-t border-gray-200"></div>
+                    <span className="text-xs text-gray-400">OR</span>
+                    <div className="flex-1 border-t border-gray-200"></div>
+                  </div>
+
+                  {/* Video URL Input */}
+                  {!showVideoUrlInput ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowVideoUrlInput(true)}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 border border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors text-sm text-gray-600"
+                    >
+                      <Link2 className="w-4 h-4" />
+                      <span>Insert Video URL</span>
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="url"
+                          value={videoUrl}
+                          onChange={(e) => setVideoUrl(e.target.value)}
+                          placeholder="https://www.youtube.com/watch?v=..."
+                          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleVideoUrlInsert}
+                          className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowVideoUrlInput(false)}
+                        className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-400 text-center">
+                    Supports YouTube, Vimeo, and direct video URLs
+                  </p>
                 </div>
               )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*"
-                onChange={handleMediaUpload}
-                className="hidden"
-                multiple={false}
-              />
               <p className="text-xs text-gray-400 mt-2 text-center">
                 Upload an image or video for your blog post
               </p>

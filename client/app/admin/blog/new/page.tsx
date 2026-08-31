@@ -1,14 +1,13 @@
 // app/admin/blog/new/page.tsx
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import axios, { AxiosError } from 'axios';
 import {
   ArrowLeft,
- 
   Image as ImageIcon,
   Upload,
   CheckCircle,
@@ -17,16 +16,13 @@ import {
   XCircle,
   Trash2,
   Eye,
-  
   FileText,
   Plus,
   Minus,
   Loader2,
   Settings,
-  
   Film,
   Link2,
- 
 } from 'lucide-react';
 
 // Create axios instance
@@ -40,7 +36,7 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests - FIXED: Use 'authToken'
+// Add token to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('authToken') || 
                 sessionStorage.getItem('authToken') ||
@@ -152,11 +148,12 @@ const NewBlogPostPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
-  const [mediaType, setMediaType] = useState<'image' | 'video' | 'url' | null>(null);
+  // ✅ Fixed: removed 'url' from mediaType type
+  const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
   const [showVideoUrlInput, setShowVideoUrlInput] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
 
-  // ✅ FIXED: Authentication state
+  // Authentication state
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -186,7 +183,7 @@ const NewBlogPostPage: React.FC = () => {
     'Irrigation'
   ];
 
-  // ✅ FIXED: Authentication check on mount
+  // Authentication check on mount
   useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
@@ -258,7 +255,7 @@ const NewBlogPostPage: React.FC = () => {
 
     const file = files[0];
     const isVideo = file.type.startsWith('video/');
-    const maxSize = isVideo ? 50 * 1024 * 1024 : 5 * 1024 * 1024; // 50MB for video, 5MB for image
+    const maxSize = isVideo ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
     
     if (file.size > maxSize) {
       showNotification('error', `File size must be less than ${isVideo ? '50MB' : '5MB'}`);
@@ -276,12 +273,11 @@ const NewBlogPostPage: React.FC = () => {
       }
 
       const formDataUpload = new FormData();
-      formDataUpload.append('image', file); // Use 'image' field for both images and videos
+      formDataUpload.append('media', file);
 
-      console.log('📤 Uploading media...', file.name, file.size);
+      console.log('📤 Uploading media...', file.name, file.size, 'isVideo:', isVideo);
       
-      // Try using the /api/upload endpoint instead of /api/blog/upload
-      const response = await api.post('/api/upload', formDataUpload, {
+      const response = await api.post('/api/blog/upload', formDataUpload, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
@@ -291,20 +287,28 @@ const NewBlogPostPage: React.FC = () => {
       console.log('📊 Upload response:', response.data);
 
       let mediaUrl = null;
-      if (response.data && response.data.url) {
+      if (response.data && response.data.mediaUrl) {
+        mediaUrl = response.data.mediaUrl;
+      } else if (response.data && response.data.url) {
         mediaUrl = response.data.url;
       } else if (response.data && response.data.imageUrl) {
         mediaUrl = response.data.imageUrl;
-      } else if (response.data && response.data.image) {
-        mediaUrl = response.data.image;
       }
 
       if (mediaUrl) {
-        const fieldName = isVideo ? 'video' : 'image';
-        setFormData(prev => ({
-          ...prev,
-          [fieldName]: mediaUrl
-        }));
+        if (isVideo) {
+          setFormData(prev => ({
+            ...prev,
+            video: mediaUrl,
+            image: ''
+          }));
+        } else {
+          setFormData(prev => ({
+            ...prev,
+            image: mediaUrl,
+            video: ''
+          }));
+        }
         setMediaType(isVideo ? 'video' : 'image');
         setShowVideoUrlInput(false);
         showNotification('success', `${isVideo ? 'Video' : 'Image'} uploaded successfully`);
@@ -337,7 +341,6 @@ const NewBlogPostPage: React.FC = () => {
       return;
     }
 
-    // Validate URL
     try {
       new URL(videoUrl);
     } catch {
@@ -347,9 +350,11 @@ const NewBlogPostPage: React.FC = () => {
 
     setFormData(prev => ({
       ...prev,
-      video: videoUrl.trim()
+      video: videoUrl.trim(),
+      image: ''
     }));
-    setMediaType('url');
+    // ✅ Fixed: set to 'video' instead of 'url'
+    setMediaType('video');
     setShowVideoUrlInput(false);
     setVideoUrl('');
     showNotification('success', 'Video URL added successfully');
@@ -391,11 +396,13 @@ const NewBlogPostPage: React.FC = () => {
         return;
       }
 
+      const mediaField = formData.video || formData.image || '';
+
       const submitData = {
         title: formData.title.trim(),
         content: formData.content.trim(),
         excerpt: formData.excerpt.trim() || formData.content.substring(0, 150),
-        image: formData.image || '',
+        image: mediaField,
         video: formData.video || '',
         category: formData.category,
         readTime: formData.readTime || 3,
@@ -443,7 +450,7 @@ const NewBlogPostPage: React.FC = () => {
     }
   };
 
-  // Render media preview
+  // Render media preview with video support
   const renderMediaPreview = () => {
     const videoSrc = formData.video;
     const imageSrc = formData.image;
@@ -530,7 +537,7 @@ const NewBlogPostPage: React.FC = () => {
       );
     }
 
-    // Render preview with media
+    // Render preview with media (supports both images and videos)
     const isVideo = videoSrc && isVideoUrl(videoSrc);
     const displaySrc = videoSrc || imageSrc;
     const displayUrl = displaySrc.startsWith('http') ? displaySrc : `${API_URL}${displaySrc}`;
@@ -539,7 +546,7 @@ const NewBlogPostPage: React.FC = () => {
       <div className="relative bg-gray-100 rounded-lg overflow-hidden group">
         {isVideo ? (
           <div className="aspect-video">
-            {videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be') ? (
+            {videoSrc && (videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be')) ? (
               <iframe
                 src={videoSrc.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')}
                 className="w-full h-full"
@@ -552,13 +559,18 @@ const NewBlogPostPage: React.FC = () => {
                 controls
                 className="w-full h-full object-cover"
                 poster="/video-placeholder.png"
+                onError={(e) => {
+                  console.error('Video load error:', e);
+                  showNotification('error', 'Failed to load video');
+                }}
               >
                 Your browser does not support the video tag.
               </video>
             )}
             <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full flex items-center space-x-1">
               <Film className="w-3 h-3" />
-              <span>Video {mediaType === 'url' ? '(URL)' : ''}</span>
+              {/* ✅ Fixed: removed 'url' check */}
+              <span>Video {videoSrc?.includes('youtube.com') || videoSrc?.includes('youtu.be') ? '(YouTube)' : ''}</span>
             </div>
           </div>
         ) : (

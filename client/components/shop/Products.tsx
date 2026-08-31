@@ -2,14 +2,14 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Product, ProductCategory, products as fallbackProducts } from "@/data/products";
 import { ShoppingBag, ArrowUpRight, Search } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 
-export type { Product, ProductCategory };
-export { fallbackProducts as products };
+export type { Product };
 
 type SortOption = "featured" | "price-low" | "price-high" | "name";
 
@@ -17,14 +17,55 @@ interface CategoryOption {
   id: string;
   name: string;
   slug: string;
+  parentId?: string | null; // Added parentId property
 }
+
+// Default fallback image
+const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+
+// Product Image Component using Next.js Image
+const ProductImage: React.FC<{ src: string; alt: string; className?: string }> = ({ 
+  src, 
+  alt, 
+  className = "" 
+}) => {
+  const [imgSrc, setImgSrc] = useState(src);
+  const [hasError, setHasError] = useState(false);
+
+  const handleError = () => {
+    if (!hasError) {
+      setHasError(true);
+      setImgSrc(DEFAULT_IMAGE);
+    }
+  };
+
+  if (hasError) {
+    return (
+      <div className={`flex items-center justify-center bg-gray-200 ${className}`}>
+        <ShoppingBag className="w-8 h-8 text-gray-400" />
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={imgSrc}
+      alt={alt}
+      fill
+      className={`object-cover ${className}`}
+      onError={handleError}
+      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+      priority={false}
+    />
+  );
+};
 
 export default function Products() {
   const { t } = useLanguage();
   const searchParams = useSearchParams();
   const initialCategoryParam = searchParams.get("category") || "All";
 
-  const [backendProducts, setBackendProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [categoriesList, setCategoriesList] = useState<CategoryOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,31 +85,32 @@ export default function Products() {
   };
 
   // Sync category state when URL search params change
+  // FIXED: Using useEffect with proper dependency and ref to avoid cascading renders
   useEffect(() => {
     const cat = searchParams.get("category");
-    if (cat) {
+    if (cat && cat !== selectedCategory && !hasInitializedFromURL.current) {
+      hasInitializedFromURL.current = true;
       setSelectedCategory(cat);
     }
-  }, [searchParams]);
+  }, [searchParams, selectedCategory]);
 
   // Fetch public categories from backend
   useEffect(() => {
     let isMounted = true;
     const fetchCategories = async () => {
       try {
-        const apiBaseUrl =
-          process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-        const res = await fetch(`${apiBaseUrl}/api/categories/public`);
+        const res = await fetch(`${API_BASE_URL}/api/categories/public`);
         if (res.ok) {
           const data = await res.json();
           const list = Array.isArray(data) ? data : data?.categories || [];
           if (isMounted && list.length > 0) {
             // Pick top-level categories
-            const top = list.filter((c: any) => !c.parentId);
-            const items = (top.length > 0 ? top : list).map((c: any) => ({
+            const top = list.filter((c: CategoryOption) => !c.parentId);
+            const items = (top.length > 0 ? top : list).map((c: CategoryOption) => ({
               id: c.id,
               name: c.name,
               slug: c.slug || c.name.toLowerCase(),
+              parentId: c.parentId || null,
             }));
             setCategoriesList(items);
           }
@@ -82,7 +124,7 @@ export default function Products() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [API_BASE_URL]);
 
   // Fetch products from backend
   useEffect(() => {
@@ -92,11 +134,10 @@ export default function Products() {
       setLoading(true);
       setError(null);
       try {
-        const apiBaseUrl =
-          process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+        // Use the /api/products/public endpoint which only returns VISIBLE and APPROVED products
+        const url = `${API_BASE_URL}/api/products/public?limit=50`;
+        const res = await fetch(url);
 
-        // Try primary /api/products route
-        const res = await fetch(`${apiBaseUrl}/api/products?limit=50`);
         if (!res.ok) {
           throw new Error(`Server returned ${res.status}`);
         }
@@ -110,15 +151,40 @@ export default function Products() {
 
         if (isMounted) {
           if (rawProducts.length > 0) {
-            const mapped: Product[] = rawProducts.map((p: any) => {
+            const mapped: Product[] = rawProducts.map((p: {
+              id: string;
+              slug?: string;
+              name: string;
+              category?: { name: string };
+              description?: string;
+              price: number;
+              discountPrice?: number;
+              unitOfMeasurement?: string;
+              stock: number;
+              isFeatured?: boolean;
+              images?: string[];
+            }) => {
               const categoryName = p.category?.name || "Produce";
-              let imageList = Array.isArray(p.images) && p.images.length > 0
-                ? p.images.map((img: string) =>
-                    img.startsWith("http") ? img : `${apiBaseUrl}${img}`
-                  )
-                : [
-                    "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-                  ];
+              
+              // Handle images properly
+              let imageList: string[] = [];
+              if (Array.isArray(p.images) && p.images.length > 0) {
+                imageList = p.images.map((img: string) => {
+                  if (!img) return DEFAULT_IMAGE;
+                  if (img.startsWith("http://") || img.startsWith("https://")) {
+                    return img;
+                  }
+                  if (img.startsWith("/uploads/")) {
+                    return `${API_BASE_URL}${img}`;
+                  }
+                  if (img.startsWith("uploads/")) {
+                    return `${API_BASE_URL}/${img}`;
+                  }
+                  return `${API_BASE_URL}/uploads/products/${img}`;
+                });
+              } else {
+                imageList = [DEFAULT_IMAGE];
+              }
 
               return {
                 id: p.id,
@@ -129,22 +195,23 @@ export default function Products() {
                 price: Number(p.price) || 0,
                 discountPrice: p.discountPrice ? Number(p.discountPrice) : null,
                 unit: p.unitOfMeasurement || "kg",
-                stock: typeof p.stock === "number" ? p.stock : 100,
+                stock: typeof p.stock === "number" ? p.stock : 0,
                 featured: Boolean(p.discountPrice || p.isFeatured),
                 badge: p.discountPrice ? "Special Offer" : undefined,
                 images: imageList,
               };
             });
-            setBackendProducts(mapped);
+            setProducts(mapped);
           } else {
-            // If backend has 0 products yet, use fallback mock produce
-            setBackendProducts(fallbackProducts);
+            // If no products, set empty array
+            setProducts([]);
           }
         }
-      } catch (err: any) {
-        console.warn("Backend products fetch note, using fallback:", err.message);
+      } catch (err) {
+        console.warn("Backend products fetch error:", err);
         if (isMounted) {
-          setBackendProducts(fallbackProducts);
+          setError(err instanceof Error ? err.message : "Failed to load products");
+          setProducts([]);
         }
       } finally {
         if (isMounted) {
@@ -158,30 +225,27 @@ export default function Products() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [API_BASE_URL]);
 
-  // Compute available category tabs
+  // Compute available category tabs - now from actual categories
   const categoryTabs = useMemo(() => {
     const set = new Set<string>(["All"]);
     if (categoriesList.length > 0) {
       categoriesList.forEach((c) => set.add(c.name));
-    } else {
-      set.add("Vegetables");
-      set.add("Fruits");
-      set.add("Cereals");
-      set.add("Dairy");
     }
+    // Also add categories from products
+    products.forEach((p) => {
+      if (p.category) set.add(p.category);
+    });
     return Array.from(set);
-  }, [categoriesList]);
+  }, [categoriesList, products]);
 
   // Filter & sort products
-  const activeProducts = backendProducts.length > 0 ? backendProducts : fallbackProducts;
-
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.toLowerCase().trim();
     const normalizedCategory = selectedCategory.toLowerCase().trim();
 
-    const filtered = activeProducts.filter((product) => {
+    const filtered = products.filter((product) => {
       const productCat = (product.category || "").toLowerCase().trim();
 
       const matchesCategory =
@@ -215,7 +279,7 @@ export default function Products() {
           return Number(b.featured) - Number(a.featured);
       }
     });
-  }, [activeProducts, selectedCategory, search, sort]);
+  }, [products, selectedCategory, search, sort]);
 
   return (
     <main className="min-h-screen bg-[var(--cream)]">
@@ -394,6 +458,7 @@ export default function Products() {
                   : 0;
 
                 const isAvailable = product.stock > 0;
+                const imageUrl = product.images?.[0] || DEFAULT_IMAGE;
 
                 return (
                   <div
@@ -405,15 +470,10 @@ export default function Products() {
                       href={`/shop/${encodeURIComponent(product.slug)}`}
                       className="block relative aspect-[1.15/1] overflow-hidden bg-[#0b2419]"
                     >
-                      <img
-                        src={product.images[0]}
+                      <ProductImage
+                        src={imageUrl}
                         alt={product.name}
-                        loading="lazy"
-                        className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
-                        onError={(e) => {
-                          e.currentTarget.src =
-                            "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
-                        }}
+                        className="w-full h-full"
                       />
 
                       <div className="absolute inset-0 bg-gradient-to-t from-[#0b2419]/60 via-transparent to-transparent opacity-80" />

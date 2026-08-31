@@ -1,4 +1,4 @@
-// server.js
+// server.js - Fixed for Prisma 5 (No adapter)
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
 
-// Initialize Prisma Client
+// ✅ FIX: Simple Prisma Client initialization without adapter
 const prisma = new PrismaClient();
 
 const app = express();
@@ -26,7 +26,6 @@ const uploadRoutes = require('./routes/upload.routes');
 const usersRoutes = require('./routes/users.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const profileRoutes = require('./routes/profile.routes');
-// ============== ADD ARTICLES ROUTE ==============
 const articlesRoutes = require('./routes/articles.routes');
 
 // Ensure uploads directory exists
@@ -50,7 +49,7 @@ if (!fs.existsSync(settingsDir)) {
   console.log('✅ Created settings directory:', settingsDir);
 }
 
-// ============== ENSURE PDFS DIRECTORY EXISTS ==============
+// Ensure PDFs directory exists
 const pdfsDir = path.join(uploadsDir, 'pdfs');
 if (!fs.existsSync(pdfsDir)) {
   fs.mkdirSync(pdfsDir, { recursive: true });
@@ -73,7 +72,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/uploads/products', express.static(path.join(__dirname, 'uploads/products')));
 app.use('/uploads/settings', express.static(path.join(__dirname, 'uploads/settings')));
-app.use('/uploads/pdfs', express.static(path.join(__dirname, 'uploads/pdfs'))); // ADD THIS LINE
+app.use('/uploads/pdfs', express.static(path.join(__dirname, 'uploads/pdfs')));
 
 console.log('✅ Serving static files from:', path.join(__dirname, 'uploads'));
 
@@ -120,7 +119,6 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/admin/settings', settingsRoutes);
 app.use('/api/profile', profileRoutes);
-// ============== ADD ARTICLES ROUTE ==============
 app.use('/api/articles', articlesRoutes);
 
 // Health check with database status
@@ -165,7 +163,7 @@ app.get('/', (req, res) => {
       auth: '/api/auth',
       admin: '/api/admin',
       adminDashboard: '/api/admin/dashboard',
-      articles: '/api/articles', // ADD THIS LINE
+      articles: '/api/articles',
       blog: '/api/blog',
       cart: '/api/cart',
       categories: '/api/categories',
@@ -225,7 +223,7 @@ async function startServer() {
     console.log('   /api/auth         - Authentication routes');
     console.log('   /api/admin        - Admin routes');
     console.log('   /api/admin/dashboard - Dashboard routes');
-    console.log('   /api/articles     - Article management routes'); // ADD THIS LINE
+    console.log('   /api/articles     - Article management routes');
     console.log('   /api/blog         - Blog routes');
     console.log('   /api/cart         - Cart routes');
     console.log('   /api/categories   - Category routes');
@@ -237,16 +235,6 @@ async function startServer() {
     console.log('   /api/profile      - Profile routes');
     console.log('   /api/admin/settings - Settings routes');
     console.log('   /api/health       - Health check');
-    console.log('');
-    console.log('📄 Article Endpoints:');
-    console.log('   POST   /api/articles        - Create article with PDF');
-    console.log('   GET    /api/articles        - Get all articles');
-    console.log('   GET    /api/articles/:id    - Get single article');
-    console.log('   PUT    /api/articles/:id    - Update article');
-    console.log('   DELETE /api/articles/:id    - Delete article');
-    console.log('   PATCH  /api/articles/:id/status - Update article status');
-    console.log('   GET    /api/articles/stats/summary - Get article statistics');
-    console.log('   GET    /api/articles/search/query - Search articles');
     console.log('');
   });
 }
