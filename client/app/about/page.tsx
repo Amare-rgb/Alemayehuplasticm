@@ -1,7 +1,9 @@
-import React from 'react'
-import Link from 'next/link'
-import Image from 'next/image'
+// app/about/page.tsx
+'use client';
 
+import React from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
 import {
   Globe,
   ShieldCheck,
@@ -9,14 +11,13 @@ import {
   ArrowRight,
   CheckCircle,
   HeartHandshake
-} from 'lucide-react'
-
-export const metadata = {
-  title: 'About Us | Genesis Agri Business',
-  description: 'Learn about Genesis Agri Business, producing quality crops and agricultural solutions for over 50 years.',
-}
+} from 'lucide-react';
+import { useSettings } from '@/context/SettingsContext';
 
 export default function AboutPage() {
+  const { settings } = useSettings();
+  const siteName = settings?.siteName || 'Genesis Agri Business';
+
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Hero Section */}
@@ -32,12 +33,11 @@ export default function AboutPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-green-950/90 via-black/70 to-green-950/80" />
 
         <div className="relative z-10 max-w-4xl mx-auto px-4 text-center text-white py-16">
-          
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-4 leading-tight">
-            About <span className="text-green-400">Genesis Agri Business</span>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-4 leading-tight font-serif">
+            About <span className="text-green-400">{siteName}</span>
           </h1>
           <p className="text-lg md:text-xl text-green-100 max-w-2xl mx-auto leading-relaxed">
-            Empowering farmers and agricultural enterprises with high-yield seeds, premium crop nutrition, modern equipment, and sustainable farming solutions.
+            {settings?.siteDescription || 'Empowering farmers and agricultural enterprises with high-yield seeds, premium crop nutrition, modern equipment, and sustainable farming solutions.'}
           </p>
         </div>
       </section>
@@ -80,7 +80,7 @@ export default function AboutPage() {
                 Pioneering Sustainable Agriculture for Half a Century
               </h2>
               <p className="text-gray-600 leading-relaxed">
-                Founded with a deep passion for the land and farming communities, <strong>Genesis Agri Business</strong> has grown from a humble regional crop producer into a trusted national and international agricultural supplier.
+                Founded with a deep passion for the land and farming communities, <strong>{siteName}</strong> has grown from a humble regional crop producer into a trusted national and international agricultural supplier.
               </p>
               <p className="text-gray-600 leading-relaxed">
                 We bridge the gap between traditional agricultural wisdom and modern agronomic science. From non-GMO certified seeds to precision organic fertilizers and heavy-duty farming machinery, we provide everything modern farmers need to maximize crop yields while preserving soil health.
@@ -101,12 +101,12 @@ export default function AboutPage() {
               </div>
             </div>
 
-            {/* ── FIX: Visual Image Grid with Next.js Image ───────────────────── */}
+            {/* Visual Image Grid with Next.js Image */}
             <div className="relative">
               <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-xl border-4 border-white">
                 <Image
                   src="/banners/hero-farmer.jpg"
-                  alt="Genesis Agri farmer examining crop seedlings"
+                  alt={`${siteName} farmer examining crop seedlings`}
                   fill
                   className="object-cover"
                   sizes="(max-width: 768px) 100vw, 50vw"
@@ -129,7 +129,7 @@ export default function AboutPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center max-w-3xl mx-auto mb-16">
             <h2 className="text-3xl font-bold text-gray-900 mb-3">Our Core Principles</h2>
-            <p className="text-gray-500">The guiding values that drive Genesis Agri Business every day</p>
+            <p className="text-gray-500">The guiding values that drive {siteName} every day</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -191,5 +191,5 @@ export default function AboutPage() {
         </div>
       </section>
     </main>
-  )
+  );
 }

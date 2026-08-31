@@ -36,9 +36,13 @@ const nextConfig: NextConfig = {
         hostname: 'images.unsplash.com',
         pathname: '/**',
       },
+      // UI Avatars
+      {
+        protocol: 'https',
+        hostname: 'ui-avatars.com',
+        pathname: '/**',
+      },
     ],
-    // If you don't want to use dangerouslyAllowLocalIP, you can use domains
-    // domains: ['localhost', '127.0.0.1'],
   },
 };
 

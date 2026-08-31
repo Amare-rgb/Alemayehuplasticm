@@ -352,13 +352,19 @@ export function useAuth(): AuthContextType {
 }
 
 import { CartProvider, useCart } from '@/context/CartContext';
-export { useCart, CartProvider };
+import { SettingsProvider, useSettings } from '@/context/SettingsContext';
+import { LanguageProvider, useLanguage } from '@/context/LanguageContext';
+export { useCart, CartProvider, useSettings, SettingsProvider, useLanguage, LanguageProvider };
 
 // Export Providers as a wrapper component for easier importing
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
-      <CartProvider>{children}</CartProvider>
-    </AuthProvider>
+    <LanguageProvider>
+      <SettingsProvider>
+        <AuthProvider>
+          <CartProvider>{children}</CartProvider>
+        </AuthProvider>
+      </SettingsProvider>
+    </LanguageProvider>
   );
 }

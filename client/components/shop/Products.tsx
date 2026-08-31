@@ -4,9 +4,10 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, useRef } from "react";
-import { Product } from "@/data/products";
+import { useEffect, useMemo, useState } from "react";
+import { Product, ProductCategory, products as fallbackProducts } from "@/data/products";
 import { ShoppingBag, ArrowUpRight, Search } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 export type { Product };
 
@@ -60,6 +61,7 @@ const ProductImage: React.FC<{ src: string; alt: string; className?: string }> =
 };
 
 export default function Products() {
+  const { t } = useLanguage();
   const searchParams = useSearchParams();
   const initialCategoryParam = searchParams.get("category") || "All";
 
@@ -72,10 +74,15 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("featured");
 
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-  
-  // Use ref to track if we've initialized from URL params
-  const hasInitializedFromURL = useRef(false);
+  // Helper to translate category names if standard
+  const getCategoryLabel = (catName: string) => {
+    const lower = catName.toLowerCase();
+    if (lower === "all") return t("shop.category_all", "All");
+    if (lower === "vegetables") return t("home.cat_veg_title", "Vegetables");
+    if (lower === "fruits") return t("home.cat_fruit_title", "Fruits");
+    if (lower === "cereals") return t("home.cat_cereal_title", "Cereals");
+    return catName;
+  };
 
   // Sync category state when URL search params change
   // FIXED: Using useEffect with proper dependency and ref to avoid cascading renders
@@ -290,14 +297,18 @@ export default function Products() {
         <div className="relative mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <h1 className="font-serif-heading text-5xl font-medium leading-[0.98] tracking-[-0.045em] text-[#f6f3e9] sm:text-6xl lg:text-7xl">
-              Fresh Harvest,
+              {t("shop.hero_title_1", "Fresh Harvest,")}
               <br />
-              <span className="text-[#b9d873]">straight from the source.</span>
+              <span className="text-[#b9d873]">
+                {t("shop.hero_title_2", "straight from the source.")}
+              </span>
             </h1>
 
             <p className="mt-6 max-w-2xl text-base leading-7 text-[#f6f3e9]/75 sm:text-lg">
-              Explore nutrient-dense vegetables, orchard fruits, highland cereals,
-              and farm produce sourced directly from farmers with zero middlemen.
+              {t(
+                "shop.hero_subtitle",
+                "Explore nutrient-dense vegetables, orchard fruits, highland cereals, and farm produce sourced directly from farmers with zero middlemen."
+              )}
             </p>
           </div>
         </div>
@@ -319,7 +330,10 @@ export default function Products() {
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search fresh harvest, crops, produce..."
+                  placeholder={t(
+                    "shop.search_placeholder",
+                    "Search fresh harvest, crops, produce..."
+                  )}
                   className="h-12 w-full rounded-xl border border-[#19472d]/10 bg-[#f6f3e9]/60 pl-11 pr-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
                 />
               </div>
@@ -343,7 +357,7 @@ export default function Products() {
                             : "bg-[#f6f3e9] text-[#69736b] hover:bg-[#eae5d7] hover:text-[#123523]"
                         }`}
                       >
-                        {category}
+                        {getCategoryLabel(category)}
                       </button>
                     );
                   })}
@@ -355,10 +369,18 @@ export default function Products() {
                   onChange={(e) => setSort(e.target.value as SortOption)}
                   className="h-10 rounded-full border border-[#19472d]/10 bg-[#f6f3e9] px-4 text-xs font-semibold text-[#123523] outline-none focus:border-[#28633e]"
                 >
-                  <option value="featured">Featured First</option>
-                  <option value="price-low">Price: Low to High</option>
-                  <option value="price-high">Price: High to Low</option>
-                  <option value="name">Name A–Z</option>
+                  <option value="featured">
+                    {t("shop.sort_featured", "Featured First")}
+                  </option>
+                  <option value="price-low">
+                    {t("shop.sort_price_low", "Price: Low to High")}
+                  </option>
+                  <option value="price-high">
+                    {t("shop.sort_price_high", "Price: High to Low")}
+                  </option>
+                  <option value="name">
+                    {t("shop.sort_name", "Name A–Z")}
+                  </option>
                 </select>
               </div>
             </div>
@@ -367,29 +389,31 @@ export default function Products() {
           {/* Results Summary */}
           <div className="mb-7 flex items-center justify-between">
             <p className="text-sm text-[#69736b]">
-              Showing{" "}
+              {t("shop.showing", "Showing")}{" "}
               <span className="font-bold text-[#123523]">
                 {filteredProducts.length}
               </span>{" "}
-              {filteredProducts.length === 1 ? "product" : "products"}
-              {selectedCategory !== "All" && (
+              {filteredProducts.length === 1
+                ? t("shop.product_singular", "product")
+                : t("shop.product_plural", "products")}
+              {selectedCategory.toLowerCase() !== "all" && (
                 <span>
                   {" "}
-                  in{" "}
+                  {t("shop.in", "in")}{" "}
                   <strong className="text-[#123523] capitalize">
-                    {selectedCategory}
+                    {getCategoryLabel(selectedCategory)}
                   </strong>
                 </span>
               )}
             </p>
 
-            {selectedCategory !== "All" && (
+            {selectedCategory.toLowerCase() !== "all" && (
               <button
                 type="button"
                 onClick={() => setSelectedCategory("All")}
                 className="text-xs font-semibold text-[#28633e] hover:underline"
               >
-                Reset category filter
+                {t("shop.reset_filter", "Reset category filter")}
               </button>
             )}
           </div>
@@ -457,7 +481,7 @@ export default function Products() {
                       {/* Top Badges */}
                       <div className="absolute left-4 top-4 flex flex-wrap gap-1.5">
                         <span className="rounded-full bg-white/95 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#123523] shadow-sm backdrop-blur">
-                          {product.category}
+                          {getCategoryLabel(product.category)}
                         </span>
 
                         {hasDiscount && (
@@ -469,7 +493,9 @@ export default function Products() {
 
                       {/* Stock Badge */}
                       <span className="absolute bottom-4 left-4 rounded-full bg-[#123523]/85 px-3 py-1 text-[10px] font-medium text-white backdrop-blur">
-                        {isAvailable ? `In Stock (${product.stock} ${product.unit})` : "Out of stock"}
+                        {isAvailable
+                          ? `${t("shop.in_stock", "In Stock")} (${product.stock} ${product.unit})`
+                          : t("shop.out_of_stock", "Out of stock")}
                       </span>
 
                       {/* Quick Detail Arrow */}
@@ -494,7 +520,10 @@ export default function Products() {
                         {/* Description */}
                         <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[#69736b]">
                           {product.description ||
-                            "Naturally grown and carefully harvested farm produce."}
+                            t(
+                              "shop.default_card_desc",
+                              "Naturally grown and carefully harvested farm produce."
+                            )}
                         </p>
                       </div>
 
@@ -518,20 +547,6 @@ export default function Products() {
                             </span>
                           )}
                         </div>
-
-                        {/* "Click here to buy" Button */}
-                        <Link
-                          href={`/shop/${encodeURIComponent(product.slug)}`}
-                          className="mt-4 flex w-full items-center justify-between rounded-xl bg-[#123523] px-4 py-3 text-xs font-bold uppercase tracking-wider text-white transition-all duration-200 group-hover:bg-[#28633e] group-hover:text-[var(--lime)] shadow-sm hover:shadow-md"
-                        >
-                          <span className="flex items-center gap-2">
-                            <ShoppingBag size={15} />
-                            Click here to buy
-                          </span>
-                          <span className="text-sm font-bold transition-transform duration-200 group-hover:translate-x-1">
-                            →
-                          </span>
-                        </Link>
                       </div>
                     </div>
                   </div>
@@ -546,13 +561,14 @@ export default function Products() {
               </div>
 
               <h3 className="font-serif-heading text-2xl font-bold text-[#123523]">
-                No agricultural products found
+                {t("shop.no_products_title", "No agricultural products found")}
               </h3>
 
               <p className="mx-auto mt-2 max-w-md text-xs leading-6 text-[#69736b]">
-                {error 
-                  ? `Error loading products: ${error}` 
-                  : "We couldn't find any items matching your current filters. Try adjusting your search query or choosing another category."}
+                {t(
+                  "shop.no_products_desc",
+                  "We couldn't find any items matching your current filters. Try adjusting your search query or choosing another category."
+                )}
               </p>
 
               <button
@@ -563,7 +579,7 @@ export default function Products() {
                 }}
                 className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#123523] px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-[#f6f3e9] transition hover:bg-[#19472d]"
               >
-                Clear all filters
+                {t("shop.clear_filters", "Clear all filters")}
               </button>
             </div>
           )}

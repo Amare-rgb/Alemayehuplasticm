@@ -23,6 +23,7 @@ import {
   Newspaper,
   StickyNote, // ADD THIS IMPORT
 } from 'lucide-react';
+import { useSettings } from '@/context/SettingsContext';
 
 // Define types
 interface User {
@@ -60,6 +61,7 @@ export default function AdminLayout({
   const [isMounted, setIsMounted] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const { settings } = useSettings();
   const pathname = usePathname();
   const router = useRouter();
   
@@ -228,10 +230,10 @@ export default function AdminLayout({
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
           <Link href="/admin/dashboard" className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
+            <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 relative">
               <Image
-                src="/banners/images.jpeg"
-                alt="Genesis Agri Business"
+                src={settings?.logo || "/banners/images.jpeg"}
+                alt={settings?.siteName || "Genesis Agri Business"}
                 width={32}
                 height={32}
                 className="w-full h-full object-cover"
@@ -240,7 +242,7 @@ export default function AdminLayout({
             </div>
             {sidebarOpen && (
               <span className="text-sm font-semibold text-gray-800 whitespace-nowrap">
-                Genesis Agri Business
+                {settings?.siteName || "Genesis Agri Business"}
               </span>
             )}
           </Link>

@@ -519,6 +519,9 @@ const SettingsPage: React.FC = () => {
       
       if (isSuccess) {
         showNotification('success', response.data.message || 'Settings saved successfully! 🎉');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('settings-change'));
+        }
         await loadSettingsData();
       } else {
         const errorMsg = response.data?.error || response.data?.message || 'Failed to save settings';
@@ -597,6 +600,9 @@ const SettingsPage: React.FC = () => {
       
       if (isSuccess) {
         showNotification('success', response.data.message || 'Logo updated successfully! 🎉');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('settings-change'));
+        }
         setLogoFile(null);
         setLogoToDelete(false);
         await loadSettingsData();

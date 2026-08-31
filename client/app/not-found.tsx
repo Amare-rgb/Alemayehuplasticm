@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Home, ShoppingBag, BookOpen, Info, Phone } from "lucide-react";
+import { useSettings } from "@/context/SettingsContext";
 
 /* ─── Brand mark (leaf logo) — mirrors the one in Navbar/Footer ─── */
 function BrandMark({ size = 1 }: { size?: number }) {
@@ -79,13 +81,10 @@ const quickLinks = [
 ];
 
 export default function NotFound() {
-  // ── FIX: Use state with initial value and no useEffect ──────────────
-  // Since we want the animation to happen after mount, we can use a ref
-  // or simply set mounted to true immediately since this is a client component
   const [mounted, setMounted] = useState(true);
-
-  // ── FIX: Remove the useEffect completely ──────────────────────────────
-  // The animation can be controlled with CSS instead of React state
+  const { settings } = useSettings();
+  const siteName = settings?.siteName || 'Genesis Agri Business';
+  const logoUrl = settings?.logo || '';
 
   return (
     <main
@@ -116,20 +115,37 @@ export default function NotFound() {
       >
         {/* Brand logo */}
         <Link href="/" className="group mb-8 flex items-center gap-3 no-underline">
-          <BrandMark size={1.5} />
-          <span className="grid gap-[5px] leading-none">
+          {logoUrl ? (
+            <div className="relative h-10 w-10 flex items-center justify-center">
+              <Image
+                src={logoUrl}
+                alt={siteName}
+                width={40}
+                height={40}
+                className="object-contain"
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = "none";
+                }}
+              />
+            </div>
+          ) : (
+            <BrandMark size={1.5} />
+          )}
+          <span className="grid gap-[3px] leading-none text-left">
             <strong
-              className="text-[22px] tracking-[0.16em]"
-              style={{ color: "var(--green-900)", fontFamily: "var(--sans)" }}
+              className="text-[20px] tracking-[0.12em] font-serif"
+              style={{ color: "var(--green-900)" }}
             >
-              GENESIS
+              {siteName.toUpperCase()}
             </strong>
-            <small
-              className="text-[8px] tracking-[0.22em]"
-              style={{ color: "var(--muted)" }}
-            >
-              AGRO-BUSINESS
-            </small>
+            {settings?.siteDescription && (
+              <small
+                className="text-[8px] tracking-[0.2em]"
+                style={{ color: "var(--muted)" }}
+              >
+                AGRO-BUSINESS
+              </small>
+            )}
           </span>
         </Link>
 
