@@ -4,7 +4,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Product, ProductCategory, products as fallbackProducts } from "@/data/products";
 import { ShoppingBag, ArrowUpRight, Search } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
@@ -19,6 +19,12 @@ interface CategoryOption {
   slug: string;
   parentId?: string | null; // Added parentId property
 }
+
+// Fallback API Base URL
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:5000";
 
 // Default fallback image
 const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
@@ -65,6 +71,7 @@ export default function Products() {
   const searchParams = useSearchParams();
   const initialCategoryParam = searchParams.get("category") || "All";
 
+  const hasInitializedFromURL = useRef(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [categoriesList, setCategoriesList] = useState<CategoryOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +131,7 @@ export default function Products() {
     return () => {
       isMounted = false;
     };
-  }, [API_BASE_URL]);
+  }, []);
 
   // Fetch products from backend
   useEffect(() => {
@@ -203,15 +210,15 @@ export default function Products() {
             });
             setProducts(mapped);
           } else {
-            // If no products, set empty array
-            setProducts([]);
+            // If backend has no products, fallback to local products
+            setProducts(fallbackProducts || []);
           }
         }
       } catch (err) {
-        console.warn("Backend products fetch error:", err);
+        console.warn("Backend products fetch error, using fallback products:", err);
         if (isMounted) {
           setError(err instanceof Error ? err.message : "Failed to load products");
-          setProducts([]);
+          setProducts(fallbackProducts || []);
         }
       } finally {
         if (isMounted) {
@@ -225,7 +232,7 @@ export default function Products() {
     return () => {
       isMounted = false;
     };
-  }, [API_BASE_URL]);
+  }, []);
 
   // Compute available category tabs - now from actual categories
   const categoryTabs = useMemo(() => {
