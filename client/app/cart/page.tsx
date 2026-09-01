@@ -1,7 +1,7 @@
 // app/cart/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/app/providers";
+import { useLanguage } from "@/context/LanguageContext";
 import toast from "react-hot-toast";
 
 // Types
@@ -39,6 +40,7 @@ interface CartItem {
 export default function CartPage() {
   const router = useRouter();
   const { user, status } = useAuth();
+  const { t } = useLanguage();
   const { items, cartCount, totalUnits, cartTotal, updateQuantity, removeFromCart, clearCart, isLoading } = useCart();
   const [isUpdating, setIsUpdating] = useState<Record<string, boolean>>({});
   const [isClearing, setIsClearing] = useState(false);
@@ -70,7 +72,7 @@ export default function CartPage() {
       await updateQuantity(productId, newQuantity);
     } catch (error) {
       console.error("Error updating quantity:", error);
-      toast.error("Failed to update quantity");
+      toast.error(t("cart.toast_update_failed", "Failed to update quantity"));
     } finally {
       setIsUpdating(prev => ({ ...prev, [productId]: false }));
     }
@@ -79,27 +81,27 @@ export default function CartPage() {
   const handleRemoveItem = async (productId: string, itemName: string) => {
     try {
       await removeFromCart(productId);
-      toast.success(`${itemName} removed from cart`);
+      toast.success(`${itemName} ${t("cart.toast_removed", "removed from cart")}`);
     } catch (error) {
       console.error("Error removing item:", error);
-      toast.error("Failed to remove item");
+      toast.error(t("cart.toast_remove_failed", "Failed to remove item"));
     }
   };
 
   const handleClearCart = async () => {
     if (items.length === 0) return;
     
-    if (!confirm("Are you sure you want to clear your entire cart?")) {
+    if (!confirm(t("cart.confirm_clear", "Are you sure you want to clear your entire cart?"))) {
       return;
     }
 
     setIsClearing(true);
     try {
       await clearCart();
-      toast.success("Cart cleared successfully");
+      toast.success(t("cart.toast_cleared", "Cart cleared successfully"));
     } catch (error) {
       console.error("Error clearing cart:", error);
-      toast.error("Failed to clear cart");
+      toast.error(t("cart.toast_clear_failed", "Failed to clear cart"));
     } finally {
       setIsClearing(false);
     }
@@ -107,7 +109,7 @@ export default function CartPage() {
 
   const handleProceedToCheckout = () => {
     if (items.length === 0) {
-      toast.error("Your cart is currently empty.");
+      toast.error(t("cart.toast_empty", "Your cart is currently empty."));
       return;
     }
     router.push("/checkout");
@@ -119,7 +121,9 @@ export default function CartPage() {
       <main className="min-h-screen bg-[var(--cream)] pt-28 sm:pt-32 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-[#28633e] mx-auto" />
-          <p className="mt-4 text-sm text-[#69736b]">Loading your cart...</p>
+          <p className="mt-4 text-sm text-[#69736b]">
+            {t("cart.loading", "Loading your cart...")}
+          </p>
         </div>
       </main>
     );
@@ -136,13 +140,13 @@ export default function CartPage() {
               className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#28633e] hover:text-[#123523] transition"
             >
               <ArrowLeft size={14} />
-              Continue Shopping Fresh Produce
+              {t("cart.continue_shopping", "Continue Shopping Fresh Produce")}
             </Link>
             <h1 className="font-serif-heading text-3xl sm:text-4xl font-bold tracking-tight text-[#123523]">
-              Your Shopping Cart
+              {t("cart.title", "Your Shopping Cart")}
             </h1>
             <p className="mt-1 text-xs text-[#69736b]">
-              Review your fresh harvest produce and manage quantities before checkout.
+              {t("cart.subtitle", "Review your fresh harvest produce and manage quantities before checkout.")}
             </p>
           </div>
 
@@ -158,7 +162,7 @@ export default function CartPage() {
               ) : (
                 <Trash2 size={14} />
               )}
-              {isClearing ? "Clearing..." : "Clear Cart"}
+              {isClearing ? t("cart.clearing", "Clearing...") : t("cart.clear_cart", "Clear Cart")}
             </button>
           )}
         </div>
@@ -171,11 +175,14 @@ export default function CartPage() {
             </div>
 
             <h2 className="font-serif-heading text-2xl sm:text-3xl font-bold text-[#123523]">
-              Your cart is currently empty
+              {t("cart.empty_title", "Your cart is currently empty")}
             </h2>
 
             <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#69736b]">
-              Explore our farm marketplace for crisp vegetables, sweet orchard fruits, and highland grains sourced directly from local growers.
+              {t(
+                "cart.empty_desc",
+                "Explore our farm marketplace for crisp vegetables, sweet orchard fruits, and highland grains sourced directly from local growers."
+              )}
             </p>
 
             <Link
@@ -183,7 +190,7 @@ export default function CartPage() {
               className="mt-8 inline-flex items-center gap-2 rounded-2xl bg-[#123523] px-8 py-4 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-[#19472d] hover:text-[var(--lime)] hover:shadow-xl hover:-translate-y-0.5"
             >
               <Leaf size={16} />
-              <span>Explore Fresh Marketplace</span>
+              <span>{t("cart.empty_cta", "Explore Fresh Marketplace")}</span>
               <ArrowRight size={16} />
             </Link>
           </div>
@@ -194,10 +201,10 @@ export default function CartPage() {
             <div className="lg:col-span-8 space-y-4">
               <div className="rounded-2xl bg-white px-5 py-3 border border-[rgba(20,33,25,.08)] flex items-center justify-between text-xs font-semibold text-[#123523]">
                 <span>
-                  {cartCount} item{cartCount !== 1 ? "s" : ""} ({totalUnits} total unit{totalUnits !== 1 ? "s" : ""})
+                  {cartCount} {cartCount === 1 ? t("cart.item_singular", "item") : t("cart.item_plural", "items")} ({totalUnits} {totalUnits === 1 ? t("cart.unit_singular", "total unit") : t("cart.unit_plural", "total units")})
                 </span>
                 <span className="text-[#69736b] font-normal">
-                  Prices in Ethiopian Birr (ETB)
+                  {t("cart.currency_notice", "Prices in Ethiopian Birr (ETB)")}
                 </span>
               </div>
 
@@ -240,7 +247,7 @@ export default function CartPage() {
                             </span>
                           )}
                           <span className="text-[10px] text-[#69736b] font-medium">
-                            Farm Harvest
+                            {t("cart.farm_harvest", "Farm Harvest")}
                           </span>
                         </div>
 
@@ -258,13 +265,15 @@ export default function CartPage() {
                             ETB {item.price.toLocaleString()}
                           </span>
                           <span className="text-xs text-[#69736b]">
-                            per {item.unit}
+                            {t("cart.per", "per")} {item.unit}
                           </span>
                         </div>
 
                         {isOutOfStock && (
                           <p className="mt-1 text-xs text-red-500 font-semibold">
-                            Only {item.stock} {item.unit}s available in stock
+                            {t("cart.only_stock_available", "Only {stock} {unit}s available in stock")
+                              .replace("{stock}", String(item.stock))
+                              .replace("{unit}", item.unit)}
                           </p>
                         )}
                       </div>
@@ -277,7 +286,7 @@ export default function CartPage() {
                             type="button"
                             onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
                             disabled={item.quantity <= 1 || isUpdatingItem}
-                            aria-label="Decrease quantity"
+                            aria-label={t("cart.decrease_qty", "Decrease quantity")}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-[#123523] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                           >
                             <Minus size={14} />
@@ -297,7 +306,7 @@ export default function CartPage() {
                             type="button"
                             onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
                             disabled={(item.stock > 0 && item.quantity >= item.stock) || isUpdatingItem}
-                            aria-label="Increase quantity"
+                            aria-label={t("cart.increase_qty", "Increase quantity")}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-[#123523] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                           >
                             {isUpdatingItem ? (
@@ -321,8 +330,8 @@ export default function CartPage() {
                           onClick={() => handleRemoveItem(item.productId, item.name)}
                           disabled={isUpdatingItem}
                           className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          aria-label="Remove produce"
-                          title="Remove item"
+                          aria-label={t("cart.remove_item", "Remove produce")}
+                          title={t("cart.remove_item", "Remove produce")}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -340,10 +349,10 @@ export default function CartPage() {
                   </span>
                   <div>
                     <h4 className="text-xs font-bold text-[#123523]">
-                      Direct Farm Delivery
+                      {t("cart.g1_title", "Direct Farm Delivery")}
                     </h4>
                     <p className="text-[10px] text-[#69736b]">
-                      Freshly handled from harvest
+                      {t("cart.g1_desc", "Freshly handled from harvest")}
                     </p>
                   </div>
                 </div>
@@ -354,10 +363,10 @@ export default function CartPage() {
                   </span>
                   <div>
                     <h4 className="text-xs font-bold text-[#123523]">
-                      100% Quality Checked
+                      {t("cart.g2_title", "100% Quality Checked")}
                     </h4>
                     <p className="text-[10px] text-[#69736b]">
-                      Verified agricultural grade
+                      {t("cart.g2_desc", "Verified agricultural grade")}
                     </p>
                   </div>
                 </div>
@@ -368,10 +377,10 @@ export default function CartPage() {
                   </span>
                   <div>
                     <h4 className="text-xs font-bold text-[#123523]">
-                      No Account Required
+                      {t("cart.g3_title", "No Account Required")}
                     </h4>
                     <p className="text-[10px] text-[#69736b]">
-                      Shop and buy as a guest
+                      {t("cart.g3_desc", "Shop and buy as a guest")}
                     </p>
                   </div>
                 </div>
@@ -382,21 +391,23 @@ export default function CartPage() {
             <div className="lg:col-span-4 sticky top-28">
               <div className="rounded-[2.5rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-7 shadow-[0_15px_45px_rgba(18,53,35,.07)]">
                 <h2 className="font-serif-heading text-2xl font-bold text-[#123523] pb-4 border-b border-gray-100">
-                  Order Summary
+                  {t("cart.summary_title", "Order Summary")}
                 </h2>
 
                 <div className="mt-5 space-y-3.5 text-xs text-[#69736b]">
                   <div className="flex justify-between items-center">
-                    <span>Produce Subtotal ({cartCount} items)</span>
+                    <span>
+                      {t("cart.subtotal", "Produce Subtotal")} ({cartCount} {cartCount === 1 ? t("cart.item_singular", "item") : t("cart.item_plural", "items")})
+                    </span>
                     <span className="font-bold text-[#123523] text-sm">
                       ETB {cartTotal.toLocaleString()}
                     </span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <span>Farm Logistics & Packaging</span>
+                    <span>{t("cart.logistics", "Farm Logistics & Packaging")}</span>
                     <span className="font-medium text-[#28633e]">
-                      Calculated at checkout
+                      {t("cart.calc_checkout", "Calculated at checkout")}
                     </span>
                   </div>
 
@@ -404,7 +415,7 @@ export default function CartPage() {
 
                   <div className="flex justify-between items-baseline pt-1">
                     <span className="font-serif-heading text-base font-bold text-[#123523]">
-                      Estimated Total
+                      {t("cart.estimated_total", "Estimated Total")}
                     </span>
                     <span className="font-serif-heading text-2xl font-bold text-[#123523]">
                       ETB {cartTotal.toLocaleString()}
@@ -418,12 +429,12 @@ export default function CartPage() {
                   onClick={handleProceedToCheckout}
                   className="mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#123523] px-6 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-[#19472d] hover:text-[var(--lime)] hover:shadow-xl hover:-translate-y-0.5"
                 >
-                  <span>Proceed to Checkout</span>
+                  <span>{t("cart.proceed_checkout", "Proceed to Checkout")}</span>
                   <ArrowRight size={16} />
                 </button>
 
                 <p className="mt-3 text-center text-[11px] text-[#69736b]">
-                  ✓ Quick checkout • Cash on Delivery & Telebirr available
+                  {t("cart.checkout_perks", "✓ Quick checkout • Cash on Delivery & Telebirr available")}
                 </p>
 
                 <div className="mt-6 pt-5 border-t border-gray-100">
@@ -431,7 +442,7 @@ export default function CartPage() {
                     href="/shop"
                     className="block w-full text-center text-xs font-bold uppercase tracking-wider text-[#28633e] hover:text-[#123523] transition"
                   >
-                    ← Browse More Produce
+                    {t("cart.browse_more", "← Browse More Produce")}
                   </Link>
                 </div>
               </div>
