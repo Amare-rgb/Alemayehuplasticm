@@ -24,10 +24,26 @@ const showToast = (message: string, type: 'success' | 'error' = 'success') => {
   }, 3000);
 };
 
+// Helper function to load location from localStorage (runs during initialization)
+const loadLocationFromStorage = (): Address | null => {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    const savedLocation = localStorage.getItem('userLocation');
+    if (savedLocation) {
+      return JSON.parse(savedLocation) as Address;
+    }
+  } catch (e) {
+    console.error('Error loading location:', e);
+  }
+  return null;
+};
+
 export function LocationSelector() {
+  // FIX: Initialize selectedAddress directly from localStorage on mount
   const [isOpen, setIsOpen] = useState(false);
   const [addresses, setAddresses] = useState<Address[]>([]);
-  const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
+  const [selectedAddress, setSelectedAddress] = useState<Address | null>(() => loadLocationFromStorage());
   const [zipCode, setZipCode] = useState('');
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [newAddress, setNewAddress] = useState({
@@ -38,6 +54,7 @@ export function LocationSelector() {
   });
   const [showCountrySelector, setShowCountrySelector] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useRef(true);
 
   const countries = [
     'United States', 'United Kingdom', 'Canada', 'Australia',
@@ -46,6 +63,7 @@ export function LocationSelector() {
     'Ethiopia', 'Morocco', 'Ghana', 'Tanzania', 'Uganda', 'Rwanda'
   ];
 
+  // Handle click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -58,19 +76,17 @@ export function LocationSelector() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Cleanup on unmount
   useEffect(() => {
-    const savedLocation = localStorage.getItem('userLocation');
-    if (savedLocation) {
-      try {
-        const location = JSON.parse(savedLocation);
-        setSelectedAddress(location);
-      } catch (e) {
-        console.error('Error loading location:', e);
-      }
-    }
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   const saveLocation = (address: Address) => {
+    if (!isMountedRef.current) return;
+    
     setSelectedAddress(address);
     localStorage.setItem('userLocation', JSON.stringify(address));
     showToast(`Delivery location updated to ${address.city}, ${address.country}`, 'success');
@@ -95,7 +111,6 @@ export function LocationSelector() {
 
   const handleCountrySelect = (country: string) => {
     setShowCountrySelector(false);
-    // Instead of saving immediately, show city input for the selected country
     setNewAddress({ ...newAddress, country: country, city: '', zipCode: '' });
     setShowAddressForm(true);
   };
@@ -142,7 +157,6 @@ export function LocationSelector() {
       >
         <MapPin size={14} className="text-yellow-400" />
         <div className="text-xs">
-          {/* ✅ DELETED: <div className="text-gray-300 text-[10px] hidden sm:block">Deliver to</div> */}
           <div className="font-bold text-sm">{getDisplayLocation()}</div>
         </div>
         <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''} hidden sm:block`} />
@@ -211,7 +225,7 @@ export function LocationSelector() {
                     placeholder="Zip code"
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
                     maxLength={6}
-                    onKeyPress={(e) => e.key === 'Enter' && handleZipCodeApply()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleZipCodeApply()}
                   />
                   <button
                     onClick={handleZipCodeApply}

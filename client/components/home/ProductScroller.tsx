@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ChevronLeft, ChevronRight, ShoppingCart, Star, Heart, Check, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ShoppingCart, Star, Heart, Loader2 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import toast from 'react-hot-toast';
 
@@ -24,6 +24,14 @@ interface Product {
   inStock?: boolean;
   isNew?: boolean;
   isSale?: boolean;
+  stock?: number;
+  unit?: string;
+}
+
+// Define the API response type
+interface ApiResponse {
+  products?: Product[];
+  data?: Product[];
 }
 
 interface ProductScrollerProps {
@@ -110,6 +118,12 @@ export default function ProductScroller({
   const [addingId, setAddingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const cart = useCart();
+  const hasInitialized = useRef(false);
+
+  const getCategoryName = (category: Product['category']): string | undefined => {
+    if (!category) return undefined;
+    return typeof category === 'object' ? category.name : category;
+  };
 
   const handleAddToCart = async (e: React.MouseEvent, product: Product) => {
     e.preventDefault();
@@ -122,56 +136,94 @@ export default function ProductScroller({
 
     try {
       setAddingId(product.id);
-      await cart.add(product.id, 1);
-      toast.success(`${product.name} added to cart! 🛒`);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to add to cart');
+      // CartContext exposes `addToCart(product, quantity?, showToast?)`,
+      // taking a CartProductInput shape rather than (id, qty).
+      await cart.addToCart(
+        {
+          id: product.id,
+          name: product.name,
+          slug: product.slug,
+          price: product.price,
+          discountPrice:
+            product.originalPrice && product.originalPrice > product.price
+              ? product.price
+              : null,
+          unit: product.unit,
+          images: product.images && product.images.length > 0
+            ? product.images
+            : product.image
+              ? [product.image]
+              : undefined,
+          stock: product.stock,
+          category: getCategoryName(product.category),
+        },
+        1
+      );
+      // CartContext's addToCart already shows its own success toast,
+      // so we don't fire a duplicate one here.
+    } catch (err) {
+      const error = err as Error;
+      toast.error(error?.message || 'Failed to add to cart');
     } finally {
       setAddingId(null);
     }
   };
 
+  // Handle prop items without calling setState synchronously
   useEffect(() => {
-    // If items are passed as props, use them directly
-    if (propItems && propItems.length > 0) {
+    if (propItems && propItems.length > 0 && !hasInitialized.current) {
+      hasInitialized.current = true;
       setItems(propItems.slice(0, limit));
       setLoading(false);
+    }
+  }, [propItems, limit]);
+
+  // Fetch products from API with proper cleanup
+  useEffect(() => {
+    // Don't fetch if propItems were provided
+    if (propItems && propItems.length > 0) {
       return;
     }
 
-    // ✅ Fetch products from Admin API
+    let isMounted = true;
+
     const fetchProducts = async () => {
       try {
-        // This endpoint should return products from your admin panel
         const response = await fetch(`/api/products?limit=${limit}&featured=true`);
 
-        if (response.ok) {
-          const data = await response.json();
+        if (!isMounted) return;
 
-          // Check if API returned products
+        if (response.ok) {
+          const data: ApiResponse = await response.json();
+
           if (data.products && data.products.length > 0) {
             setItems(data.products.slice(0, limit));
           } else if (data.data && data.data.length > 0) {
-            // Some APIs return data under "data" key
             setItems(data.data.slice(0, limit));
           } else {
-            // No products found, use fallback
             setItems(fallbackProducts.slice(0, limit));
           }
         } else {
-          // API failed, use fallback
           console.warn('Failed to fetch products from API, using fallback');
           setItems(fallbackProducts.slice(0, limit));
         }
       } catch (error) {
         console.error('Error fetching products:', error);
-        setItems(fallbackProducts.slice(0, limit));
+        if (isMounted) {
+          setItems(fallbackProducts.slice(0, limit));
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchProducts();
+
+    return () => {
+      isMounted = false;
+    };
   }, [propItems, limit]);
 
   const scroll = (direction: number) => {
@@ -297,14 +349,16 @@ export default function ProductScroller({
                 className="bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group border border-gray-100 hover:border-green-200 block h-full"
               >
                 <div className="relative aspect-square bg-gray-50 overflow-hidden flex items-center justify-center">
-                  <img
+                  <Image
                     src={
                       (product.images && product.images.length > 0 && product.images[0])
                         ? product.images[0]
                         : (product.image || '/banners/images.jpeg')
                     }
                     alt={product.name}
-                    className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                    fill
+                    className="object-contain group-hover:scale-105 transition-transform duration-300"
+                    sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
                   />
 
                   {/* Badges */}
@@ -351,7 +405,7 @@ export default function ProductScroller({
                   <div>
                     {product.category && (
                       <p className="text-xs text-green-700 font-semibold mb-1">
-                        {typeof product.category === 'object' ? product.category.name : product.category}
+                        {getCategoryName(product.category)}
                       </p>
                     )}
                     <h3 className="font-semibold text-gray-800 text-sm line-clamp-2 hover:text-green-600 transition-colors">

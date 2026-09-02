@@ -63,14 +63,17 @@ export default function ProductCard({ product }: ProductCardProps) {
       {/* Product Image */}
       <Link href={`/shop/${encodeURIComponent(product.slug)}`} className="block flex-1">
         <div className="aspect-square bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden relative">
-          <img
+          {/* FIX: Use Next.js Image component instead of img tag */}
+          <Image
             src={productImage}
             alt={product.name}
-            title={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            fill
+            className="object-cover group-hover:scale-105 transition-transform duration-500"
+            sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
             onError={() => setImageError(true)}
-            loading="lazy"
+            priority={false}
           />
+          
           {product.stock < 10 && product.stock > 0 && (
             <div className="absolute bottom-2 left-2 bg-orange-500 text-white text-xs px-2 py-1 rounded">
               Only {product.stock} left

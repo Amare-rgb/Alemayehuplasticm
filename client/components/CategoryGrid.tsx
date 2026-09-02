@@ -20,6 +20,23 @@ interface MainCard {
   items: SubItem[]
 }
 
+// API Response Types
+interface ApiProduct {
+  id: string
+  slug?: string
+  name: string
+  images?: string[]
+}
+
+interface ApiCategory {
+  id: string
+  slug?: string
+  name: string
+  image?: string
+  products?: ApiProduct[]
+  children?: ApiCategory[]
+}
+
 // -----------------------------
 // Helper: upsert sub-item into a main card (immutably)
 // - Replaces item if id matches
@@ -107,25 +124,26 @@ export default function CategoryGrid({
 
         if (!Array.isArray(json) || json.length === 0) return
 
-        const mapped: MainCard[] = json.map((p: any) => {
+        // FIX: Properly typed map function
+        const mapped: MainCard[] = json.map((category: ApiCategory) => {
           // prefer products returned from API (approved products), otherwise fall back to children categories
-          const itemsFromProducts = (p.products || []).slice(0, 4).map((prod: any) => ({
-            id: prod.slug || prod.id,
-            title: prod.name,
-            image: (prod.images && prod.images[0]) || `https://via.placeholder.com/300?text=${encodeURIComponent(prod.name)}`,
-            link: `/shop/${encodeURIComponent(prod.slug || prod.id)}`,
+          const itemsFromProducts: SubItem[] = (category.products || []).slice(0, 4).map((product: ApiProduct) => ({
+            id: product.slug || product.id,
+            title: product.name,
+            image: (product.images && product.images[0]) || `https://via.placeholder.com/300?text=${encodeURIComponent(product.name)}`,
+            link: `/shop/${encodeURIComponent(product.slug || product.id)}`,
           }))
 
-          const itemsFromChildren = (p.children || []).slice(0, 4).map((c: any) => ({
-            id: c.slug || c.id,
-            title: c.name,
-            image: c.image || `https://via.placeholder.com/300?text=${encodeURIComponent(c.name)}`,
-            link: `/shop?category=${encodeURIComponent(c.slug || c.id)}`,
+          const itemsFromChildren: SubItem[] = (category.children || []).slice(0, 4).map((child: ApiCategory) => ({
+            id: child.slug || child.id,
+            title: child.name,
+            image: child.image || `https://via.placeholder.com/300?text=${encodeURIComponent(child.name)}`,
+            link: `/shop?category=${encodeURIComponent(child.slug || child.id)}`,
           }))
 
           return {
-            id: p.slug || p.id,
-            headerTitle: p.name,
+            id: category.slug || category.id,
+            headerTitle: category.name,
             items: itemsFromProducts.length > 0 ? itemsFromProducts : itemsFromChildren,
           }
         })
@@ -136,6 +154,7 @@ export default function CategoryGrid({
         }
       } catch (e) {
         // keep fallback
+        console.error("Error fetching categories:", e)
       }
     })()
 
@@ -165,8 +184,6 @@ export default function CategoryGrid({
   return (
     <div className={"bg-gray-100 py-6 " + className}>
       <div className="max-w-7xl mx-auto px-4">
-
-      
 
         {/* Grid of main categories */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">

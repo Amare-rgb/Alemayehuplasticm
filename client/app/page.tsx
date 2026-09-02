@@ -1,7 +1,7 @@
 // app/page.tsx
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -10,7 +10,7 @@ import {
   ArrowUp,
   ArrowUpRight,
 } from "lucide-react";
-import { useSettings } from "@/context/SettingsContext";
+import { useSettings } from "@/hooks/useSettings";
 import { useLanguage } from "@/context/LanguageContext";
 
 interface CategoryData {
@@ -37,13 +37,22 @@ interface ValueItem {
   description: string;
 }
 
+// Use the same mounted detection as Footer
+const subscribe = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
+
+function useMounted() {
+  return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+}
+
 function ProductCard({ product }: { product: CategoryItem }) {
   const { t } = useLanguage();
 
   return (
     <Link
       href={`/shop?category=${encodeURIComponent(product.category)}`}
-      className="group relative block h-[70vh] lg:h-[80vh] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl"
+      className="group relative block h-[260px] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl"
     >
       {/* Background Image */}
       <img
@@ -60,21 +69,21 @@ function ProductCard({ product }: { product: CategoryItem }) {
       {/* Dark gradient overlay at bottom */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
 
-      {/* Card Content Overlay */}
-      <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
-        <span className="mb-2 block text-xs font-mono tracking-widest text-white/70">
+      {/* Card Content Overlay - Minimized and perfectly aligned */}
+      <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
+        <span className="mb-1 block text-[10px] font-mono tracking-widest text-white/70">
           {product.number}
         </span>
 
-        <h3 className="font-serif-heading text-4xl font-normal leading-tight text-white mb-2 sm:text-5xl">
+        <h3 className="font-serif-heading text-xl font-normal leading-tight text-white mb-1 sm:text-xl">
           {product.title}
         </h3>
 
-        <p className="text-xs sm:text-sm text-white/80 font-sans mb-5 leading-relaxed max-w-[480px]">
+        <p className="text-[11px] text-white/80 font-sans mb-3 leading-snug max-w-[480px]">
           {product.description}
         </p>
 
-        <div className="inline-flex items-center gap-2 text-xs font-semibold text-white/90 group-hover:text-[var(--lime)] group-hover:translate-x-1 transition-all duration-300">
+        <div className="inline-flex items-center gap-2 text-[11px] font-semibold text-white/90 group-hover:text-[var(--lime)] group-hover:translate-x-1 transition-all duration-300">
           <span>{t("home.view_selection", "View selection")}</span>
           <span className="text-sm font-bold">→</span>
         </div>
@@ -228,7 +237,7 @@ function ProductCards() {
           </div>
         </div>
 
-        {/* Horizontal scrollable cards container */}
+        {/* Horizontal scrollable cards container - PERFECTLY MINIMIZED & EQUAL */}
         <div
           ref={scrollContainerRef}
           className="flex w-full gap-6 overflow-x-auto pb-6 pt-2 scroll-smooth scrollbar-none snap-x snap-mandatory"
@@ -236,7 +245,7 @@ function ProductCards() {
           {categories.map((product) => (
             <div
               key={product.number}
-              className="w-[85vw] sm:w-[380px] md:w-[440px] lg:w-[480px] shrink-0 snap-start"
+              className="w-[260px] shrink-0 snap-start"
             >
               <ProductCard product={product} />
             </div>
@@ -268,11 +277,17 @@ function Eyebrow({
 
 export default function HomePage() {
   const [showBackTop, setShowBackTop] = useState(false);
+  const mounted = useMounted();
   const { settings } = useSettings();
   const { t } = useLanguage();
 
-  const contactPhone = settings?.contactPhone || '+251 900 000 000';
-  const contactEmail = settings?.contactEmail || 'info@genesisagri.com';
+  // Use consistent fallback values that match between server and client
+  const DEFAULT_PHONE = '+251 900 000 000';
+  const DEFAULT_EMAIL = 'info@genesisagri.com';
+
+  // Only use settings values after client-side mount
+  const contactPhone = mounted ? (settings?.contactPhone || DEFAULT_PHONE) : DEFAULT_PHONE;
+  const contactEmail = mounted ? (settings?.contactEmail || DEFAULT_EMAIL) : DEFAULT_EMAIL;
   const cleanPhone = contactPhone.replace(/\s/g, '');
 
   const values: ValueItem[] = [
@@ -483,22 +498,23 @@ export default function HomePage() {
         className="scroll-mt-20 bg-white py-[105px]"
       >
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[.95fr_1.05fr] items-center gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
-          {/* Image with local file */}
-          <div className="relative min-h-[580px] max-lg:min-h-[500px]">
+          {/* FIXED: Image now fills the container without being cut off */}
+          <div className="relative h-[500px] w-full max-lg:h-[400px]">
             <div
-              className="absolute right-0 top-0 h-[500px] w-full max-sm:h-[390px] bg-cover bg-center rounded-l-3xl"
+              className="h-full w-full overflow-hidden rounded-3xl bg-no-repeat relative"
               style={{
                 backgroundImage: 'url("/banners/tanafarm.jpg")',
-                backgroundSize: 'cover',
+                backgroundSize: 'contain', // FIXED: Shows full image
                 backgroundPosition: 'center',
+                backgroundColor: '#f6f3e9', // Background color for empty space
               }}
             >
-              <span className="absolute right-5 top-5 bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] rounded-md shadow-md">
+              <span className="absolute right-5 top-5 bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] rounded-md shadow-md z-10">
                 {t("home.tana_badge", "A SISTER COMPANY")}
               </span>
             </div>
 
-            <div className="absolute bottom-5 left-0 flex w-[260px] items-center gap-3 bg-[var(--lime)] p-5 shadow-[0_20px_45px_rgba(18,53,35,.15)] rounded-r-xl max-sm:bottom-0 max-sm:w-[215px]">
+            <div className="absolute bottom-5 left-0 flex w-[260px] items-center gap-3 bg-[var(--lime)] p-5 shadow-[0_20px_45px_rgba(18,53,35,.15)] rounded-r-xl max-sm:bottom-0 max-sm:w-[215px] z-10">
               <span className="text-[35px]">🌱</span>
 
               <div className="grid">

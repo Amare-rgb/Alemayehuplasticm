@@ -2,6 +2,19 @@
 import React, { useState } from 'react'
 import toast from 'react-hot-toast'
 
+// Define the checkout response type
+interface CheckoutResponse {
+  url?: string;
+  error?: string;
+  message?: string;
+}
+
+// Define the error type
+interface ApiError {
+  error?: string;
+  message?: string;
+}
+
 export default function BuyNowForm({ productId, defaultQuantity = 1 }: { productId: string; defaultQuantity?: number }) {
   const [loading, setLoading] = useState(false)
   const [quantity] = useState(defaultQuantity)
@@ -15,18 +28,31 @@ export default function BuyNowForm({ productId, defaultQuantity = 1 }: { product
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId, quantity }),
       })
+      
       const text = await res.text()
-      let data: any = null
-      try { data = text ? JSON.parse(text) : null } catch (_) { data = null }
-      if (!res.ok) throw new Error((data && data.error) || res.statusText || 'Checkout failed')
+      let data: CheckoutResponse | null = null
+      
+      try { 
+        data = text ? JSON.parse(text) : null 
+      } catch (_) { 
+        data = null 
+      }
+      
+      if (!res.ok) {
+        const errorMessage = (data && (data.error || data.message)) || res.statusText || 'Checkout failed'
+        throw new Error(errorMessage)
+      }
+      
       if (data?.url) {
         window.location.href = data.url
         return
       }
+      
       throw new Error('No checkout URL returned')
-    } catch (err: any) {
+    } catch (err) {
       console.error('Buy now error', err)
-      toast.error(err?.message || 'Checkout failed')
+      const error = err as Error
+      toast.error(error?.message || 'Checkout failed')
     } finally {
       setLoading(false)
     }

@@ -39,10 +39,35 @@ export interface CartProductInput {
   category?: string;
 }
 
+// Define the backend cart item type
+interface BackendCartItem {
+  id?: string;
+  productId?: string;
+  quantity?: number;
+  product?: {
+    id?: string;
+    name?: string;
+    slug?: string;
+    price?: number;
+    discountPrice?: number | null;
+    unitOfMeasurement?: string;
+    unit?: string;
+    images?: string[];
+    stock?: number;
+    category?: string | { id?: string; name?: string; slug?: string; description?: string; image?: string; parentId?: string };
+  };
+}
+
+// Define the backend cart response type
+interface BackendCartResponse {
+  items?: BackendCartItem[];
+  data?: BackendCartItem[];
+}
+
 interface CartContextType {
   items: CartItem[];
-  cartCount: number; // Number of unique items in cart
-  totalUnits: number; // Total quantity across all items
+  cartCount: number;
+  totalUnits: number;
   cartTotal: number;
   isLoading: boolean;
   addToCart: (product: CartProductInput, quantity?: number, showToast?: boolean) => Promise<void>;
@@ -74,30 +99,35 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Map backend cart item to CartItem interface
-  const mapBackendItemToCartItem = useCallback((it: any): CartItem => {
-    const p = it.product || {};
-    const priceNum = Number(p.price || 0);
-    const discNum = p.discountPrice !== null && p.discountPrice !== undefined ? Number(p.discountPrice) : null;
+  // FIX: Properly typed mapBackendItemToCartItem function
+  const mapBackendItemToCartItem = useCallback((item: BackendCartItem): CartItem => {
+    const product = item.product || {};
+    const priceNum = Number(product.price || 0);
+    const discNum = product.discountPrice !== null && product.discountPrice !== undefined 
+      ? Number(product.discountPrice) 
+      : null;
     const effectivePrice = discNum !== null && discNum < priceNum ? discNum : priceNum;
 
-    const images =
-      Array.isArray(p.images) && p.images.length > 0
-        ? p.images
-        : ["https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80"];
+    const images = Array.isArray(product.images) && product.images.length > 0
+      ? product.images
+      : ["https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80"];
+
+    const categoryName = typeof product.category === "string" 
+      ? product.category 
+      : product.category?.name;
 
     return {
-      id: it.id || `item-${p.id || it.productId}`,
-      productId: it.productId || p.id,
-      name: p.name || "Produce Item",
-      slug: p.slug || p.id || it.productId,
+      id: item.id || `item-${product.id || item.productId}`,
+      productId: item.productId || product.id || "",
+      name: product.name || "Produce Item",
+      slug: product.slug || product.id || item.productId || "",
       price: effectivePrice,
       discountPrice: discNum,
-      unit: p.unitOfMeasurement || p.unit || "kg",
+      unit: product.unitOfMeasurement || product.unit || "kg",
       image: images[0],
-      quantity: it.quantity || 1,
-      stock: typeof p.stock === "number" ? p.stock : 999,
-      category: typeof p.category === "string" ? p.category : p.category?.name,
+      quantity: item.quantity || 1,
+      stock: typeof product.stock === "number" ? product.stock : 999,
+      category: categoryName,
     };
   }, []);
 
@@ -135,7 +165,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) {
         throw new Error(`Failed to fetch cart (Status ${res.status})`);
       }
-      const data = await res.json();
+      const data: BackendCartResponse = await res.json();
       if (data && Array.isArray(data.items)) {
         return data.items.map(mapBackendItemToCartItem);
       }

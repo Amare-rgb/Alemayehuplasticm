@@ -1,7 +1,7 @@
 // components/layout/Navbar.tsx
 "use client";
 
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -60,6 +60,15 @@ function BrandMark() {
   );
 }
 
+// Use the same mounted detection as Footer
+const subscribe = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
+
+function useMounted() {
+  return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+}
+
 export const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -81,10 +90,95 @@ export const Navbar = () => {
   const router = useRouter();
   const pathname = usePathname();
 
-  const { settings, loading: settingsLoading } = useSettings(true);
+  // FIX: Get settings with refetch and forceUpdate from useSettings hook
+  const { settings, loading: settingsLoading, refetch, forceUpdate } = useSettings();
 
   const [localUser, setLocalUser] = useState<User | null>(null);
   const hasSynced = useRef(false);
+
+  const mounted = useMounted();
+
+  // FIX: Use a state for render key, but update it safely
+  const [renderKey, setRenderKey] = useState(0);
+
+  // Only use settings values after client-side mount
+  const logoUrl = mounted ? (settings?.logo || '') : '';
+  const siteName = mounted ? (settings?.siteName || 'Genesis') : 'Genesis';
+
+  // FIX: Use useRef to track if we're in a render cycle
+  const isRenderingRef = useRef(false);
+
+  // FIX: Safe way to trigger re-render - use a state update that's batched
+  const triggerReRender = useCallback(() => {
+    // Use requestAnimationFrame to ensure we're not in the middle of rendering
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => {
+        setRenderKey(prev => prev + 1);
+      });
+    }
+  }, []);
+
+  // FIX: Listen for settings changes - DON'T call setState directly in event listeners
+  useEffect(() => {
+    const handleSettingsChange = () => {
+      console.log('🔄 Settings changed event detected, refreshing navbar...');
+      // Force update from the provider
+      forceUpdate();
+      // Schedule the re-render safely
+      triggerReRender();
+      if (refetch) {
+        refetch();
+      }
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'site_settings' && e.newValue) {
+        console.log('🔄 Settings changed in another tab, refreshing navbar...');
+        try {
+          const parsed = JSON.parse(e.newValue);
+          console.log('📦 New settings from storage:', parsed);
+          forceUpdate();
+          triggerReRender();
+        } catch (error) {
+          console.error('Error parsing storage data:', error);
+        }
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('🔄 Tab visible, refreshing settings...');
+        forceUpdate();
+        triggerReRender();
+        if (refetch) {
+          refetch();
+        }
+      }
+    };
+
+    const handleFocus = () => {
+      console.log('🔄 Window focused, refreshing settings...');
+      forceUpdate();
+      triggerReRender();
+      if (refetch) {
+        refetch();
+      }
+    };
+
+    window.addEventListener('settings-change', handleSettingsChange);
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    console.log('✅ Navbar settings listeners registered');
+
+    return () => {
+      window.removeEventListener('settings-change', handleSettingsChange);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [refetch, forceUpdate, triggerReRender]);
 
   const syncUserFromStorage = useCallback(() => {
     try {
@@ -120,28 +214,51 @@ export const Navbar = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [handleScroll, isHome]);
 
-  const fetchCategories = useCallback(async () => {
-    try {
-      setCategoriesLoading(true);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/categories`);
-      if (res.ok) {
-        const data = await res.json();
-        const cats = Array.isArray(data) ? data : data.data || [];
-        setCategories(cats);
-        setCategoriesError(null);
-      } else {
-        setCategories(FALLBACK_CATEGORIES);
-      }
-    } catch {
-      setCategories(FALLBACK_CATEGORIES);
-    } finally {
-      setCategoriesLoading(false);
-    }
-  }, []);
-
+  // Fetch categories with proper cleanup
   useEffect(() => {
+    let isMounted = true;
+    
+    const fetchCategories = async () => {
+      if (!isMounted) return;
+      
+      try {
+        setCategoriesLoading(true);
+        setCategoriesError(null);
+        
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/categories`);
+        
+        if (!isMounted) return;
+        
+        if (res.ok) {
+          const data = await res.json();
+          const cats = Array.isArray(data) ? data : data.data || [];
+          if (isMounted) {
+            setCategories(cats);
+            setCategoriesError(null);
+          }
+        } else {
+          if (isMounted) {
+            setCategories(FALLBACK_CATEGORIES);
+          }
+        }
+      } catch (error) {
+        if (isMounted) {
+          setCategories(FALLBACK_CATEGORIES);
+          setCategoriesError(error instanceof Error ? error.message : "Failed to fetch categories");
+        }
+      } finally {
+        if (isMounted) {
+          setCategoriesLoading(false);
+        }
+      }
+    };
+
     fetchCategories();
-  }, [fetchCategories]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -193,7 +310,6 @@ export const Navbar = () => {
 
   const topCategories = categories.filter((c) => !c.parentId);
   const displayCategories = topCategories.length > 0 ? topCategories : categories.length > 0 ? categories : FALLBACK_CATEGORIES;
-  const logoUrl = settings?.logo || '';
 
   const dynamicNavLinks = [
     { label: t("nav.about", "About Us"), href: "/about" },
@@ -202,18 +318,45 @@ export const Navbar = () => {
   ];
 
   return (
-    <header className={isHome ? `fixed inset-x-0 top-0 z-50 transition-all duration-500 ${scrolled ? "py-3" : "py-5"}` : "relative z-50 w-full bg-[#071a11] text-white border-b border-white/10 shadow-md"}>
+    <header key={renderKey} className={isHome ? `fixed inset-x-0 top-0 z-50 transition-all duration-500 ${scrolled ? "py-3" : "py-5"}` : "relative z-50 w-full bg-[#071a11] text-white border-b border-white/10 shadow-md"}>
       <div className={isHome ? `mx-auto flex h-[70px] w-[min(1180px,calc(100%-48px))] items-center justify-between border-b transition-all duration-500 ${scrolled ? "rounded-full border-white/10 bg-[rgba(7,26,17,.88)] px-5 shadow-[0_15px_40px_rgba(0,0,0,.18)] backdrop-blur-xl" : "border-white/20 px-0"}` : "mx-auto flex h-[75px] w-[min(1180px,calc(100%-48px))] items-center justify-between px-0"}>
         
         {/* LOGO - Dynamic from Settings */}
         <Link href="/" className="group flex items-center gap-2" onClick={closeMenu}>
-          <div className="relative h-8 w-8 flex items-center justify-center">
-            {settingsLoading ? <BrandMark /> : logoUrl ? (
-              <Image src={logoUrl} alt={settings?.siteName || "Genesis"} width={28} height={28} className="object-contain" priority onError={(e) => { (e.currentTarget as HTMLElement).style.display = "none"; }} />
-            ) : <BrandMark />}
+          <div className="relative h-10 w-10 rounded-full overflow-hidden flex items-center justify-center bg-[#0b2419] border border-white/10 shadow-sm flex-shrink-0">
+            {settingsLoading ? (
+              <BrandMark />
+            ) : logoUrl ? (
+              <Image
+                key={`logo-${renderKey}`}
+                src={logoUrl}
+                alt={siteName}
+                width={40}
+                height={40}
+                className="h-full w-full object-cover"
+                priority
+                onError={(e) => {
+                  console.error('Logo failed to load:', logoUrl);
+                  // Show fallback brand mark on error
+                  const parent = (e.currentTarget as HTMLElement).parentElement;
+                  if (parent) {
+                    const fallback = document.createElement('span');
+                    fallback.className = 'brand-mark shrink-0';
+                    fallback.innerHTML = '<span class="leaf leaf-one"></span><span class="leaf leaf-two"></span><span class="stem"></span>';
+                    parent.appendChild(fallback);
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }
+                }}
+                onLoad={() => {
+                  console.log('✅ Logo loaded successfully:', logoUrl);
+                }}
+              />
+            ) : (
+              <BrandMark />
+            )}
           </div>
           <span className="font-serif-heading text-lg font-semibold tracking-[-0.045em] text-white">
-            {settings?.siteName || "Genesis"}
+            {siteName}
           </span>
         </Link>
 
@@ -278,7 +421,7 @@ export const Navbar = () => {
           ))}
         </nav>
 
-        {/* Right Controls */}
+        {/* Right Controls - keep the same, just copy from original */}
         <div className="hidden items-center gap-3 lg:flex">
           
           {/* Language Switcher UI (Desktop) */}
@@ -287,11 +430,7 @@ export const Navbar = () => {
             <button
               type="button"
               onClick={() => setLanguage("en")}
-              className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all duration-200 ${
-                language === "en"
-                  ? "bg-[var(--lime)] text-[var(--green-950)] shadow-sm"
-                  : "text-white/70 hover:text-white"
-              }`}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all duration-200 ${language === "en" ? "bg-[var(--lime)] text-[var(--green-950)] shadow-sm" : "text-white/70 hover:text-white"}`}
               aria-label="Switch to English"
               title="English"
             >
@@ -300,11 +439,7 @@ export const Navbar = () => {
             <button
               type="button"
               onClick={() => setLanguage("am")}
-              className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all duration-200 ${
-                language === "am"
-                  ? "bg-[var(--lime)] text-[var(--green-950)] shadow-sm"
-                  : "text-white/70 hover:text-white"
-              }`}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all duration-200 ${language === "am" ? "bg-[var(--lime)] text-[var(--green-950)] shadow-sm" : "text-white/70 hover:text-white"}`}
               aria-label="Switch to Amharic"
               title="አማርኛ"
             >
@@ -383,7 +518,6 @@ export const Navbar = () => {
 
         {/* Mobile Menu Controls */}
         <div className="flex items-center gap-2 lg:hidden">
-          {/* Mobile Language Switcher */}
           <button
             type="button"
             onClick={() => setLanguage(language === "en" ? "am" : "en")}
@@ -404,7 +538,7 @@ export const Navbar = () => {
         </div>
       </div>
 
-      {/* Mobile Drawer */}
+      {/* Mobile Drawer - keep the same */}
       <div className={isHome ? `mx-auto mt-1.5 w-[min(1180px,calc(100%-48px))] overflow-hidden rounded-[16px] border border-white/10 bg-[rgba(7,26,17,.96)] shadow-[0_20px_60px_rgba(0,0,0,.3)] backdrop-blur-xl transition-all duration-300 lg:hidden ${menuOpen ? "max-h-[650px] opacity-100" : "pointer-events-none max-h-0 opacity-0"}` : `mx-auto w-[min(1180px,calc(100%-48px))] overflow-hidden rounded-b-[12px] bg-[#071a11] transition-all duration-300 lg:hidden ${menuOpen ? "max-h-[650px] opacity-100 border-t border-white/10 py-2" : "pointer-events-none max-h-0 opacity-0"}`}>
         <nav className="p-2">
           {/* Mobile Language Selector Row */}
@@ -416,21 +550,13 @@ export const Navbar = () => {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setLanguage("en")}
-                className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${
-                  language === "en"
-                    ? "bg-[var(--lime)] text-[var(--green-950)]"
-                    : "text-white/60 hover:text-white bg-white/5"
-                }`}
+                className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${language === "en" ? "bg-[var(--lime)] text-[var(--green-950)]" : "text-white/60 hover:text-white bg-white/5"}`}
               >
                 English
               </button>
               <button
                 onClick={() => setLanguage("am")}
-                className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${
-                  language === "am"
-                    ? "bg-[var(--lime)] text-[var(--green-950)]"
-                    : "text-white/60 hover:text-white bg-white/5"
-                }`}
+                className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${language === "am" ? "bg-[var(--lime)] text-[var(--green-950)]" : "text-white/60 hover:text-white bg-white/5"}`}
               >
                 አማርኛ
               </button>

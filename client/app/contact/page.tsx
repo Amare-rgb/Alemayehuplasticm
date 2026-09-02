@@ -1,15 +1,16 @@
 // app/contact/page.tsx
 "use client";
 
-import React, { useState } from 'react';
-import { MapPin, Phone, Mail, Clock, Send, CheckCircle, Loader2 } from 'lucide-react';
-import { useSettings } from '@/context/SettingsContext';
+import React, { useState, useEffect } from 'react';
+import { MapPin, Phone, Mail, Clock, Send, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
+import { useSettings } from '@/hooks/useSettings';
 import { useLanguage } from '@/context/LanguageContext';
 import toast from 'react-hot-toast';
 
 export default function ContactPage() {
-  const { settings, loading } = useSettings();
+  const { settings, loading, error, forceUpdate, refetch } = useSettings();
   const { t } = useLanguage();
+
   const [submitted, setSubmitted] = useState(false);
   const [sending, setSending] = useState(false);
   const [formData, setFormData] = useState({
@@ -20,13 +21,76 @@ export default function ContactPage() {
     message: ''
   });
 
+  // Debug logging
+  useEffect(() => {
+    console.log('📊 Contact Page State:');
+    console.log('  - loading:', loading);
+    console.log('  - error:', error);
+    console.log('  - settings:', settings);
+    console.log('  - hasSettings:', !!settings);
+  }, [loading, error, settings]);
+
+  // Listen for settings changes
+  useEffect(() => {
+    const handleSettingsChange = () => {
+      console.log('🔄 Contact page: Settings changed, forcing update...');
+      forceUpdate();
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'site_settings' && e.newValue) {
+        console.log('🔄 Contact page: Storage changed, forcing update...');
+        forceUpdate();
+      }
+    };
+
+    window.addEventListener('settings-change', handleSettingsChange);
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('settings-change', handleSettingsChange);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [forceUpdate]);
+
+  // Auto-retry if loading takes too long
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (loading) {
+        console.warn('⚠️ Settings loading timeout after 8 seconds - retrying...');
+        refetch?.();
+      }
+    }, 8000);
+
+    return () => clearTimeout(timeoutId);
+  }, [loading, refetch]);
+
+  // Use settings with fallback defaults
+  const siteName = settings?.siteName || 'Genesis Agri';
+  const contactAddress = settings?.contactAddress || '123 Agriculture Way, Farming District, FC 12345';
+  const contactPhone = settings?.contactPhone || '+1 (555) 123-4567';
+  const contactHours = settings?.contactHours || 'Mon-Fri: 8:00 AM - 6:00 PM';
+  const supportEmail = settings?.supportEmail || 'support@genesisagri.com';
+  const infoEmail = settings?.infoEmail || 'info@genesisagri.com';
+  const emergencyPhone = settings?.emergencyPhone;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
-    
+
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
+
       setSubmitted(true);
       toast.success(
         t(
@@ -42,6 +106,7 @@ export default function ContactPage() {
         message: ''
       });
     } catch (error) {
+      console.error('❌ Submit error:', error);
       toast.error(
         t('contact.toast_error', 'Failed to send message. Please try again.')
       );
@@ -50,19 +115,60 @@ export default function ContactPage() {
     }
   };
 
+  // Error state - using main instead of div for consistency
+  if (error) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle size={32} />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+            {t('contact.error_title', 'Something went wrong')}
+          </h2>
+          <p className="text-gray-600 mb-6">
+            {t(
+              'contact.error_desc',
+              'We couldn\'t load the contact information. Please try again.'
+            )}
+          </p>
+          <button
+            onClick={() => refetch?.()}
+            className="px-6 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition-colors"
+          >
+            {t('contact.retry_btn', 'Retry')}
+          </button>
+          <div className="mt-4 text-sm text-gray-500">
+            <p className="font-mono text-xs bg-gray-100 p-3 rounded-lg text-left overflow-auto">
+              {typeof error === 'string' ? error : JSON.stringify(error, null, 2)}
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // Loading state - using main instead of div for consistency
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <main className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-green-600 mx-auto" />
           <p className="mt-4 text-gray-600">
             {t('contact.loading_info', 'Loading contact information...')}
           </p>
+          <button
+            onClick={() => refetch?.()}
+            className="mt-4 text-sm text-green-600 hover:text-green-700 underline"
+          >
+            {t('contact.loading_retry', 'Retry loading')}
+          </button>
         </div>
-      </div>
+      </main>
     );
   }
 
+  // Main content
   return (
     <main className="min-h-screen bg-gray-50 py-12 pt-32">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -73,7 +179,7 @@ export default function ContactPage() {
             {t('contact.badge', 'Customer & Farmer Support')}
           </span>
           <h1 className="text-4xl font-bold text-gray-900 mt-3 mb-2">
-            {t('contact.title_prefix', 'Get in Touch with')} {settings.siteName || "Genesis Agri"}
+            {t('contact.title_prefix', 'Get in Touch with')} {siteName}
           </h1>
           <p className="text-gray-600">
             {t(
@@ -85,7 +191,7 @@ export default function ContactPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Contact Details Card - Dynamic from Settings */}
+          {/* Contact Details Card */}
           <div className="bg-gradient-to-br from-green-800 to-emerald-900 text-white rounded-2xl p-8 space-y-8 shadow-md">
             <div>
               <h2 className="text-2xl font-bold mb-2">
@@ -100,7 +206,7 @@ export default function ContactPage() {
             </div>
 
             <div className="space-y-6 text-sm">
-              {/* Address - Dynamic */}
+              {/* Address */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <MapPin size={20} className="text-green-300" />
@@ -110,12 +216,12 @@ export default function ContactPage() {
                     {t('contact.headquarters', 'Headquarters')}
                   </div>
                   <div className="text-green-100 mt-0.5">
-                    {settings.contactAddress || '123 Agriculture Way, Farming District, FC 12345'}
+                    {contactAddress}
                   </div>
                 </div>
               </div>
 
-              {/* Phone - Dynamic */}
+              {/* Phone */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <Phone size={20} className="text-green-300" />
@@ -125,15 +231,17 @@ export default function ContactPage() {
                     {t('contact.phone_support', 'Phone Support')}
                   </div>
                   <div className="text-green-100 mt-0.5">
-                    {settings.contactPhone || '+1 (555) 123-4567'}
+                    <a href={`tel:${contactPhone}`} className="hover:text-green-300 transition">
+                      {contactPhone}
+                    </a>
                   </div>
                   <div className="text-xs text-green-300">
-                    {settings.contactHours || 'Mon-Fri: 8:00 AM - 6:00 PM'}
+                    {contactHours}
                   </div>
                 </div>
               </div>
 
-              {/* Email - Dynamic */}
+              {/* Email */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <Mail size={20} className="text-green-300" />
@@ -143,16 +251,20 @@ export default function ContactPage() {
                     {t('contact.email', 'Email')}
                   </div>
                   <div className="text-green-100 mt-0.5">
-                    {settings.supportEmail || 'support@genesisagri.com'}
+                    <a href={`mailto:${supportEmail}`} className="hover:text-green-300 transition">
+                      {supportEmail}
+                    </a>
                   </div>
                   <div className="text-green-100">
-                    {settings.infoEmail || 'info@genesisagri.com'}
+                    <a href={`mailto:${infoEmail}`} className="hover:text-green-300 transition">
+                      {infoEmail}
+                    </a>
                   </div>
                 </div>
               </div>
 
-              {/* Emergency Line - Dynamic */}
-              {settings.emergencyPhone && (
+              {/* Emergency Line */}
+              {emergencyPhone && (
                 <div className="flex items-start gap-4">
                   <div className="p-2.5 bg-white/10 rounded-xl">
                     <Clock size={20} className="text-green-300" />
@@ -162,8 +274,8 @@ export default function ContactPage() {
                       {t('contact.emergency_line', 'Farm Emergency Line')}
                     </div>
                     <div className="text-green-100 mt-0.5">
-                      <a href={`tel:${settings.emergencyPhone}`} className="hover:text-green-300 transition">
-                        {settings.emergencyPhone}
+                      <a href={`tel:${emergencyPhone}`} className="hover:text-green-300 transition">
+                        {emergencyPhone}
                       </a>
                     </div>
                     <div className="text-xs text-green-300">

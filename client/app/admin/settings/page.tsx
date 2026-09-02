@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import axios, { AxiosError } from 'axios';
 import Image from 'next/image';
+import { useSettings } from '@/hooks/useSettings';
 import {
   Settings,
   Save,
@@ -210,7 +211,7 @@ const ToggleSwitch: React.FC<{
   );
 };
 
-// Define types for settings data - ADDED MISSING FIELDS
+// Define types for settings data
 interface SettingsData {
   siteName: string;
   siteDescription: string;
@@ -228,7 +229,6 @@ interface SettingsData {
   twoFactorAuth: boolean;
   sessionTimeout: number;
   logo: string;
-  // Contact Form Fields
   contactEmail: string;
   contactPhone: string;
   contactAddress: string;
@@ -245,7 +245,6 @@ interface SettingsData {
   productNotifications: boolean;
   userNotifications: boolean;
   marketingEmails: boolean;
-  // ADD THESE MISSING FIELDS
   emergencyPhone: string;
   supportEmail: string;
   infoEmail: string;
@@ -296,7 +295,6 @@ const defaultSettings: SettingsData = {
   productNotifications: true,
   userNotifications: true,
   marketingEmails: false,
-  // ADD THESE DEFAULT VALUES
   emergencyPhone: '+1 (555) 999-9999',
   supportEmail: 'support@genesisagri.com',
   infoEmail: 'info@genesisagri.com',
@@ -325,6 +323,9 @@ const SettingsPage: React.FC = () => {
 
   // Form Data - initialized with default settings
   const [formData, setFormData] = useState<SettingsData>(defaultSettings);
+  
+  // Get settings context functions
+  const { forceUpdate, refetch, updateSettings } = useSettings();
 
   const tabs = [
     { id: 'general', label: 'General', icon: Settings },
@@ -471,6 +472,31 @@ const SettingsPage: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ✅ FIX: Helper function to safely update settings after render
+  const safeUpdateSettings = useCallback((data: Partial<SettingsData>) => {
+    // Use requestAnimationFrame to defer the update until after render
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => {
+        updateSettings(data);
+        // Also update localStorage
+        const currentSettings = localStorage.getItem('site_settings');
+        if (currentSettings) {
+          try {
+            const parsed = JSON.parse(currentSettings);
+            const merged = { ...parsed, ...data };
+            localStorage.setItem('site_settings', JSON.stringify(merged));
+          } catch {
+            localStorage.setItem('site_settings', JSON.stringify(data));
+          }
+        } else {
+          localStorage.setItem('site_settings', JSON.stringify(data));
+        }
+        // Dispatch event for other components
+        window.dispatchEvent(new Event('settings-change'));
+      });
+    }
+  }, [updateSettings]);
+
   // Handle save settings (all settings except logo)
   const handleSave = async () => {
     setSaving(true);
@@ -519,9 +545,24 @@ const SettingsPage: React.FC = () => {
       
       if (isSuccess) {
         showNotification('success', response.data.message || 'Settings saved successfully! 🎉');
+        
+        // ✅ FIX: Use safeUpdateSettings instead of direct update
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new Event('settings-change'));
+          const updatedData = response.data.settings || response.data;
+          safeUpdateSettings({
+            siteName: updatedData.siteName || '',
+            siteDescription: updatedData.siteDescription || '',
+            contactEmail: updatedData.contactEmail || '',
+            contactPhone: updatedData.contactPhone || '',
+            contactAddress: updatedData.contactAddress || '',
+            contactHours: updatedData.contactHours || '',
+            supportEmail: updatedData.supportEmail || '',
+            infoEmail: updatedData.infoEmail || '',
+            emergencyPhone: updatedData.emergencyPhone || '',
+            logo: updatedData.logo || '',
+          });
         }
+        
         await loadSettingsData();
       } else {
         const errorMsg = response.data?.error || response.data?.message || 'Failed to save settings';
@@ -600,9 +641,23 @@ const SettingsPage: React.FC = () => {
       
       if (isSuccess) {
         showNotification('success', response.data.message || 'Logo updated successfully! 🎉');
+        
+        // ✅ FIX: Use safeUpdateSettings instead of direct update
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new Event('settings-change'));
+          const updatedData = response.data.settings || response.data;
+          safeUpdateSettings({
+            logo: updatedData.logo || '',
+            siteName: updatedData.siteName || '',
+            contactEmail: updatedData.contactEmail || '',
+            contactPhone: updatedData.contactPhone || '',
+            contactAddress: updatedData.contactAddress || '',
+            contactHours: updatedData.contactHours || '',
+            supportEmail: updatedData.supportEmail || '',
+            infoEmail: updatedData.infoEmail || '',
+            emergencyPhone: updatedData.emergencyPhone || '',
+          });
         }
+        
         setLogoFile(null);
         setLogoToDelete(false);
         await loadSettingsData();
@@ -712,6 +767,11 @@ const SettingsPage: React.FC = () => {
         setLogoToDelete(false);
         showNotification('success', 'Settings reset to default successfully');
         await loadSettingsData();
+        
+        // ✅ FIX: Use safeUpdateSettings instead of direct update
+        if (typeof window !== 'undefined') {
+          safeUpdateSettings(defaultSettings);
+        }
       } else {
         showNotification('error', response.data.error || 'Failed to reset settings');
       }
@@ -1091,7 +1151,7 @@ const SettingsPage: React.FC = () => {
             </SettingSection>
           </TabPanel>
 
-          {/* Contact Tab - UPDATED WITH ALL FIELDS */}
+          {/* Contact Tab */}
           <TabPanel active={activeTab === 'contact'}>
             <SettingSection
               title="Contact Information"

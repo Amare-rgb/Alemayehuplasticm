@@ -69,12 +69,27 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============== STATIC FILES ==============
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// FIX: Serve static files from uploads directory with proper path
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+  setHeaders: (res, filePath) => {
+    // Cache control for images - allow caching but revalidate
+    if (filePath.match(/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  }
+}));
+
+// Also serve individual subdirectories explicitly
 app.use('/uploads/products', express.static(path.join(__dirname, 'uploads/products')));
 app.use('/uploads/settings', express.static(path.join(__dirname, 'uploads/settings')));
 app.use('/uploads/pdfs', express.static(path.join(__dirname, 'uploads/pdfs')));
 
 console.log('✅ Serving static files from:', path.join(__dirname, 'uploads'));
+console.log('   - Products: /uploads/products');
+console.log('   - Settings: /uploads/settings');
+console.log('   - PDFs: /uploads/pdfs');
 
 // ============== DATABASE CONNECTION ==============
 async function connectDatabase() {
@@ -212,14 +227,14 @@ async function startServer() {
   // Start listening
   app.listen(PORT, () => {
     console.log('\n🌱 Genesis Agri Server running on http://localhost:' + PORT);
-    console.log(' Uploads directory: ' + path.join(__dirname, 'uploads'));
-    console.log(' Products directory: ' + path.join(__dirname, 'uploads/products'));
-    console.log(' Settings directory: ' + path.join(__dirname, 'uploads/settings'));
-    console.log(' PDFs directory: ' + path.join(__dirname, 'uploads/pdfs'));
-    console.log(' Environment: ' + process.env.NODE_ENV);
-    console.log('  Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
+    console.log('📁 Uploads directory: ' + path.join(__dirname, 'uploads'));
+    console.log('📁 Products directory: ' + path.join(__dirname, 'uploads/products'));
+    console.log('📁 Settings directory: ' + path.join(__dirname, 'uploads/settings'));
+    console.log('📁 PDFs directory: ' + path.join(__dirname, 'uploads/pdfs'));
+    console.log('🌍 Environment: ' + process.env.NODE_ENV);
+    console.log('💾 Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
     console.log('');
-    console.log('Available Endpoints:');
+    console.log('📋 Available Endpoints:');
     console.log('   /api/auth         - Authentication routes');
     console.log('   /api/admin        - Admin routes');
     console.log('   /api/admin/dashboard - Dashboard routes');
@@ -235,6 +250,8 @@ async function startServer() {
     console.log('   /api/profile      - Profile routes');
     console.log('   /api/admin/settings - Settings routes');
     console.log('   /api/health       - Health check');
+    console.log('');
+    console.log('📸 Logo URL: http://localhost:' + PORT + '/uploads/settings/logo-*.jpeg');
     console.log('');
   });
 }
