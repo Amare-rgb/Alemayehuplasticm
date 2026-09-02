@@ -2,7 +2,8 @@
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { CheckCircle, Package, Truck, MapPin, Star, ArrowRight, ShoppingBag, Clock, Shield } from 'lucide-react'
-// Local types to avoid relying on generated Prisma GetPayload helpers
+
+// Define the order types manually
 type OrderItem = {
   id: string
   productId: string
@@ -28,7 +29,11 @@ type OrderWithDetails = {
   } | null
 }
 
-type Props = { searchParams?: { session_id?: string } }
+type Props = {
+  searchParams?: {
+    session_id?: string
+  }
+}
 
 function fmtEUR(value: number) {
   return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(value)
@@ -103,24 +108,56 @@ function OrderPending() {
   )
 }
 
+// Define a type for the Prisma client with order model
+type PrismaClientWithModels = {
+  order: {
+    findFirst: (args: {
+      where: { paymentRef: string }
+      include: {
+        items: {
+          include: {
+            product: true
+          }
+        }
+        address: true
+      }
+    }) => Promise<unknown>
+  }
+}
+
 /* ── Main success page ── */
 export default async function OrderSuccessPage({ searchParams }: Props) {
   const sessionId = searchParams?.session_id ?? null
 
   if (!sessionId) return <NoSession />
 
-  const order = (await prisma.order.findFirst({
-    where: { paymentRef: sessionId },
-    include: {
-      items: { include: { product: true } },
-      address: true,
-    },
-  })) as OrderWithDetails | null
+  // FIX: Cast prisma to the typed client instead of any
+  const prismaClient = prisma as unknown as PrismaClientWithModels
+  
+  let order: OrderWithDetails | null = null
+  
+  try {
+    const result = await prismaClient.order.findFirst({
+      where: { paymentRef: sessionId },
+      include: {
+        items: {
+          include: {
+            product: true
+          }
+        },
+        address: true,
+      },
+    })
+    order = result as OrderWithDetails | null
+  } catch (error) {
+    console.error('Error fetching order:', error)
+    return <OrderPending />
+  }
 
   if (!order) return <OrderPending />
 
   const subtotal = order.items.reduce(
-    (sum: number, it: OrderItem) => sum + Number(it.price) * it.quantity,
+    (sum, it) => sum + Number(it.price) * it.quantity,
     0
   )
   const total = Number(order.total ?? subtotal)
@@ -178,7 +215,7 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
               </div>
 
               <div className="divide-y divide-gray-50">
-                {order.items.map((it: OrderItem) => {
+                {order.items.map((it) => {
                   const itemTotal = Number(it.price) * it.quantity
                   return (
                     <div key={it.id} className="flex gap-4 p-5 hover:bg-gray-50/50 transition-colors">

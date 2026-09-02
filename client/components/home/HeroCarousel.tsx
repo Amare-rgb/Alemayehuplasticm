@@ -1,7 +1,7 @@
 // src/components/home/HeroCarousel.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight, Sprout } from 'lucide-react';
@@ -14,6 +14,18 @@ interface Slide {
   href?: string;
   buttonText?: string;
   buttonLink?: string;
+  badge?: string;
+  badgeColor?: string;
+}
+
+// Define the banner type properly
+interface Banner {
+  id: number;
+  title: string;
+  subtitle?: string;
+  image?: string;
+  buttonLink?: string;
+  buttonText?: string;
   badge?: string;
   badgeColor?: string;
 }
@@ -52,22 +64,35 @@ export default function HeroCarousel({ slides: propSlides, autoPlayInterval = 50
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  
+  // Use ref to track if initial slides have been set
+  const hasInitializedSlides = useRef(false);
 
-  // Fetch slides from API if not provided
+  // FIX: Handle prop slides without calling setState synchronously in effect
   useEffect(() => {
-    if (propSlides && propSlides.length > 0) {
+    if (propSlides && propSlides.length > 0 && !hasInitializedSlides.current) {
+      hasInitializedSlides.current = true;
       setSlides(propSlides);
       setLoading(false);
+    }
+  }, [propSlides]);
+
+  // FIX: Fetch slides from API if not provided - using a separate effect
+  useEffect(() => {
+    // Don't fetch if propSlides were provided or already fetched
+    if (propSlides && propSlides.length > 0) {
       return;
     }
+
+    let isMounted = true;
 
     const fetchSlides = async () => {
       try {
         const response = await fetch('/api/banners?status=ACTIVE');
-        if (response.ok) {
+        if (response.ok && isMounted) {
           const data = await response.json();
           if (data.banners && data.banners.length > 0) {
-            const mappedSlides = data.banners.map((banner: any) => ({
+            const mappedSlides: Slide[] = data.banners.map((banner: Banner) => ({
               id: banner.id,
               title: banner.title,
               subtitle: banner.subtitle,
@@ -78,25 +103,35 @@ export default function HeroCarousel({ slides: propSlides, autoPlayInterval = 50
               badge: banner.badge,
               badgeColor: banner.badgeColor,
             }));
-            setSlides(mappedSlides);
+            if (isMounted) {
+              setSlides(mappedSlides);
+            }
           }
         }
       } catch (error) {
         console.error('Failed to fetch banners:', error);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchSlides();
+
+    return () => {
+      isMounted = false;
+    };
   }, [propSlides]);
 
-  // Auto-play
+  // Auto-play - this is fine because it's updating state based on external timer
   useEffect(() => {
     if (!isAutoPlaying || slides.length <= 1) return;
+    
     const id = setInterval(() => {
       setCurrentIndex((i) => (i + 1) % slides.length);
     }, autoPlayInterval);
+    
     return () => clearInterval(id);
   }, [isAutoPlaying, slides.length, autoPlayInterval]);
 

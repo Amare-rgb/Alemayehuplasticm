@@ -10,11 +10,11 @@ type PrismaClientLike = {
 
 type DummyProxyTarget = Record<string, unknown>
 
-// Type for the actual PrismaClient (we'll use a generic type)
+// Type for the actual PrismaClient
 type PrismaClientInstance = PrismaClientLike & Record<string, unknown>
 
 // ── FIX: Create a properly typed dummy proxy ───────────────────────────────
-const createDummyProxy = (): PrismaClientLike => {
+const createDummyProxy = (): PrismaClientInstance => {
   const handler: ProxyHandler<DummyProxyTarget> = {
     get: (_target: DummyProxyTarget, prop: string | symbol) => {
       if (prop === 'then') return undefined
@@ -23,12 +23,19 @@ const createDummyProxy = (): PrismaClientLike => {
       if (prop === '$transaction') {
         return (callback: () => unknown) => Promise.resolve(callback())
       }
-      return () => Promise.resolve([])
+      // For model access like prisma.order, prisma.product, etc.
+      // Return a proxy that mimics the model methods
+      return new Proxy(() => Promise.resolve([]), {
+        get: () => {
+          // For methods like findFirst, findMany, create, etc.
+          return (...args: unknown[]) => Promise.resolve(null)
+        }
+      })
     },
     apply: () => Promise.resolve([]),
   }
   
-  return new Proxy({} as DummyProxyTarget, handler) as PrismaClientLike
+  return new Proxy({} as DummyProxyTarget, handler) as PrismaClientInstance
 }
 
 // ── FIX: Properly typed globalThis extension ──────────────────────────────
@@ -51,17 +58,17 @@ const initializePrisma = (): PrismaClientInstance => {
     // Use dynamic require so bundler doesn't fail if client schema is not generated in client workspace
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PrismaClient } = require('@prisma/client')
-    const client = new PrismaClient() as PrismaClientInstance
+    const client = new PrismaClient()
     
     // Store in global scope in development to prevent multiple instances
     if (process.env.NODE_ENV !== 'production') {
-      globalWithPrisma.prisma = client
+      globalWithPrisma.prisma = client as PrismaClientInstance
     }
     
-    return client
+    return client as PrismaClientInstance
   } catch (error) {
     // Return dummy proxy if PrismaClient is not available
-    return createDummyProxy() as PrismaClientInstance
+    return createDummyProxy()
   }
 }
 
@@ -69,7 +76,7 @@ const initializePrisma = (): PrismaClientInstance => {
 try {
   prismaInstance = initializePrisma()
 } catch (error) {
-  prismaInstance = createDummyProxy() as PrismaClientInstance
+  prismaInstance = createDummyProxy()
 }
 
 // ── FIX: Type guard to check if prisma is available ────────────────────────

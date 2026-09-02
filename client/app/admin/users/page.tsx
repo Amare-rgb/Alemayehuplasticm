@@ -14,14 +14,9 @@ import {
   Eye,
   CheckCircle,
   XCircle,
-  Clock,
   Mail,
   Phone,
-  MapPin,
-  Download,
   RefreshCw,
-  UserPlus,
-  MoreVertical,
   Shield,
   ShieldCheck,
   ShieldAlert,
@@ -30,9 +25,7 @@ import {
   X,
   User,
   Calendar,
-  ShoppingBag,
-  Star,
-  Store
+  
 } from 'lucide-react';
 
 // Create axios instance

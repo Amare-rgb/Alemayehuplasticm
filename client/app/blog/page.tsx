@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useEffect, useMemo } from "react";
 import {
   ArrowRight,
@@ -70,8 +71,9 @@ export default function BlogPage() {
             setPosts(FALLBACK_BLOG_POSTS);
           }
         }
-      } catch (err: any) {
-        console.warn("Backend blog fetch error, using fallback posts:", err.message);
+      } catch (err) {
+        const error = err as Error;
+        console.warn("Backend blog fetch error, using fallback posts:", error.message);
         if (isMounted) {
           setPosts(FALLBACK_BLOG_POSTS);
           setError("Using cached journal articles (backend connecting...)");
@@ -206,14 +208,17 @@ export default function BlogPage() {
             href={`/blog/${encodeURIComponent(featuredPost.slug)}`}
             className="group grid overflow-hidden rounded-[2.5rem] bg-[#071a11] shadow-[0_20px_60px_rgba(18,53,35,.12)] lg:grid-cols-[1.2fr_0.8fr]"
           >
-            {/* Featured Image */}
+            {/* Featured Image - FIX: Use Next.js Image */}
             <div className="relative min-h-[380px] overflow-hidden lg:min-h-[480px]">
-              <img
+              <Image
                 src={formatBlogImage(featuredPost.image)}
                 alt={featuredPost.title}
-                className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                fill
+                className="object-cover transition-transform duration-700 group-hover:scale-105"
+                sizes="(max-width: 1024px) 100vw, 50vw"
                 onError={(e) => {
-                  e.currentTarget.src =
+                  const target = e.currentTarget;
+                  target.src =
                     "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90";
                 }}
               />
@@ -236,7 +241,7 @@ export default function BlogPage() {
                     <Clock3 size={12} className="text-[var(--lime)]" />
                     {featuredPost.readTime || 4} {t("blog.min_read", "min read")}
                   </span>
-                  {featuredPost.views > 0 && (
+                  {featuredPost.views && featuredPost.views > 0 && (
                     <>
                       <span className="h-3 w-px bg-white/20" />
                       <span className="flex items-center gap-1">
@@ -382,17 +387,20 @@ export default function BlogPage() {
                 className="group flex flex-col justify-between overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.08)] bg-white shadow-[0_10px_30px_rgba(18,53,35,.04)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(18,53,35,.09)]"
               >
                 <div>
-                  {/* Article Thumbnail */}
+                  {/* Article Thumbnail - FIX: Use Next.js Image */}
                   <Link
                     href={`/blog/${encodeURIComponent(post.slug)}`}
                     className="relative block aspect-[16/10] overflow-hidden bg-[#071a11]"
                   >
-                    <img
+                    <Image
                       src={formatBlogImage(post.image)}
                       alt={post.title}
-                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                      fill
+                      className="object-cover transition-transform duration-700 group-hover:scale-105"
+                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                       onError={(e) => {
-                        e.currentTarget.src =
+                        const target = e.currentTarget;
+                        target.src =
                           "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1200&q=85";
                       }}
                     />

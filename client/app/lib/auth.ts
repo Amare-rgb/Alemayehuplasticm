@@ -45,6 +45,16 @@ type CustomToken = {
   phone?: string | null;
 };
 
+// Define a type for the Prisma client with user model
+type PrismaClientWithUser = {
+  user: {
+    findUnique: (args: {
+      where: { email: string };
+      include: { sellerProfile: true };
+    }) => Promise<unknown>;
+  };
+};
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -63,7 +73,10 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          const user = await prisma.user.findUnique({
+          // FIX: Cast prisma to the typed client
+          const prismaClient = prisma as unknown as PrismaClientWithUser;
+          
+          const user = await prismaClient.user.findUnique({
             where: { email: credentials.email.toLowerCase() },
             include: { sellerProfile: true },
           }) as UserWithProfile | null;

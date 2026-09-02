@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useState } from "react";
 import { ArrowUpRight, Home, ShoppingBag, BookOpen, Info, Phone } from "lucide-react";
 import { useSettings } from "@/context/SettingsContext";
+import { useSyncExternalStore } from "react";
 
 /* ─── Brand mark (leaf logo) — mirrors the one in Navbar/Footer ─── */
 function BrandMark({ size = 1 }: { size?: number }) {
@@ -80,11 +80,22 @@ const quickLinks = [
   { href: "/contact", label: "Contact", desc: "Get in touch with us", icon: Phone },
 ];
 
+// Use the same mounted detection as other components
+const subscribe = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
+
+function useMounted() {
+  return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+}
+
 export default function NotFound() {
-  const [mounted, setMounted] = useState(true);
   const { settings } = useSettings();
-  const siteName = settings?.siteName || 'Genesis Agri Business';
-  const logoUrl = settings?.logo || '';
+  const isMounted = useMounted();
+
+  // Only use settings values after client-side mount
+  const siteName = isMounted ? (settings?.siteName || 'Genesis Agri Business') : 'Genesis Agri Business';
+  const logoUrl = isMounted ? (settings?.logo || '') : '';
 
   return (
     <main
@@ -108,29 +119,40 @@ export default function NotFound() {
       </span>
 
       {/* ── Main card ──────────────────────────────────────────── */}
-      <div
-        className={`relative z-10 flex flex-col items-center text-center transition-all duration-700 ${
-          mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
-        }`}
-      >
-        {/* Brand logo */}
+      <div className="relative z-10 flex flex-col items-center text-center">
+        {/* Brand logo - FIXED for hydration consistency */}
         <Link href="/" className="group mb-8 flex items-center gap-3 no-underline">
-          {logoUrl ? (
-            <div className="relative h-10 w-10 flex items-center justify-center">
+          {/* Always render a div container, content changes conditionally */}
+          <div className="relative h-12 w-12 rounded-full overflow-hidden flex items-center justify-center bg-white/10 border border-[var(--line)] shadow-sm flex-shrink-0">
+            {logoUrl ? (
               <Image
                 src={logoUrl}
                 alt={siteName}
-                width={40}
-                height={40}
-                className="object-contain"
+                width={48}
+                height={48}
+                className="h-full w-full object-cover"
+                priority
                 onError={(e) => {
-                  (e.currentTarget as HTMLElement).style.display = "none";
+                  console.error('Logo failed to load:', logoUrl);
+                  // Show fallback brand mark on error
+                  const parent = (e.currentTarget as HTMLElement).parentElement;
+                  if (parent) {
+                    const fallback = document.createElement('span');
+                    fallback.className = 'brand-mark shrink-0';
+                    fallback.innerHTML = `
+                      <span class="leaf leaf-one" style="width:15px;height:22px"></span>
+                      <span class="leaf leaf-two" style="width:15px;height:22px"></span>
+                      <span class="stem" style="height:26px;left:13px;top:5px"></span>
+                    `;
+                    parent.appendChild(fallback);
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }
                 }}
               />
-            </div>
-          ) : (
-            <BrandMark size={1.5} />
-          )}
+            ) : (
+              <BrandMark size={1.5} />
+            )}
+          </div>
           <span className="grid gap-[3px] leading-none text-left">
             <strong
               className="text-[20px] tracking-[0.12em] font-serif"
@@ -138,7 +160,7 @@ export default function NotFound() {
             >
               {siteName.toUpperCase()}
             </strong>
-            {settings?.siteDescription && (
+            {settings?.siteDescription && isMounted && (
               <small
                 className="text-[8px] tracking-[0.2em]"
                 style={{ color: "var(--muted)" }}

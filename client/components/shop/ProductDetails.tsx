@@ -1,7 +1,7 @@
 // components/shop/ProductDetails.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState } from "react"; // Removed useEffect
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -186,6 +186,9 @@ export default function ProductDetails({
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
 
+  // FIXED: Removed the useEffect. 
+  // The selectedImage state is now guaranteed valid by using a safe index accessor below.
+
   const effectivePrice =
     product.discountPrice !== null &&
     product.discountPrice !== undefined &&
@@ -197,6 +200,9 @@ export default function ProductDetails({
     () => effectivePrice * quantity,
     [effectivePrice, quantity]
   );
+
+  // FIXED: Safely get the current image URL, ensuring it never breaks on new products
+  const currentImage = product.images?.[selectedImage] || product.images?.[0] || "";
 
   const decreaseQuantity = () => {
     setQuantity((current) => Math.max(1, current - 1));
@@ -280,8 +286,10 @@ export default function ProductDetails({
             <div>
               <div className="relative overflow-hidden rounded-[2rem] bg-white shadow-[0_20px_65px_rgba(18,53,35,.09)]">
                 <div className="relative aspect-square overflow-hidden bg-[#0b2419]">
+                  {/* FIXED: Used currentImage variable */}
                   <ProductImage
-                    src={product.images?.[selectedImage] || product.images?.[0] || ""}
+                    key={currentImage}
+                    src={currentImage}
                     alt={product.name}
                     className="w-full h-full"
                     priority={true}

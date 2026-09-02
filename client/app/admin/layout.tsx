@@ -21,9 +21,9 @@ import {
   CreditCard,
   FileText,
   Newspaper,
-  StickyNote, // ADD THIS IMPORT
+  StickyNote,
 } from 'lucide-react';
-import { useSettings } from '@/context/SettingsContext';
+import { useSettings } from '@/hooks/useSettings';  // ✅ FIXED: Use the new hook
 
 // Define types
 interface User {
@@ -61,7 +61,7 @@ export default function AdminLayout({
   const [isMounted, setIsMounted] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const { settings } = useSettings();
+  const { settings } = useSettings();  // ✅ This now works with the new hook
   const pathname = usePathname();
   const router = useRouter();
   
@@ -134,7 +134,7 @@ export default function AdminLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted]);
 
-  // Navigation items - ADD NOTES HERE
+  // Navigation items
   const navItems: NavItem[] = [
     { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, section: 'Main' },
     { name: 'Products', href: '/admin/products', icon: Package, section: 'Main' },
@@ -142,7 +142,6 @@ export default function AdminLayout({
     { name: 'Users', href: '/admin/users', icon: Users, section: 'Main' },
     { name: 'Transactions', href: '/admin/transactions', icon: CreditCard, section: 'Financial' },
     { name: 'Blog', href: '/admin/blog', icon: FileText, section: 'Content' },
-    // ADD NOTES NAVIGATION ITEM
     { name: 'Notes', href: '/admin/notes', icon: StickyNote, section: 'Content' },
     { name: 'Articles', href: '/admin/articles', icon: Newspaper, section: 'Content' },
     { name: 'Settings', href: '/admin/settings', icon: Settings, section: 'Settings' },

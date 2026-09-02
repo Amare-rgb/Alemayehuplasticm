@@ -115,6 +115,12 @@ router.get('/public', async (req, res) => {
     };
 
     console.log('📦 Public settings sent');
+    
+    // FIX: Add Cache-Control header to prevent caching
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
     res.json(publicSettings);
   } catch (error) {
     console.error('❌ Error fetching public settings:', error);
@@ -174,6 +180,11 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       });
     }
 
+    // FIX: Add Cache-Control header to prevent caching
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
     res.json(settings);
   } catch (error) {
     console.error('Error fetching settings:', error);
@@ -186,21 +197,27 @@ router.post('/', requireAuth, requireAdmin, upload.single('logo'), async (req, r
   try {
     console.log('📥 Received settings update');
     console.log('📥 File:', req.file ? req.file.filename : 'No file');
+    console.log('📥 Body:', req.body);
 
     let settings = await prisma.settings.findFirst();
     
     // Handle logo upload
     let logoUrl = settings?.logo || '';
     if (req.file) {
+      // FIX: Delete old logo from correct folder
       if (settings?.logo && settings.logo !== '') {
-        const oldLogoPath = path.join(__dirname, '../public', settings.logo);
+        // Extract filename from the logo path
+        const oldLogoFileName = path.basename(settings.logo);
+        const oldLogoPath = path.join(__dirname, '../uploads/settings', oldLogoFileName);
         if (fs.existsSync(oldLogoPath)) {
           try {
             fs.unlinkSync(oldLogoPath);
-            console.log('🗑️ Deleted old logo');
+            console.log('🗑️ Deleted old logo:', oldLogoPath);
           } catch (err) {
             console.error('Error deleting old logo:', err);
           }
+        } else {
+          console.log('⚠️ Old logo file not found:', oldLogoPath);
         }
       }
       logoUrl = `/uploads/settings/${req.file.filename}`;
@@ -274,6 +291,11 @@ router.post('/', requireAuth, requireAdmin, upload.single('logo'), async (req, r
       console.log('✅ Settings updated');
     }
 
+    // FIX: Send the updated settings with cache-busting headers
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
     res.json({
       success: true,
       settings,
