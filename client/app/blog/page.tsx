@@ -13,6 +13,7 @@ import {
   Search,
   Eye,
   RefreshCw,
+  Film,
 } from "lucide-react";
 import {
   BlogPost,
@@ -21,6 +22,38 @@ import {
   formatBlogDate,
 } from "@/data/blog";
 import { useLanguage } from "@/context/LanguageContext";
+
+// ✅ NEW: same regex-based video detection used across the admin panel and
+// the backend, so this public page renders videos the same way they were
+// saved. `BlogPost` needs a `video: string | null` field for this to work —
+// add it in @/data/blog.ts if it isn't there yet, mirroring what the API
+// already returns.
+const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
+const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
+const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+
+const getKnownPlatformEmbedUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+
+  const yt = url.match(YOUTUBE_ID_REGEX);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+
+  const vm = url.match(VIMEO_ID_REGEX);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+
+  const dm = url.match(DAILYMOTION_ID_REGEX);
+  if (dm) return `https://www.dailymotion.com/embed/video/${dm[1]}`;
+
+  return null;
+};
+
+const isVideoUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  if (getKnownPlatformEmbedUrl(url)) return true;
+  const lowerUrl = url.toLowerCase();
+  return DIRECT_VIDEO_EXTENSIONS.some(ext => lowerUrl.includes(ext));
+};
 
 export default function BlogPage() {
   const { t } = useLanguage();
@@ -31,6 +64,26 @@ export default function BlogPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
+  // ✅ NEW: resolves a post's media into either a video (with a ready-to-use
+  // embed URL for known platforms) or an image, so both render spots below
+  // can share the same decision instead of duplicating it.
+  const getPostMedia = (post: BlogPost) => {
+    const video = (post as { video?: string | null }).video;
+    const media = video || post.image;
+    const isVideo = video ? true : isVideoUrl(post.image);
+
+    if (isVideo && media) {
+      const knownEmbed = getKnownPlatformEmbedUrl(media);
+      if (knownEmbed) {
+        return { type: 'iframe' as const, url: knownEmbed };
+      }
+      const fullUrl = media.startsWith('http') ? media : `${apiBaseUrl}${media}`;
+      return { type: 'video' as const, url: fullUrl };
+    }
+
+    return { type: 'image' as const, url: formatBlogImage(post.image) };
+  };
 
   // Helper for category label
   const getCategoryLabel = (cat: string) => {
@@ -208,21 +261,64 @@ export default function BlogPage() {
             href={`/blog/${encodeURIComponent(featuredPost.slug)}`}
             className="group grid overflow-hidden rounded-[2.5rem] bg-[#071a11] shadow-[0_20px_60px_rgba(18,53,35,.12)] lg:grid-cols-[1.2fr_0.8fr]"
           >
-            {/* Featured Image - FIX: Use Next.js Image */}
+            {/* Featured Media - image or video */}
             <div className="relative min-h-[380px] overflow-hidden lg:min-h-[480px]">
-              <Image
-                src={formatBlogImage(featuredPost.image)}
-                alt={featuredPost.title}
-                fill
-                className="object-cover transition-transform duration-700 group-hover:scale-105"
-                sizes="(max-width: 1024px) 100vw, 50vw"
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  target.src =
-                    "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90";
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent" />
+              {(() => {
+                const media = getPostMedia(featuredPost);
+                if (media.type === 'iframe') {
+                  return (
+                    <>
+                      {/* Iframes can't sit inside a <Link>'s click target cleanly,
+                          so we disable pointer events on it — clicking the
+                          featured block still navigates to the article, and
+                          the video is playable from the article page itself. */}
+                      <iframe
+                        src={media.url}
+                        className="absolute inset-0 h-full w-full pointer-events-none"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        title={featuredPost.title}
+                      />
+                      <span className="absolute right-6 top-6 z-10 flex items-center gap-1 rounded-full bg-black/60 px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.15em] text-white">
+                        <Film size={11} />
+                        {t("blog.video_badge", "Video")}
+                      </span>
+                    </>
+                  );
+                }
+                if (media.type === 'video') {
+                  return (
+                    <>
+                      <video
+                        src={media.url}
+                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                        muted
+                        loop
+                        playsInline
+                        autoPlay
+                      />
+                      <span className="absolute right-6 top-6 z-10 flex items-center gap-1 rounded-full bg-black/60 px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.15em] text-white">
+                        <Film size={11} />
+                        {t("blog.video_badge", "Video")}
+                      </span>
+                    </>
+                  );
+                }
+                return (
+                  <Image
+                    src={media.url}
+                    alt={featuredPost.title}
+                    fill
+                    className="object-cover transition-transform duration-700 group-hover:scale-105"
+                    sizes="(max-width: 1024px) 100vw, 50vw"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.src =
+                        "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90";
+                    }}
+                  />
+                );
+              })()}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent pointer-events-none" />
               <span className="absolute left-6 top-6 rounded-full bg-[var(--lime)] px-3.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--green-950)] shadow-md">
                 {getCategoryLabel(featuredPost.category)}
               </span>
@@ -381,81 +477,114 @@ export default function BlogPage() {
         ) : (
           /* Posts Grid */
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            {regularPosts.map((post) => (
-              <article
-                key={post.id || post.slug}
-                className="group flex flex-col justify-between overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.08)] bg-white shadow-[0_10px_30px_rgba(18,53,35,.04)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(18,53,35,.09)]"
-              >
-                <div>
-                  {/* Article Thumbnail - FIX: Use Next.js Image */}
-                  <Link
-                    href={`/blog/${encodeURIComponent(post.slug)}`}
-                    className="relative block aspect-[16/10] overflow-hidden bg-[#071a11]"
-                  >
-                    <Image
-                      src={formatBlogImage(post.image)}
-                      alt={post.title}
-                      fill
-                      className="object-cover transition-transform duration-700 group-hover:scale-105"
-                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                      onError={(e) => {
-                        const target = e.currentTarget;
-                        target.src =
-                          "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1200&q=85";
-                      }}
-                    />
-                    <span className="absolute left-4 top-4 rounded-full bg-[#123523]/90 backdrop-blur-md px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-[var(--lime)] shadow-sm">
-                      {getCategoryLabel(post.category)}
-                    </span>
-                  </Link>
-
-                  {/* Body Info */}
-                  <div className="p-6">
-                    <div className="mb-3 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-wider text-[#69736b]">
-                      <span className="flex items-center gap-1">
-                        <CalendarDays size={12} className="text-[#28633e]" />
-                        {formatBlogDate(post.createdAt)}
+            {regularPosts.map((post) => {
+              const media = getPostMedia(post);
+              return (
+                <article
+                  key={post.id || post.slug}
+                  className="group flex flex-col justify-between overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.08)] bg-white shadow-[0_10px_30px_rgba(18,53,35,.04)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(18,53,35,.09)]"
+                >
+                  <div>
+                    {/* Article Thumbnail - image or video */}
+                    <Link
+                      href={`/blog/${encodeURIComponent(post.slug)}`}
+                      className="relative block aspect-[16/10] overflow-hidden bg-[#071a11]"
+                    >
+                      {media.type === 'iframe' ? (
+                        <>
+                          <iframe
+                            src={media.url}
+                            className="absolute inset-0 h-full w-full pointer-events-none"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            title={post.title}
+                          />
+                          <span className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-white">
+                            <Film size={10} />
+                            {t("blog.video_badge", "Video")}
+                          </span>
+                        </>
+                      ) : media.type === 'video' ? (
+                        <>
+                          <video
+                            src={media.url}
+                            className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                            muted
+                            loop
+                            playsInline
+                            autoPlay
+                          />
+                          <span className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-white">
+                            <Film size={10} />
+                            {t("blog.video_badge", "Video")}
+                          </span>
+                        </>
+                      ) : (
+                        <Image
+                          src={media.url}
+                          alt={post.title}
+                          fill
+                          className="object-cover transition-transform duration-700 group-hover:scale-105"
+                          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            target.src =
+                              "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1200&q=85";
+                          }}
+                        />
+                      )}
+                      <span className="absolute left-4 top-4 rounded-full bg-[#123523]/90 backdrop-blur-md px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-[var(--lime)] shadow-sm">
+                        {getCategoryLabel(post.category)}
                       </span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1">
-                        <Clock3 size={12} className="text-[#28633e]" />
-                        {post.readTime || 3} {t("blog.min_read", "min read")}
-                      </span>
-                    </div>
-
-                    <Link href={`/blog/${encodeURIComponent(post.slug)}`}>
-                      <h3 className="font-serif-heading text-xl font-bold leading-snug text-[#123523] group-hover:text-[#28633e] transition-colors line-clamp-2">
-                        {post.title}
-                      </h3>
                     </Link>
 
-                    <p className="mt-2.5 text-xs leading-relaxed text-[#69736b] line-clamp-3">
-                      {post.excerpt || post.content}
-                    </p>
-                  </div>
-                </div>
+                    {/* Body Info */}
+                    <div className="p-6">
+                      <div className="mb-3 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-wider text-[#69736b]">
+                        <span className="flex items-center gap-1">
+                          <CalendarDays size={12} className="text-[#28633e]" />
+                          {formatBlogDate(post.createdAt)}
+                        </span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1">
+                          <Clock3 size={12} className="text-[#28633e]" />
+                          {post.readTime || 3} {t("blog.min_read", "min read")}
+                        </span>
+                      </div>
 
-                {/* Footer Author & Action */}
-                <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] text-[10px] font-bold">
-                      {post.author?.name ? post.author.name.charAt(0).toUpperCase() : "G"}
+                      <Link href={`/blog/${encodeURIComponent(post.slug)}`}>
+                        <h3 className="font-serif-heading text-xl font-bold leading-snug text-[#123523] group-hover:text-[#28633e] transition-colors line-clamp-2">
+                          {post.title}
+                        </h3>
+                      </Link>
+
+                      <p className="mt-2.5 text-xs leading-relaxed text-[#69736b] line-clamp-3">
+                        {post.excerpt || post.content}
+                      </p>
                     </div>
-                    <span className="text-[11px] font-medium text-[#123523] truncate max-w-[110px]">
-                      {post.author?.name || "Genesis Farm"}
-                    </span>
                   </div>
 
-                  <Link
-                    href={`/blog/${encodeURIComponent(post.slug)}`}
-                    className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#28633e] group-hover:text-[#123523] transition-colors"
-                  >
-                    <span>{t("blog.read_card", "Read")}</span>
-                    <ArrowRight size={13} className="transition-transform group-hover:translate-x-1" />
-                  </Link>
-                </div>
-              </article>
-            ))}
+                  {/* Footer Author & Action */}
+                  <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] text-[10px] font-bold">
+                        {post.author?.name ? post.author.name.charAt(0).toUpperCase() : "G"}
+                      </div>
+                      <span className="text-[11px] font-medium text-[#123523] truncate max-w-[110px]">
+                        {post.author?.name || "Genesis Farm"}
+                      </span>
+                    </div>
+
+                    <Link
+                      href={`/blog/${encodeURIComponent(post.slug)}`}
+                      className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#28633e] group-hover:text-[#123523] transition-colors"
+                    >
+                      <span>{t("blog.read_card", "Read")}</span>
+                      <ArrowRight size={13} className="transition-transform group-hover:translate-x-1" />
+                    </Link>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>

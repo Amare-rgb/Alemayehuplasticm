@@ -15,7 +15,6 @@ import {
   Info,
   XCircle,
   Trash2,
-  Eye,
   FileText,
   Plus,
   Minus,
@@ -23,9 +22,9 @@ import {
   Settings,
   Film,
   Link2,
+  Video,
 } from 'lucide-react';
 
-// Create axios instance
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 const api = axios.create({
@@ -36,7 +35,6 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('authToken') || 
                 sessionStorage.getItem('authToken') ||
@@ -47,7 +45,6 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Add response interceptor for 401 errors
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -64,7 +61,6 @@ api.interceptors.response.use(
   }
 );
 
-// Notification Component
 interface NotificationProps {
   type: 'success' | 'error' | 'info' | 'warning';
   message: string;
@@ -128,32 +124,57 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
-// Helper function to detect if URL is a video
-const isVideoUrl = (url: string): boolean => {
+// Video platform regex patterns
+const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
+const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
+const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+
+const getKnownPlatformEmbedUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+
+  const yt = url.match(YOUTUBE_ID_REGEX);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+
+  const vm = url.match(VIMEO_ID_REGEX);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+
+  const dm = url.match(DAILYMOTION_ID_REGEX);
+  if (dm) return `https://www.dailymotion.com/embed/video/${dm[1]}`;
+
+  return null;
+};
+
+const isVideoUrl = (url: string | null | undefined): boolean => {
   if (!url) return false;
-  const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+  if (getKnownPlatformEmbedUrl(url)) return true;
   const lowerUrl = url.toLowerCase();
-  return videoExtensions.some(ext => lowerUrl.includes(ext)) || 
-         lowerUrl.includes('video') ||
-         lowerUrl.includes('youtube.com') ||
-         lowerUrl.includes('youtu.be') ||
-         lowerUrl.includes('vimeo.com') ||
-         lowerUrl.includes('dailymotion.com') ||
-         lowerUrl.includes('stream');
+  return DIRECT_VIDEO_EXTENSIONS.some(ext => lowerUrl.includes(ext));
+};
+
+const getEmbedUrl = (url: string | null | undefined): string => {
+  if (!url) return '';
+  const platformEmbed = getKnownPlatformEmbedUrl(url);
+  return platformEmbed ?? url;
 };
 
 const NewBlogPostPage: React.FC = () => {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
-  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
-  // ✅ Fixed: removed 'url' from mediaType type
-  const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
+  
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>('');
+  const [videoPreview, setVideoPreview] = useState<string>('');
+  
   const [showVideoUrlInput, setShowVideoUrlInput] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
 
-  // Authentication state
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -183,17 +204,12 @@ const NewBlogPostPage: React.FC = () => {
     'Irrigation'
   ];
 
-  // Authentication check on mount
   useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
       
-      console.log('🔍 New Blog Post - Checking auth...');
-      console.log('Token exists:', !!token);
-      
       if (!token) {
-        console.log('❌ No token found, redirecting to login...');
         router.replace('/auth/signin');
         setAuthLoading(false);
         return;
@@ -202,9 +218,7 @@ const NewBlogPostPage: React.FC = () => {
       if (userData) {
         try {
           const parsedUser = JSON.parse(userData);
-          console.log('👤 User role:', parsedUser.role);
           if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
-            console.log('❌ Not an admin, redirecting to home...');
             router.replace('/');
             setAuthLoading(false);
             return;
@@ -215,7 +229,6 @@ const NewBlogPostPage: React.FC = () => {
           router.replace('/auth/signin');
         }
       } else {
-        console.log('❌ No user data found');
         router.replace('/auth/signin');
       }
       setAuthLoading(false);
@@ -248,35 +261,35 @@ const NewBlogPostPage: React.FC = () => {
     }));
   };
 
-  // Handle media upload (image or video)
-  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    const isVideo = file.type.startsWith('video/');
-    const maxSize = isVideo ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
     
-    if (file.size > maxSize) {
-      showNotification('error', `File size must be less than ${isVideo ? '50MB' : '5MB'}`);
+    if (!file.type.startsWith('image/')) {
+      showNotification('error', 'Please select an image file');
       return;
     }
 
-    setUploadingMedia(true);
+    if (file.size > 5 * 1024 * 1024) {
+      showNotification('error', 'Image size must be less than 5MB');
+      return;
+    }
+
+    setUploadingImage(true);
     
     try {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
         showNotification('error', 'Authentication required');
-        setUploadingMedia(false);
+        setUploadingImage(false);
         return;
       }
 
       const formDataUpload = new FormData();
       formDataUpload.append('media', file);
 
-      console.log('📤 Uploading media...', file.name, file.size, 'isVideo:', isVideo);
-      
       const response = await api.post('/api/blog/upload', formDataUpload, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -284,57 +297,103 @@ const NewBlogPostPage: React.FC = () => {
         },
       });
 
-      console.log('📊 Upload response:', response.data);
-
       let mediaUrl = null;
       if (response.data && response.data.mediaUrl) {
         mediaUrl = response.data.mediaUrl;
-      } else if (response.data && response.data.url) {
-        mediaUrl = response.data.url;
-      } else if (response.data && response.data.imageUrl) {
-        mediaUrl = response.data.imageUrl;
       }
 
       if (mediaUrl) {
-        if (isVideo) {
-          setFormData(prev => ({
-            ...prev,
-            video: mediaUrl,
-            image: ''
-          }));
-        } else {
-          setFormData(prev => ({
-            ...prev,
-            image: mediaUrl,
-            video: ''
-          }));
-        }
-        setMediaType(isVideo ? 'video' : 'image');
-        setShowVideoUrlInput(false);
-        showNotification('success', `${isVideo ? 'Video' : 'Image'} uploaded successfully`);
+        setFormData(prev => ({
+          ...prev,
+          image: mediaUrl,
+          video: ''
+        }));
+        setImageFile(file);
+        setImagePreview(URL.createObjectURL(file));
+        setVideoFile(null);
+        setVideoPreview('');
+        showNotification('success', 'Image uploaded successfully');
       } else {
-        showNotification('error', 'Failed to get media URL from server');
+        showNotification('error', 'Failed to get image URL from server');
       }
     } catch (err) {
-      console.error('Error uploading media:', err);
-      if (axios.isAxiosError(err)) {
-        const axiosError = err as AxiosError<{ error: string; message?: string }>;
-        const errorMsg = axiosError.response?.data?.error || 
-                         axiosError.response?.data?.message || 
-                         'Failed to upload media';
-        showNotification('error', errorMsg);
-      } else {
-        showNotification('error', 'Failed to upload media');
-      }
+      console.error('Error uploading image:', err);
+      showNotification('error', 'Failed to upload image');
     } finally {
-      setUploadingMedia(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      setUploadingImage(false);
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
       }
     }
   };
 
-  // Handle video URL insertion
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    
+    if (!file.type.startsWith('video/')) {
+      showNotification('error', 'Please select a video file');
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      showNotification('error', 'Video size must be less than 50MB');
+      return;
+    }
+
+    setUploadingVideo(true);
+    
+    try {
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      if (!token) {
+        showNotification('error', 'Authentication required');
+        setUploadingVideo(false);
+        return;
+      }
+
+      const formDataUpload = new FormData();
+      formDataUpload.append('media', file);
+
+      const response = await api.post('/api/blog/upload', formDataUpload, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      let mediaUrl = null;
+      if (response.data && response.data.mediaUrl) {
+        mediaUrl = response.data.mediaUrl;
+      }
+
+      if (mediaUrl) {
+        setFormData(prev => ({
+          ...prev,
+          video: mediaUrl,
+          image: ''
+        }));
+        setVideoFile(file);
+        setVideoPreview(URL.createObjectURL(file));
+        setImageFile(null);
+        setImagePreview('');
+        showNotification('success', 'Video uploaded successfully');
+      } else {
+        showNotification('error', 'Failed to get video URL from server');
+      }
+    } catch (err) {
+      console.error('Error uploading video:', err);
+      showNotification('error', 'Failed to upload video');
+    } finally {
+      setUploadingVideo(false);
+      if (videoInputRef.current) {
+        videoInputRef.current.value = '';
+      }
+    }
+  };
+
+  // ✅ FIXED: Handle video URL from internet
   const handleVideoUrlInsert = () => {
     if (!videoUrl.trim()) {
       showNotification('error', 'Please enter a valid video URL');
@@ -348,29 +407,50 @@ const NewBlogPostPage: React.FC = () => {
       return;
     }
 
-    setFormData(prev => ({
-      ...prev,
-      video: videoUrl.trim(),
-      image: ''
-    }));
-    // ✅ Fixed: set to 'video' instead of 'url'
-    setMediaType('video');
+    const trimmed = videoUrl.trim();
+    const normalized = getKnownPlatformEmbedUrl(trimmed) ?? trimmed;
+
+    console.log('🎬 Adding video URL from internet:', {
+      original: trimmed,
+      normalized: normalized
+    });
+
+    // ✅ CRITICAL: Update formData with the video URL
+    setFormData(prev => {
+      const newData = {
+        ...prev,
+        video: normalized,
+        image: ''
+      };
+      console.log('📝 Updated formData:', newData);
+      return newData;
+    });
+    
+    setVideoFile(null);
+    setVideoPreview('');
+    setImageFile(null);
+    setImagePreview('');
     setShowVideoUrlInput(false);
     setVideoUrl('');
+    
     showNotification('success', 'Video URL added successfully');
   };
 
-  const handleRemoveMedia = () => {
-    setFormData(prev => ({
-      ...prev,
-      image: '',
-      video: ''
-    }));
-    setMediaType(null);
+  const handleRemoveImage = () => {
+    setFormData(prev => ({ ...prev, image: '' }));
+    setImageFile(null);
+    setImagePreview('');
+  };
+
+  const handleRemoveVideo = () => {
+    setFormData(prev => ({ ...prev, video: '' }));
+    setVideoFile(null);
+    setVideoPreview('');
     setShowVideoUrlInput(false);
     setVideoUrl('');
   };
 
+  // ✅ FIXED: Submit handler with proper video URL sending
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -396,28 +476,31 @@ const NewBlogPostPage: React.FC = () => {
         return;
       }
 
-      const mediaField = formData.video || formData.image || '';
-
+      // ✅ CRITICAL: Prepare data with video URL
       const submitData = {
         title: formData.title.trim(),
         content: formData.content.trim(),
         excerpt: formData.excerpt.trim() || formData.content.substring(0, 150),
-        image: mediaField,
-        video: formData.video || '',
+        image: formData.image || null,
+        video: formData.video || null,
         category: formData.category,
         readTime: formData.readTime || 3,
         published: formData.published,
       };
 
-      console.log('📤 Creating blog post:', submitData);
-      
+      console.log('📤 SUBMITTING BLOG POST:');
+      console.log('  Title:', submitData.title);
+      console.log('  Image:', submitData.image);
+      console.log('  Video:', submitData.video);
+      console.log('  Full data:', JSON.stringify(submitData, null, 2));
+
       const response = await api.post('/api/blog', submitData, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
       
-      console.log('✅ Create response:', response.data);
+      console.log('📥 Server response:', response.data);
       
       if (response.data.success) {
         showNotification('success', 'Blog post published successfully! 🎉');
@@ -428,7 +511,7 @@ const NewBlogPostPage: React.FC = () => {
         showNotification('error', response.data.error || 'Failed to publish blog post');
       }
     } catch (err: unknown) {
-      console.error('Error creating blog post:', err);
+      console.error('❌ Error creating blog post:', err);
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{ error: string; message?: string }>;
         if (axiosError.response?.status === 401) {
@@ -439,7 +522,7 @@ const NewBlogPostPage: React.FC = () => {
         } else {
           const errorMsg = axiosError.response?.data?.error || 
                           axiosError.response?.data?.message ||
-                          `Failed to publish blog post (Status: ${axiosError.response?.status})`;
+                          `Failed to publish blog post`;
           showNotification('error', errorMsg);
         }
       } else {
@@ -450,131 +533,12 @@ const NewBlogPostPage: React.FC = () => {
     }
   };
 
-  // Render media preview with video support
-  const renderMediaPreview = () => {
-    const videoSrc = formData.video;
-    const imageSrc = formData.image;
-    const hasMedia = videoSrc || imageSrc;
-
-    if (!hasMedia) {
+  const renderImagePreview = () => {
+    if (formData.image) {
+      const displayUrl = formData.image.startsWith('http') ? formData.image : `${API_URL}${formData.image}`;
       return (
-        <div className="space-y-3">
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            className="aspect-video border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-green-500 transition-colors cursor-pointer group"
-          >
-            <div className="text-center">
-              {uploadingMedia ? (
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600 mx-auto" />
-              ) : (
-                <>
-                  <Upload className="w-10 h-10 text-gray-400 mx-auto group-hover:text-green-500 transition-colors" />
-                  <span className="text-sm text-gray-500 group-hover:text-green-500 transition-colors block mt-2">
-                    Upload Image or Video
-                  </span>
-                  <span className="text-xs text-gray-400">PNG, JPG, WebP, MP4, WebM (Max 50MB)</span>
-                </>
-              )}
-            </div>
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            onChange={handleMediaUpload}
-            className="hidden"
-            multiple={false}
-          />
-          
-          {/* OR Divider */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 border-t border-gray-200"></div>
-            <span className="text-xs text-gray-400">OR</span>
-            <div className="flex-1 border-t border-gray-200"></div>
-          </div>
-
-          {/* Video URL Input */}
-          {!showVideoUrlInput ? (
-            <button
-              type="button"
-              onClick={() => setShowVideoUrlInput(true)}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 border border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors text-sm text-gray-600"
-            >
-              <Link2 className="w-4 h-4" />
-              <span>Insert Video URL</span>
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="url"
-                  value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={handleVideoUrlInsert}
-                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                >
-                  Add
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowVideoUrlInput(false)}
-                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-          <p className="text-xs text-gray-400 text-center">
-            Supports YouTube, Vimeo, and direct video URLs
-          </p>
-        </div>
-      );
-    }
-
-    // Render preview with media (supports both images and videos)
-    const isVideo = videoSrc && isVideoUrl(videoSrc);
-    const displaySrc = videoSrc || imageSrc;
-    const displayUrl = displaySrc.startsWith('http') ? displaySrc : `${API_URL}${displaySrc}`;
-
-    return (
-      <div className="relative bg-gray-100 rounded-lg overflow-hidden group">
-        {isVideo ? (
-          <div className="aspect-video">
-            {videoSrc && (videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be')) ? (
-              <iframe
-                src={videoSrc.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')}
-                className="w-full h-full"
-                allowFullScreen
-                title="Video"
-              />
-            ) : (
-              <video
-                src={displayUrl}
-                controls
-                className="w-full h-full object-cover"
-                poster="/video-placeholder.png"
-                onError={(e) => {
-                  console.error('Video load error:', e);
-                  showNotification('error', 'Failed to load video');
-                }}
-              >
-                Your browser does not support the video tag.
-              </video>
-            )}
-            <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full flex items-center space-x-1">
-              <Film className="w-3 h-3" />
-              {/* ✅ Fixed: removed 'url' check */}
-              <span>Video {videoSrc?.includes('youtube.com') || videoSrc?.includes('youtu.be') ? '(YouTube)' : ''}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="relative aspect-video">
+        <div className="relative rounded-lg overflow-hidden border-2 border-gray-200">
+          <div className="relative aspect-video bg-gray-100">
             <Image
               src={displayUrl}
               alt="Featured image"
@@ -583,13 +547,6 @@ const NewBlogPostPage: React.FC = () => {
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 target.style.display = 'none';
-                const parent = target.parentElement;
-                if (parent) {
-                  const fallback = document.createElement('div');
-                  fallback.className = 'w-full h-full flex items-center justify-center bg-gray-100';
-                  fallback.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-gray-300"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
-                  parent.appendChild(fallback);
-                }
               }}
               unoptimized={displayUrl.startsWith('http')}
             />
@@ -597,20 +554,165 @@ const NewBlogPostPage: React.FC = () => {
               <ImageIcon className="w-3 h-3" />
               <span>Image</span>
             </div>
+            <button
+              type="button"
+              onClick={handleRemoveImage}
+              className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
           </div>
-        )}
-        <button
-          type="button"
-          onClick={handleRemoveMedia}
-          className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        onClick={() => imageInputRef.current?.click()}
+        className="aspect-video border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-green-500 transition-colors cursor-pointer group"
+      >
+        <div className="text-center">
+          {uploadingImage ? (
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600 mx-auto" />
+          ) : (
+            <>
+              <Upload className="w-10 h-10 text-gray-400 mx-auto group-hover:text-green-500 transition-colors" />
+              <span className="text-sm text-gray-500 group-hover:text-green-500 transition-colors block mt-2">
+                Upload Image
+              </span>
+              <span className="text-xs text-gray-400">PNG, JPG, WebP (Max 5MB)</span>
+            </>
+          )}
+        </div>
       </div>
     );
   };
 
-  // Show auth loading state
+  const renderVideoPreview = () => {
+    const videoSrc = formData.video;
+
+    if (videoSrc) {
+      const isKnownPlatformLink = getKnownPlatformEmbedUrl(videoSrc) !== null;
+      const displayUrl = videoSrc.startsWith('http') ? videoSrc : `${API_URL}${videoSrc}`;
+
+      console.log('🎬 Rendering video preview:', {
+        videoSrc,
+        isKnownPlatformLink,
+        embedUrl: getEmbedUrl(videoSrc)
+      });
+
+      return (
+        <div className="relative rounded-lg overflow-hidden border-2 border-gray-200">
+          <div className="aspect-video bg-black">
+            {isKnownPlatformLink ? (
+              <iframe
+                src={getEmbedUrl(videoSrc)}
+                className="w-full h-full"
+                allowFullScreen
+                title="Video"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              />
+            ) : (
+              <video
+                src={displayUrl}
+                controls
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  console.error('Video load error:', e);
+                }}
+              >
+                Your browser does not support the video tag.
+              </video>
+            )}
+            <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full flex items-center space-x-1">
+              <Film className="w-3 h-3" />
+              <span>Video</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleRemoveVideo}
+              className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <div
+          onClick={() => videoInputRef.current?.click()}
+          className="aspect-video border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-green-500 transition-colors cursor-pointer group"
+        >
+          <div className="text-center">
+            {uploadingVideo ? (
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600 mx-auto" />
+            ) : (
+              <>
+                <Video className="w-10 h-10 text-gray-400 mx-auto group-hover:text-green-500 transition-colors" />
+                <span className="text-sm text-gray-500 group-hover:text-green-500 transition-colors block mt-2">
+                  Upload Video
+                </span>
+                <span className="text-xs text-gray-400">MP4, WebM, MOV (Max 50MB)</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex-1 border-t border-gray-200"></div>
+          <span className="text-xs text-gray-400">OR</span>
+          <div className="flex-1 border-t border-gray-200"></div>
+        </div>
+
+        {!showVideoUrlInput ? (
+          <button
+            type="button"
+            onClick={() => setShowVideoUrlInput(true)}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 border border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors text-sm text-gray-600"
+          >
+            <Link2 className="w-4 h-4" />
+            <span>Insert Video URL from Internet</span>
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center space-x-2">
+              <input
+                type="url"
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              />
+              <button
+                type="button"
+                onClick={handleVideoUrlInsert}
+                className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm whitespace-nowrap"
+              >
+                Add Video
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowVideoUrlInput(false)}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Cancel
+            </button>
+            <p className="text-xs text-gray-400">
+              Supports: YouTube, Vimeo, Dailymotion, and direct video URLs
+            </p>
+            <p className="text-xs text-blue-500">
+              Example: https://youtu.be/t9wbRsXtFN0 or https://www.youtube.com/watch?v=t9wbRsXtFN0
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -622,14 +724,12 @@ const NewBlogPostPage: React.FC = () => {
     );
   }
 
-  // Don't render if not authenticated
   if (!isAuthenticated) {
     return null;
   }
 
   return (
     <div className="space-y-6">
-      {/* Notification */}
       {notification && (
         <Notification
           type={notification.type}
@@ -638,7 +738,6 @@ const NewBlogPostPage: React.FC = () => {
         />
       )}
 
-      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <Link
@@ -649,7 +748,7 @@ const NewBlogPostPage: React.FC = () => {
           </Link>
           <div>
             <h1 className="text-lg font-semibold text-gray-900">New Blog Post</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Create a new blog post with images or videos</p>
+            <p className="text-xs text-gray-500 mt-0.5">Create a new blog post with images or videos from the internet</p>
           </div>
         </div>
         <Link
@@ -660,10 +759,23 @@ const NewBlogPostPage: React.FC = () => {
         </Link>
       </div>
 
-      {/* Form */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*"
+        onChange={handleVideoUpload}
+        className="hidden"
+      />
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-6">
@@ -672,7 +784,6 @@ const NewBlogPostPage: React.FC = () => {
               </div>
               
               <div className="space-y-5">
-                {/* Title */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Title <span className="text-red-500">*</span>
@@ -688,7 +799,6 @@ const NewBlogPostPage: React.FC = () => {
                   />
                 </div>
 
-                {/* Content */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Content <span className="text-red-500">*</span>
@@ -707,7 +817,6 @@ const NewBlogPostPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Excerpt */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Excerpt (Summary)
@@ -728,20 +837,25 @@ const NewBlogPostPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Sidebar */}
           <div className="space-y-6">
-            {/* Media Upload */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
                 <ImageIcon className="w-4 h-4 text-green-600" />
-                <h3 className="font-semibold text-gray-900 text-sm">Featured Media</h3>
-                <span className="text-xs text-gray-400 ml-auto">Image or Video</span>
+                <h3 className="font-semibold text-gray-900 text-sm">Featured Image</h3>
+                <span className="text-xs text-gray-400 ml-auto">Optional</span>
               </div>
-              
-              {renderMediaPreview()}
+              {renderImagePreview()}
             </div>
 
-            {/* Post Settings */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center space-x-2 mb-4">
+                <Film className="w-4 h-4 text-green-600" />
+                <h3 className="font-semibold text-gray-900 text-sm">Featured Video</h3>
+                <span className="text-xs text-gray-400 ml-auto">Optional</span>
+              </div>
+              {renderVideoPreview()}
+            </div>
+
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
                 <Settings className="w-4 h-4 text-green-600" />
@@ -749,7 +863,6 @@ const NewBlogPostPage: React.FC = () => {
               </div>
               
               <div className="space-y-4">
-                {/* Category */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Category
@@ -766,7 +879,6 @@ const NewBlogPostPage: React.FC = () => {
                   </select>
                 </div>
 
-                {/* Read Time */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Read Time (minutes)
@@ -797,7 +909,6 @@ const NewBlogPostPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Publish Status */}
                 <div>
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
@@ -818,44 +929,6 @@ const NewBlogPostPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Preview */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
-              <div className="flex items-center space-x-2 mb-4">
-                <Eye className="w-4 h-4 text-green-600" />
-                <h3 className="font-semibold text-gray-900 text-sm">Preview</h3>
-              </div>
-              
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between py-1 border-b border-gray-100">
-                  <span className="text-gray-500">Title:</span>
-                  <span className="font-medium text-gray-700 truncate max-w-[140px]">
-                    {formData.title || 'Not set'}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-gray-100">
-                  <span className="text-gray-500">Category:</span>
-                  <span className="font-medium text-gray-700">{formData.category}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-gray-100">
-                  <span className="text-gray-500">Read Time:</span>
-                  <span className="font-medium text-gray-700">{formData.readTime} min</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-gray-100">
-                  <span className="text-gray-500">Status:</span>
-                  <span className={`font-medium ${formData.published ? 'text-green-600' : 'text-yellow-600'}`}>
-                    {formData.published ? 'Published' : 'Draft'}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-gray-500">Media:</span>
-                  <span className="font-medium text-gray-700">
-                    {formData.image ? 'Image ✓' : formData.video ? 'Video ✓' : 'None'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}

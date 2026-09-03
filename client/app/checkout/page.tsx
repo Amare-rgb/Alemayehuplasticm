@@ -30,7 +30,7 @@ import toast from "react-hot-toast";
 // TYPES
 // ============================================
 
-type PaymentMethodId = "telebirr" | "bank" | "chapa" | "cash";
+type PaymentMethodId = "telebirr" | "bank" | "cash";
 
 interface PaymentOption {
   id: PaymentMethodId;
@@ -133,7 +133,7 @@ interface CartItem {
 }
 
 // ============================================
-// PAYMENT OPTIONS
+// PAYMENT OPTIONS - CHAPA REMOVED
 // ============================================
 
 const paymentOptions: PaymentOption[] = [
@@ -161,18 +161,6 @@ const paymentOptions: PaymentOption[] = [
       { label: "CBE Account", value: "1000 4567 8901 2345 (Genesis Agri PLC)" },
       { label: "Awash Bank", value: "0132 0891 2345 00 (Genesis Agri PLC)" },
       { label: "Branch", value: "Bole Central, Addis Ababa" },
-    ],
-  },
-  {
-    id: "chapa",
-    name: "Chapa Payment Gateway",
-    badge: "Cards & Digital Wallets",
-    icon: <CreditCard className="h-5 w-5 text-[#28633e]" />,
-    tagline: "Pay with local debit cards, CBE Birr, or international Mastercard/Visa",
-    instructions: "Seamless card and multi-wallet checkout powered by Chapa Ethiopia.",
-    details: [
-      { label: "Supported", value: "Telebirr, CBE Birr, AwashBirr, Visa & Mastercard" },
-      { label: "Security", value: "256-bit Encrypted SSL Gateway" },
     ],
   },
   {
@@ -216,7 +204,7 @@ export default function CheckoutPage() {
   const [citySubcity, setCitySubcity] = useState<string>("Addis Ababa - Bole");
   const [orderNotes, setOrderNotes] = useState<string>("");
 
-  // Payment Selection
+  // Payment Selection - Default to Telebirr
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethodId>("telebirr");
 
   // Order success state
@@ -289,13 +277,10 @@ export default function CheckoutPage() {
     try {
       setSubmitting(true);
 
-      // CRITICAL FIX: Send the product ID as-is (could be slug or UUID)
-      // The backend will try to find the product by ID, slug, or name
       const cartItems = items.map((item: CartItem) => {
-        // Use the productId from the cart (which might be a slug)
         const productId = item.productId || item.id;
         return {
-          productId: productId, // This could be "tomato-001" (slug) or a UUID
+          productId: productId,
           name: item.name,
           price: item.price,
           quantity: item.quantity,

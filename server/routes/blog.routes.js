@@ -21,7 +21,6 @@ const mediaStorage = multer.diskStorage({
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    const name = file.originalname.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9.-]/g, '');
     cb(null, `blog-${uniqueSuffix}${ext}`);
   }
 });
@@ -29,7 +28,7 @@ const mediaStorage = multer.diskStorage({
 const mediaFileFilter = (req, file, cb) => {
   const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg', 'image/svg+xml'];
   const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'];
-  
+
   if (allowedImageTypes.includes(file.mimetype) || allowedVideoTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
@@ -43,18 +42,110 @@ const uploadMedia = multer({
   fileFilter: mediaFileFilter
 });
 
-// Helper function to check if URL is a video
+// Video platform regex patterns
+const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
+const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
+const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m3u8'];
+
+const getKnownPlatformEmbedUrl = (url) => {
+  if (!url) return null;
+
+  const yt = url.match(YOUTUBE_ID_REGEX);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+
+  const vm = url.match(VIMEO_ID_REGEX);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+
+  const dm = url.match(DAILYMOTION_ID_REGEX);
+  if (dm) return `https://www.dailymotion.com/embed/video/${dm[1]}`;
+
+  return null;
+};
+
 const isVideoUrl = (url) => {
   if (!url) return false;
-  const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+  
+  url = url.trim();
+  
+  if (getKnownPlatformEmbedUrl(url)) return true;
+  
   const lowerUrl = url.toLowerCase();
-  return videoExtensions.some(ext => lowerUrl.includes(ext)) ||
-         lowerUrl.includes('youtube.com') ||
-         lowerUrl.includes('youtu.be') ||
-         lowerUrl.includes('vimeo.com') ||
-         lowerUrl.includes('dailymotion.com') ||
-         lowerUrl.includes('video') ||
-         lowerUrl.includes('stream');
+  if (DIRECT_VIDEO_EXTENSIONS.some(ext => lowerUrl.includes(ext))) {
+    return true;
+  }
+  
+  const videoPatterns = [
+    'youtube.com/watch',
+    'youtu.be/',
+    'vimeo.com/',
+    'dailymotion.com/',
+    '/video/',
+    'stream',
+    'watch?v=',
+    'v=',
+    'embed/',
+    'shorts/',
+    'live/'
+  ];
+  
+  return videoPatterns.some(pattern => lowerUrl.includes(pattern));
+};
+
+const normalizeVideoUrl = (url) => {
+  if (!url) return null;
+  
+  url = url.trim();
+  
+  if (url.includes('youtube.com/embed/') || 
+      url.includes('player.vimeo.com/') || 
+      url.includes('dailymotion.com/embed/')) {
+    return url;
+  }
+  
+  const platformEmbed = getKnownPlatformEmbedUrl(url);
+  if (platformEmbed) return platformEmbed;
+  
+  const lowerUrl = url.toLowerCase();
+  if (DIRECT_VIDEO_EXTENSIONS.some(ext => lowerUrl.includes(ext))) {
+    return url;
+  }
+  
+  return url;
+};
+
+const formatPost = (post) => {
+  console.log('📹 Formatting post:', {
+    id: post.id,
+    title: post.title,
+    image: post.image,
+    video: post.video
+  });
+
+  const hasVideoField = !!post.video;
+  const imageIsVideo = post.image ? isVideoUrl(post.image) : false;
+  const isVideo = hasVideoField || imageIsVideo;
+  
+  let media = null;
+  let mediaType = null;
+  
+  if (hasVideoField) {
+    media = normalizeVideoUrl(post.video);
+    mediaType = 'video';
+  } else if (imageIsVideo) {
+    media = normalizeVideoUrl(post.image);
+    mediaType = 'video';
+  } else if (post.image) {
+    media = post.image;
+    mediaType = 'image';
+  }
+  
+  return {
+    ...post,
+    media,
+    mediaType,
+    isVideo
+  };
 };
 
 // Get all blog posts
@@ -86,9 +177,9 @@ router.get('/', async (req, res) => {
         take: parseInt(limit),
         include: {
           author: {
-            select: { 
+            select: {
               id: true,
-              name: true, 
+              name: true,
               email: true,
               avatar: true
             }
@@ -98,15 +189,10 @@ router.get('/', async (req, res) => {
       prisma.blogPost.count({ where })
     ]);
 
-    // Add video detection to each post
-    const postsWithVideoInfo = posts.map(post => ({
-      ...post,
-      isVideo: isVideoUrl(post.image),
-      mediaType: isVideoUrl(post.image) ? 'video' : 'image'
-    }));
+    const formattedPosts = posts.map(formatPost);
 
     res.json({
-      posts: postsWithVideoInfo,
+      posts: formattedPosts,
       total,
       pages: Math.ceil(total / parseInt(limit)),
       page: parseInt(page)
@@ -117,7 +203,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Upload blog media (image or video) - FIXED to handle both image and video
+// Upload blog media (image or video)
 router.post('/upload', requireAdmin, uploadMedia.single('media'), (req, res) => {
   try {
     if (!req.file) {
@@ -126,7 +212,7 @@ router.post('/upload', requireAdmin, uploadMedia.single('media'), (req, res) => 
 
     const mediaUrl = `/uploads/blog/${req.file.filename}`;
     const mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
-    
+
     res.json({
       success: true,
       mediaUrl,
@@ -139,10 +225,15 @@ router.post('/upload', requireAdmin, uploadMedia.single('media'), (req, res) => 
   }
 });
 
-// Create blog post - FIXED to handle video URLs
+// ✅ FIXED: Create blog post - properly handles video URLs from internet
 router.post('/', requireAdmin, async (req, res) => {
   try {
     const { title, content, excerpt, image, video, category, readTime, published } = req.body;
+
+    console.log('📥 RECEIVED DATA:');
+    console.log('  Title:', title);
+    console.log('  Image:', image);
+    console.log('  Video:', video);
 
     if (!title || !content) {
       return res.status(400).json({ error: 'Title and content are required' });
@@ -157,17 +248,38 @@ router.post('/', requireAdmin, async (req, res) => {
       counter++;
     }
 
-    // Determine which media to use (video takes priority if both are provided)
-    let mediaUrl = '';
-    if (video && isVideoUrl(video)) {
-      mediaUrl = video;
-    } else if (video && video.startsWith('/uploads/')) {
-      mediaUrl = video;
-    } else if (image) {
-      mediaUrl = image;
-    } else if (video) {
-      mediaUrl = video;
+    let finalVideoUrl = null;
+    let finalImageUrl = null;
+
+    // ✅ CRITICAL: Process video URL from internet
+    if (video && video.trim() !== '') {
+      console.log('🎬 Processing video URL from internet:', video);
+      const normalized = normalizeVideoUrl(video.trim());
+      if (normalized) {
+        finalVideoUrl = normalized;
+        console.log('✅ Normalized video URL:', finalVideoUrl);
+      } else {
+        finalVideoUrl = video.trim();
+        console.log('⚠️ Using original video URL:', finalVideoUrl);
+      }
     }
+
+    // Process image
+    if (image && image.trim() !== '') {
+      if (isVideoUrl(image.trim())) {
+        console.log('🎬 Image field contains video URL:', image);
+        if (!finalVideoUrl) {
+          finalVideoUrl = normalizeVideoUrl(image.trim());
+        }
+      } else {
+        finalImageUrl = image.trim();
+        console.log('🖼️ Image URL:', finalImageUrl);
+      }
+    }
+
+    console.log('📦 FINAL DATA TO SAVE:');
+    console.log('  Image:', finalImageUrl);
+    console.log('  Video:', finalVideoUrl);
 
     const post = await prisma.blogPost.create({
       data: {
@@ -175,7 +287,8 @@ router.post('/', requireAdmin, async (req, res) => {
         slug,
         content,
         excerpt: excerpt || content.substring(0, 150),
-        image: mediaUrl,
+        image: finalImageUrl,
+        video: finalVideoUrl,
         category: category || 'Agriculture',
         readTime: parseInt(readTime) || 3,
         authorId: req.session.user.id,
@@ -188,34 +301,34 @@ router.post('/', requireAdmin, async (req, res) => {
       }
     });
 
-    res.status(201).json({ 
+    console.log('✅ POST CREATED WITH VIDEO:', post.video);
+
+    res.status(201).json({
       success: true,
-      post: {
-        ...post,
-        isVideo: isVideoUrl(post.image),
-        mediaType: isVideoUrl(post.image) ? 'video' : 'image'
-      },
+      post: formatPost(post),
       message: 'Blog post created successfully'
     });
   } catch (error) {
-    console.error('Error creating blog post:', error);
-    res.status(500).json({ error: 'Failed to create blog post' });
+    console.error('❌ Error creating blog post:', error);
+    res.status(500).json({ 
+      error: 'Failed to create blog post',
+      details: error.message 
+    });
   }
 });
 
-// Get single blog post - supports both ID and slug
+// Get single blog post
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Try to find by id first
     let post = await prisma.blogPost.findUnique({
       where: { id },
       include: {
         author: {
-          select: { 
+          select: {
             id: true,
-            name: true, 
+            name: true,
             email: true,
             avatar: true
           }
@@ -223,15 +336,14 @@ router.get('/:id', async (req, res) => {
       }
     });
 
-    // If not found by id, try by slug
     if (!post) {
       post = await prisma.blogPost.findUnique({
         where: { slug: id },
         include: {
           author: {
-            select: { 
+            select: {
               id: true,
-              name: true, 
+              name: true,
               email: true,
               avatar: true
             }
@@ -244,18 +356,13 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Blog post not found' });
     }
 
-    // Increment views
     await prisma.blogPost.update({
       where: { id: post.id },
       data: { views: { increment: 1 } }
     });
 
-    res.json({ 
-      post: {
-        ...post,
-        isVideo: isVideoUrl(post.image),
-        mediaType: isVideoUrl(post.image) ? 'video' : 'image'
-      }
+    res.json({
+      post: formatPost(post)
     });
   } catch (error) {
     console.error('Error fetching blog post:', error);
@@ -263,18 +370,16 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Update blog post - FIXED to handle video
+// Update blog post
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, content, excerpt, image, video, category, readTime, published } = req.body;
 
-    // Try to find by id first
     let existingPost = await prisma.blogPost.findUnique({
       where: { id }
     });
 
-    // If not found by id, try by slug
     if (!existingPost) {
       existingPost = await prisma.blogPost.findUnique({
         where: { slug: id }
@@ -293,16 +398,37 @@ router.put('/:id', requireAdmin, async (req, res) => {
     if (readTime) updateData.readTime = parseInt(readTime);
     if (published !== undefined) updateData.published = published;
 
-    // Handle media (video takes priority)
-    if (video && isVideoUrl(video)) {
-      updateData.image = video;
-    } else if (video && video.startsWith('/uploads/')) {
-      updateData.image = video;
-    } else if (image) {
-      updateData.image = image;
-    } else if (video) {
-      updateData.image = video;
+    let finalVideoUrl = existingPost.video;
+    let finalImageUrl = existingPost.image;
+
+    if (video !== undefined) {
+      if (video && video.trim() !== '') {
+        const normalized = normalizeVideoUrl(video.trim());
+        finalVideoUrl = normalized || video.trim();
+      } else {
+        finalVideoUrl = null;
+      }
     }
+
+    if (image !== undefined) {
+      if (image && image.trim() !== '') {
+        if (isVideoUrl(image.trim())) {
+          if (!finalVideoUrl) {
+            finalVideoUrl = normalizeVideoUrl(image.trim());
+          }
+          finalImageUrl = null;
+        } else {
+          finalImageUrl = image.trim();
+        }
+      } else {
+        finalImageUrl = null;
+      }
+    }
+
+    updateData.video = finalVideoUrl;
+    updateData.image = finalImageUrl;
+
+    console.log('🔄 Updating post video:', finalVideoUrl);
 
     const updated = await prisma.blogPost.update({
       where: { id: existingPost.id },
@@ -314,13 +440,9 @@ router.put('/:id', requireAdmin, async (req, res) => {
       }
     });
 
-    res.json({ 
+    res.json({
       success: true,
-      post: {
-        ...updated,
-        isVideo: isVideoUrl(updated.image),
-        mediaType: isVideoUrl(updated.image) ? 'video' : 'image'
-      },
+      post: formatPost(updated),
       message: 'Blog post updated successfully'
     });
   } catch (error) {
@@ -334,12 +456,10 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Try to find by id first
     let existingPost = await prisma.blogPost.findUnique({
       where: { id }
     });
 
-    // If not found by id, try by slug
     if (!existingPost) {
       existingPost = await prisma.blogPost.findUnique({
         where: { slug: id }
@@ -350,15 +470,24 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Blog post not found' });
     }
 
-    // Delete associated media file if exists and is local
     if (existingPost.image && existingPost.image.startsWith('/uploads/')) {
-      const mediaPath = path.join(__dirname, '..', existingPost.image);
-      if (fs.existsSync(mediaPath)) {
+      const imagePath = path.join(__dirname, '..', existingPost.image);
+      if (fs.existsSync(imagePath)) {
         try {
-          fs.unlinkSync(mediaPath);
-          console.log('🗑️ Deleted media file:', mediaPath);
+          fs.unlinkSync(imagePath);
         } catch (unlinkError) {
-          console.warn('⚠️ Could not delete media file:', unlinkError.message);
+          console.warn('⚠️ Could not delete image file:', unlinkError.message);
+        }
+      }
+    }
+
+    if (existingPost.video && existingPost.video.startsWith('/uploads/')) {
+      const videoPath = path.join(__dirname, '..', existingPost.video);
+      if (fs.existsSync(videoPath)) {
+        try {
+          fs.unlinkSync(videoPath);
+        } catch (unlinkError) {
+          console.warn('⚠️ Could not delete video file:', unlinkError.message);
         }
       }
     }
@@ -367,7 +496,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       where: { id: existingPost.id }
     });
 
-    res.json({ 
+    res.json({
       success: true,
       message: 'Blog post deleted successfully'
     });

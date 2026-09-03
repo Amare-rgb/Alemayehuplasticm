@@ -74,6 +74,7 @@ interface BlogPost {
   content: string;
   excerpt: string;
   image: string | null;
+  video: string | null;
   category: string;
   readTime: number;
   published: boolean;
@@ -152,29 +153,114 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
-// ✅ Video detection helper
-const isVideoUrl = (url: string | null): boolean => {
-  if (!url) return false;
-  const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
-  const lowerUrl = url.toLowerCase();
-  return videoExtensions.some(ext => lowerUrl.includes(ext)) || 
-         lowerUrl.includes('video') ||
-         lowerUrl.includes('stream') ||
-         lowerUrl.includes('youtube.com') ||
-         lowerUrl.includes('youtu.be') ||
-         lowerUrl.includes('vimeo.com');
+// ✅ FIXED: Video platform regex patterns
+const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
+const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
+const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+
+// Returns a normalized embed URL for a known platform link
+const getKnownPlatformEmbedUrl = (url: string | null): string | null => {
+  if (!url) return null;
+
+  const yt = url.match(YOUTUBE_ID_REGEX);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+
+  const vm = url.match(VIMEO_ID_REGEX);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+
+  const dm = url.match(DAILYMOTION_ID_REGEX);
+  if (dm) return `https://www.dailymotion.com/embed/video/${dm[1]}`;
+
+  return null;
 };
 
-// ✅ Media Renderer Component - Handles both images and videos
-const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: string }> = ({ 
-  src, 
-  alt, 
-  className = '' 
-}) => {
-  const [error, setError] = useState(false);
-  const isVideo = src ? isVideoUrl(src) : false;
+// ✅ FIXED: Enhanced isVideoUrl with better detection
+const isVideoUrl = (url: string | null): boolean => {
+  if (!url) return false;
+  
+  // Check for known platforms
+  if (getKnownPlatformEmbedUrl(url)) return true;
+  
+  // Check for direct video extensions
+  const lowerUrl = url.toLowerCase();
+  if (DIRECT_VIDEO_EXTENSIONS.some(ext => lowerUrl.includes(ext))) {
+    return true;
+  }
+  
+  // Check for common video hosting patterns
+  const videoPatterns = [
+    'youtube.com/watch',
+    'youtu.be/',
+    'vimeo.com/',
+    'dailymotion.com/',
+    '/video/',
+    'stream',
+    'watch?v=',
+    'v=',
+    'embed/',
+    'shorts/',
+    'live/'
+  ];
+  
+  return videoPatterns.some(pattern => lowerUrl.includes(pattern));
+};
 
-  if (!src || error) {
+// ✅ FIXED: Get embed URL for video platforms
+const getEmbedUrl = (url: string | null): string => {
+  if (!url) return '';
+  
+  // If it's already an embed URL, return as-is
+  if (url.includes('youtube.com/embed/') || 
+      url.includes('player.vimeo.com/') || 
+      url.includes('dailymotion.com/embed/')) {
+    return url;
+  }
+  
+  // Try to get platform embed URL
+  const platformEmbed = getKnownPlatformEmbedUrl(url);
+  if (platformEmbed) return platformEmbed;
+  
+  // Return original URL
+  return url;
+};
+
+// ✅ FIXED: MediaRenderer with proper video handling
+const MediaRenderer: React.FC<{ 
+  image: string | null; 
+  video: string | null; 
+  alt: string; 
+  className?: string 
+}> = ({ image, video, alt, className = '' }) => {
+  const [error, setError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Determine which media to display (video takes priority)
+  const currentMedia = video || image;
+  
+  // Check if this is a video
+  const isVideo = currentMedia ? isVideoUrl(currentMedia) : false;
+  
+  // Check if it's a known platform link (YouTube, Vimeo, Dailymotion)
+  const isKnownPlatformLink = currentMedia ? getKnownPlatformEmbedUrl(currentMedia) !== null : false;
+  
+  // Get the embed URL for platform videos
+  const embedUrl = getEmbedUrl(currentMedia);
+
+  // Debug logging
+  useEffect(() => {
+    console.log('🎬 MediaRenderer:', {
+      image,
+      video,
+      currentMedia,
+      isVideo,
+      isKnownPlatformLink,
+      embedUrl
+    });
+  }, [image, video, currentMedia]);
+
+  // If no media, show placeholder
+  if (!currentMedia) {
     return (
       <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${className}`}>
         <ImageIcon className="w-12 h-12 text-gray-300" />
@@ -182,21 +268,85 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
     );
   }
 
-  const fullUrl = src.startsWith('http') ? src : `${API_URL}${src}`;
+  // If error, show placeholder
+  if (error) {
+    return (
+      <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${className}`}>
+        <ImageIcon className="w-12 h-12 text-gray-300" />
+        <span className="text-xs text-gray-400 absolute bottom-2">Failed to load media</span>
+      </div>
+    );
+  }
 
-  // ✅ Render video with controls
+  // ✅ YouTube/Vimeo/Dailymotion - render as iframe
+  if (isVideo && isKnownPlatformLink && embedUrl) {
+    console.log('🎬 Rendering platform video as iframe:', embedUrl);
+    return (
+      <div className={`relative w-full h-full bg-black ${className}`}>
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+        )}
+        <iframe
+          src={embedUrl}
+          className="w-full h-full"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          title={alt}
+          onLoad={() => {
+            console.log('✅ Iframe loaded successfully');
+            setIsLoading(false);
+          }}
+          onError={() => {
+            console.error('❌ Iframe failed to load');
+            setError(true);
+            setIsLoading(false);
+          }}
+        />
+        <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center space-x-1">
+          <Film className="w-3 h-3" />
+          <span>Video</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ Direct video file (.mp4, .webm, uploaded file) - render video tag
   if (isVideo) {
+    let fullUrl = currentMedia;
+    if (!currentMedia.startsWith('http') && !currentMedia.startsWith('/')) {
+      fullUrl = `/${currentMedia}`;
+    }
+    if (!currentMedia.startsWith('http')) {
+      fullUrl = `${API_URL}${fullUrl}`;
+    }
+    
+    console.log('🎬 Rendering direct video file:', fullUrl);
     return (
       <div className={`relative bg-black w-full h-full ${className}`}>
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+        )}
         <video
+          key={currentMedia}
           src={fullUrl}
           className="w-full h-full object-cover"
           controls
           controlsList="nodownload"
           playsInline
           preload="metadata"
-          poster="/video-placeholder.png"
-          onError={() => setError(true)}
+          onLoadedData={() => {
+            console.log('✅ Video loaded successfully');
+            setIsLoading(false);
+          }}
+          onError={(e) => {
+            console.error('❌ Video failed to load:', e);
+            setError(true);
+            setIsLoading(false);
+          }}
         >
           Your browser does not support the video tag.
         </video>
@@ -209,15 +359,38 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
   }
 
   // ✅ Render image
+  let fullUrl = currentMedia;
+  if (!currentMedia.startsWith('http') && !currentMedia.startsWith('/')) {
+    fullUrl = `/${currentMedia}`;
+  }
+  if (!currentMedia.startsWith('http')) {
+    fullUrl = `${API_URL}${fullUrl}`;
+  }
+  
   return (
     <div className={`relative w-full h-full ${className}`}>
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-200">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+        </div>
+      )}
       <Image
+        key={currentMedia}
         src={fullUrl}
         alt={alt}
         fill
-        className="object-cover"
-        onError={() => setError(true)}
-        unoptimized={fullUrl.startsWith('http')}
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+        className={`object-cover transition-opacity duration-300 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
+        onLoad={() => {
+          console.log('✅ Image loaded successfully');
+          setIsLoading(false);
+        }}
+        onError={() => {
+          console.error('❌ Image failed to load');
+          setError(true);
+          setIsLoading(false);
+        }}
+        unoptimized={fullUrl.startsWith('http') && !fullUrl.includes('/uploads/')}
       />
     </div>
   );
@@ -268,7 +441,6 @@ const BlogPage: React.FC = () => {
     return status ? 'Published' : 'Draft';
   };
 
-  // ✅ Fetch posts function
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
@@ -314,6 +486,15 @@ const BlogPage: React.FC = () => {
         setTotalPages(Math.ceil(totalCount / pageSize));
       }
       
+      // Debug: Check each post for video data
+      postsData.forEach(post => {
+        console.log(`📹 Post "${post.title}":`, {
+          video: post.video,
+          image: post.image,
+          isVideo: isVideoUrl(post.video || post.image)
+        });
+      });
+      
       setPosts(postsData);
       setTotal(totalCount);
       
@@ -349,7 +530,6 @@ const BlogPage: React.FC = () => {
     }
   }, [selectedStatus, searchQuery, currentPage, pageSize, router]);
 
-  // ✅ Initial load
   useEffect(() => {
     isMounted.current = true;
     
@@ -364,14 +544,12 @@ const BlogPage: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Handle status and search changes
   useEffect(() => {
     if (isInitialMount.current) return;
     fetchPosts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStatus, searchQuery, currentPage]);
 
-  // ✅ Handler functions
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
     setCurrentPage(1);
@@ -561,13 +739,20 @@ const BlogPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {posts.length > 0 ? (
           posts.map((post) => {
-            const imageUrl = post.image && (post.image.startsWith('http') ? post.image : `${API_URL}${post.image}`);
-            const isVideo = imageUrl ? isVideoUrl(imageUrl) : false;
+            // Determine if this post has video
+            const hasVideo = !!post.video;
+            const imageIsVideo = post.image ? isVideoUrl(post.image) : false;
+            const isVideoPost = hasVideo || imageIsVideo;
             
             return (
               <div key={post.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-200">
                 <div className="relative h-48 bg-gray-100">
-                  <MediaRenderer src={imageUrl} alt={post.title} />
+                  <MediaRenderer 
+                    key={`${post.id}-${post.video || post.image || 'no-media'}`}
+                    image={post.image} 
+                    video={post.video} 
+                    alt={post.title} 
+                  />
                   <div className="absolute top-3 right-3">
                     <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${getStatusColor(post.published)}`}>
                       {getStatusLabel(post.published)}
@@ -609,8 +794,7 @@ const BlogPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* ✅ Video badge */}
-                  {imageUrl && isVideo && (
+                  {isVideoPost && (
                     <div className="mt-2">
                       <span className="inline-flex items-center space-x-1 text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
                         <Film className="w-3 h-3" />
@@ -618,7 +802,7 @@ const BlogPage: React.FC = () => {
                       </span>
                     </div>
                   )}
-                  {imageUrl && !isVideo && (
+                  {!isVideoPost && (post.image || post.video) && (
                     <div className="mt-2">
                       <span className="inline-flex items-center space-x-1 text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full">
                         <ImageIcon className="w-3 h-3" />

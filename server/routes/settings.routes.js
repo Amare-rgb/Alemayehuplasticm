@@ -35,19 +35,28 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: fileFilter
 });
+
+// Helper function to parse boolean
+const parseBoolean = (value) => {
+  if (value === 'true' || value === true) return true;
+  if (value === 'false' || value === false) return false;
+  return undefined;
+};
+
+const parseNumber = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const num = parseFloat(value);
+  return isNaN(num) ? undefined : num;
+};
 
 // ============================================
 // PUBLIC ROUTE - No authentication required
 // ============================================
 router.get('/public', async (req, res) => {
   try {
-    console.log('🔍 Fetching public settings...');
-    
     let settings = await prisma.settings.findFirst();
     
     if (!settings) {
@@ -67,7 +76,6 @@ router.get('/public', async (req, res) => {
           currency: 'KES',
           taxRate: 16,
           logo: '',
-          favicon: '',
           twoFactorAuth: false,
           sessionTimeout: 60,
           emailNotifications: true,
@@ -81,20 +89,12 @@ router.get('/public', async (req, res) => {
           contactPhone: '+1 (555) 123-4567',
           contactAddress: '123 Agriculture Way, Farming District, FC 12345',
           contactHours: 'Mon-Fri: 8:00 AM - 6:00 PM',
-          contactMapEmbed: '',
           enableContactForm: true,
-          enableWhatsApp: true,
-          whatsAppNumber: '+254700000000',
-          enableLiveChat: false,
-          emergencyPhone: '+1 (555) 999-9999',
-          supportEmail: 'support@genesisagri.com',
-          infoEmail: 'info@genesisagri.com',
         }
       });
-      console.log('✅ Default settings created');
     }
 
-    // Return only public fields (no sensitive data)
+    // Return only public fields
     const publicSettings = {
       siteName: settings.siteName,
       siteDescription: settings.siteDescription,
@@ -103,20 +103,10 @@ router.get('/public', async (req, res) => {
       contactPhone: settings.contactPhone,
       contactAddress: settings.contactAddress,
       contactHours: settings.contactHours,
-      contactMapEmbed: settings.contactMapEmbed,
       enableContactForm: settings.enableContactForm,
-      enableWhatsApp: settings.enableWhatsApp,
-      whatsAppNumber: settings.whatsAppNumber,
-      enableLiveChat: settings.enableLiveChat,
-      emergencyPhone: settings.emergencyPhone,
-      supportEmail: settings.supportEmail,
-      infoEmail: settings.infoEmail,
       themeColor: settings.themeColor,
     };
 
-    console.log('📦 Public settings sent');
-    
-    // FIX: Add Cache-Control header to prevent caching
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -154,7 +144,6 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
           currency: 'KES',
           taxRate: 16,
           logo: '',
-          favicon: '',
           twoFactorAuth: false,
           sessionTimeout: 60,
           emailNotifications: true,
@@ -168,19 +157,11 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
           contactPhone: '+1 (555) 123-4567',
           contactAddress: '123 Agriculture Way, Farming District, FC 12345',
           contactHours: 'Mon-Fri: 8:00 AM - 6:00 PM',
-          contactMapEmbed: '',
           enableContactForm: true,
-          enableWhatsApp: true,
-          whatsAppNumber: '+254700000000',
-          enableLiveChat: false,
-          emergencyPhone: '+1 (555) 999-9999',
-          supportEmail: 'support@genesisagri.com',
-          infoEmail: 'info@genesisagri.com',
         }
       });
     }
 
-    // FIX: Add Cache-Control header to prevent caching
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -195,52 +176,23 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
 // Update settings with logo upload (admin only)
 router.post('/', requireAuth, requireAdmin, upload.single('logo'), async (req, res) => {
   try {
-    console.log('📥 Received settings update');
-    console.log('📥 File:', req.file ? req.file.filename : 'No file');
-    console.log('📥 Body:', req.body);
-
     let settings = await prisma.settings.findFirst();
     
     // Handle logo upload
     let logoUrl = settings?.logo || '';
     if (req.file) {
-      // FIX: Delete old logo from correct folder
-      if (settings?.logo && settings.logo !== '') {
-        // Extract filename from the logo path
+      if (settings?.logo) {
         const oldLogoFileName = path.basename(settings.logo);
         const oldLogoPath = path.join(__dirname, '../uploads/settings', oldLogoFileName);
         if (fs.existsSync(oldLogoPath)) {
-          try {
-            fs.unlinkSync(oldLogoPath);
-            console.log('🗑️ Deleted old logo:', oldLogoPath);
-          } catch (err) {
-            console.error('Error deleting old logo:', err);
-          }
-        } else {
-          console.log('⚠️ Old logo file not found:', oldLogoPath);
+          fs.unlinkSync(oldLogoPath);
         }
       }
       logoUrl = `/uploads/settings/${req.file.filename}`;
-      console.log('🖼️ New logo uploaded:', logoUrl);
     } else if (req.body.logo === '') {
       logoUrl = '';
-      console.log('🗑️ Logo removed');
     }
 
-    // Helper function to parse boolean
-    const parseBoolean = (value) => {
-      if (value === 'true' || value === true) return true;
-      if (value === 'false' || value === false) return false;
-      return undefined;
-    };
-
-    const parseNumber = (value) => {
-      if (value === undefined || value === null || value === '') return undefined;
-      const num = parseFloat(value);
-      return isNaN(num) ? undefined : num;
-    };
-
-    // Build update data
     const updateData = {
       siteName: req.body.siteName || 'Genesis Agri Business',
       siteDescription: req.body.siteDescription || '',
@@ -256,7 +208,6 @@ router.post('/', requireAuth, requireAdmin, upload.single('logo'), async (req, r
       currency: req.body.currency || 'KES',
       taxRate: parseNumber(req.body.taxRate) || 16,
       logo: logoUrl,
-      favicon: req.body.favicon || '',
       twoFactorAuth: parseBoolean(req.body.twoFactorAuth) ?? false,
       sessionTimeout: parseNumber(req.body.sessionTimeout) || 60,
       emailNotifications: parseBoolean(req.body.emailNotifications) ?? true,
@@ -270,28 +221,18 @@ router.post('/', requireAuth, requireAdmin, upload.single('logo'), async (req, r
       contactPhone: req.body.contactPhone || '+1 (555) 123-4567',
       contactAddress: req.body.contactAddress || '123 Agriculture Way, Farming District, FC 12345',
       contactHours: req.body.contactHours || 'Mon-Fri: 8:00 AM - 6:00 PM',
-      contactMapEmbed: req.body.contactMapEmbed || '',
       enableContactForm: parseBoolean(req.body.enableContactForm) ?? true,
-      enableWhatsApp: parseBoolean(req.body.enableWhatsApp) ?? true,
-      whatsAppNumber: req.body.whatsAppNumber || '+254700000000',
-      enableLiveChat: parseBoolean(req.body.enableLiveChat) ?? false,
-      emergencyPhone: req.body.emergencyPhone || '+1 (555) 999-9999',
-      supportEmail: req.body.supportEmail || 'support@genesisagri.com',
-      infoEmail: req.body.infoEmail || 'info@genesisagri.com',
     };
 
     if (!settings) {
       settings = await prisma.settings.create({ data: updateData });
-      console.log('✅ Settings created');
     } else {
       settings = await prisma.settings.update({
         where: { id: settings.id },
         data: updateData
       });
-      console.log('✅ Settings updated');
     }
 
-    // FIX: Send the updated settings with cache-busting headers
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -371,7 +312,6 @@ router.post('/reset', requireAuth, requireAdmin, async (req, res) => {
       currency: 'KES',
       taxRate: 16,
       logo: '',
-      favicon: '',
       twoFactorAuth: false,
       sessionTimeout: 60,
       emailNotifications: true,
@@ -385,14 +325,7 @@ router.post('/reset', requireAuth, requireAdmin, async (req, res) => {
       contactPhone: '+1 (555) 123-4567',
       contactAddress: '123 Agriculture Way, Farming District, FC 12345',
       contactHours: 'Mon-Fri: 8:00 AM - 6:00 PM',
-      contactMapEmbed: '',
       enableContactForm: true,
-      enableWhatsApp: true,
-      whatsAppNumber: '+254700000000',
-      enableLiveChat: false,
-      emergencyPhone: '+1 (555) 999-9999',
-      supportEmail: 'support@genesisagri.com',
-      infoEmail: 'info@genesisagri.com',
     };
 
     let settings = await prisma.settings.findFirst();
@@ -403,9 +336,7 @@ router.post('/reset', requireAuth, requireAdmin, async (req, res) => {
         data: defaultSettings
       });
     } else {
-      await prisma.settings.create({
-        data: defaultSettings
-      });
+      await prisma.settings.create({ data: defaultSettings });
     }
 
     res.json({

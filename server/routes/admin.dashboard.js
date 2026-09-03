@@ -5,6 +5,7 @@ const prisma = require('../lib/prisma'); // shared, adapter-configured PrismaCli
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 // Import enums from Prisma client
+// ✅ Removed OrderStatus.PROCESSING from usage since it's deleted
 const { OrderStatus, PaymentStatus, ProductStatus, Role } = require('@prisma/client');
 
 // GET /api/admin/dashboard - Main dashboard stats
@@ -19,14 +20,14 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       totalOrders,
       totalCustomers,
       pendingOrders,
-      deliveredOrders,
+      completedOrders, // ✅ Renamed from deliveredOrders
       recentOrders,
       weeklySales
     ] = await Promise.all([
-      // Total Revenue from delivered/paid orders
+      // Total Revenue from completed/paid orders
       prisma.order.aggregate({
         where: { 
-          status: OrderStatus.DELIVERED,
+          status: OrderStatus.COMPLETED, // ✅ FIXED
           paymentStatus: PaymentStatus.PAID
         },
         _sum: { 
@@ -58,10 +59,10 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
         }
       }),
       
-      // Delivered Orders
+      // Completed Orders
       prisma.order.count({
         where: { 
-          status: OrderStatus.DELIVERED 
+          status: OrderStatus.COMPLETED // ✅ FIXED
         }
       }),
       
@@ -101,7 +102,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
           SUM(total) as revenue
         FROM "orders"
         WHERE "createdAt" >= NOW() - INTERVAL '7 days'
-          AND status = 'DELIVERED'
+          AND status = 'COMPLETED' -- ✅ FIXED
           AND "paymentStatus" = 'PAID'
         GROUP BY DATE("createdAt")
         ORDER BY date ASC
@@ -137,7 +138,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
         orders: totalOrders,
         customers: totalCustomers,
         pendingOrders: pendingOrders,
-        deliveredOrders: deliveredOrders
+        completedOrders: completedOrders // ✅ Renamed from deliveredOrders
       },
       recentOrders: formattedRecentOrders,
       weeklySales: weeklySales.map(day => ({
@@ -203,16 +204,16 @@ router.get('/overview', requireAuth, requireAdmin, async (req, res) => {
     });
 
     const totalRevenue = orders
-      .filter(o => o.status === OrderStatus.DELIVERED && o.paymentStatus === PaymentStatus.PAID)
+      .filter(o => o.status === OrderStatus.COMPLETED && o.paymentStatus === PaymentStatus.PAID) // ✅ FIXED
       .reduce((sum, o) => sum + Number(o.total), 0);
 
     const orderStats = {
       total: orders.length,
-      delivered: orders.filter(o => o.status === OrderStatus.DELIVERED).length,
+      completed: orders.filter(o => o.status === OrderStatus.COMPLETED).length, // ✅ FIXED
       pending: orders.filter(o => o.status === OrderStatus.PENDING).length,
-      processing: orders.filter(o => o.status === OrderStatus.PROCESSING).length,
       shipped: orders.filter(o => o.status === OrderStatus.SHIPPED).length,
       cancelled: orders.filter(o => o.status === OrderStatus.CANCELLED).length
+      // ✅ Removed "processing" count since PROCESSING is gone
     };
 
     res.json({

@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import axios, { AxiosError } from 'axios';
 import {
   CheckCircle,
@@ -58,7 +57,8 @@ interface StatsData {
     orders: number;
     customers: number;
     pendingOrders: number;
-    deliveredOrders: number;
+    // ✅ Updated from deliveredOrders to match backend
+    completedOrders: number; 
   };
   recentOrders: Order[];
   weeklySales: WeeklySale[];
@@ -126,7 +126,6 @@ const StatsCard: React.FC<StatsCardProps> = ({
 };
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<StatsData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -140,32 +139,24 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // FIXED: Use a ref to track initialization instead of state
   const hasInitializedRef = useRef(false);
 
-  // Check authentication and get user data
   const getAuthenticatedUser = useCallback((): User | null => {
     const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
     const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
     
-    console.log('🔍 Checking auth - Token exists:', !!token);
-    
     if (!token) {
-      console.log('❌ No token found');
       return null;
     }
 
     if (!userData) {
-      console.log('❌ No user data found');
       return null;
     }
 
     try {
       const parsedUser = JSON.parse(userData) as User;
-      console.log('👤 User role:', parsedUser.role);
       
       if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
-        console.log('❌ Not an admin');
         return null;
       }
       
@@ -179,7 +170,6 @@ export default function DashboardPage() {
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('🔍 Fetching dashboard data from API...');
       
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
@@ -187,7 +177,6 @@ export default function DashboardPage() {
       }
       
       const response = await api.get('/api/admin/dashboard');
-      console.log('📊 API Response:', response.data);
       
       if (!isMountedRef.current) return;
       
@@ -198,13 +187,11 @@ export default function DashboardPage() {
         setError('Invalid data format from API');
       }
     } catch (err: unknown) {
-      console.error('❌ Fetch error:', err);
       if (!isMountedRef.current) return;
       
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
-          console.log('❌ Unauthorized, redirecting to login...');
           localStorage.removeItem('authToken');
           sessionStorage.removeItem('authToken');
           window.location.replace('/auth/signin');
@@ -221,37 +208,29 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // FIXED: Use a setTimeout to defer state updates outside the effect
   useEffect(() => {
-    // Prevent multiple initializations
     if (hasInitializedRef.current) return;
     hasInitializedRef.current = true;
 
-    // Check authentication
     const authenticatedUser = getAuthenticatedUser();
     
     if (!authenticatedUser) {
-      console.log('❌ Authentication failed, redirecting...');
       window.location.replace('/auth/signin');
       return;
     }
 
-    // FIXED: Use setTimeout to move state updates out of the effect
-    // This breaks the synchronous setState call in the effect
     setTimeout(() => {
       setUser(authenticatedUser);
       fetchDashboardData();
     }, 0);
     
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only runs once on mount
+  }, []);
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
-      DELIVERED: 'bg-green-100 text-green-700',
-      COMPLETED: 'bg-green-100 text-green-700',
+      COMPLETED: 'bg-green-100 text-green-700', // ✅ Added COMPLETED
       PENDING: 'bg-yellow-100 text-yellow-700',
-      PROCESSING: 'bg-blue-100 text-blue-700',
       SHIPPED: 'bg-blue-100 text-blue-700',
       CANCELLED: 'bg-red-100 text-red-700',
     };
@@ -260,10 +239,8 @@ export default function DashboardPage() {
 
   const getStatusIcon = (status: string) => {
     const icons: Record<string, React.ReactNode> = {
-      DELIVERED: <CheckCircle className="w-4 h-4" />,
-      COMPLETED: <CheckCircle className="w-4 h-4" />,
+      COMPLETED: <CheckCircle className="w-4 h-4" />, // ✅ Added COMPLETED
       PENDING: <Clock className="w-4 h-4" />,
-      PROCESSING: <Activity className="w-4 h-4" />,
       SHIPPED: <Activity className="w-4 h-4" />,
       CANCELLED: <XCircle className="w-4 h-4" />,
     };
@@ -332,6 +309,10 @@ export default function DashboardPage() {
 
   const { stats, recentOrders, weeklySales } = data;
 
+  // Calculate Shipped count (Total - Pending - Completed - Cancelled)
+  // Since we no longer have Processing/Delivered, we can just show Completed for green, Pending for yellow.
+  // The rest of the orders are either Shipped or Cancelled.
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -389,9 +370,9 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                <span className="text-sm text-gray-600">Delivered</span>
+                <span className="text-sm text-gray-600">Completed</span>
               </div>
-              <span className="text-sm font-medium">{stats.deliveredOrders || 0}</span>
+              <span className="text-sm font-medium">{stats.completedOrders || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -403,10 +384,10 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                <span className="text-sm text-gray-600">Processing</span>
+                <span className="text-sm text-gray-600">Shipped & Others</span>
               </div>
               <span className="text-sm font-medium">
-                {(stats.orders || 0) - (stats.deliveredOrders || 0) - (stats.pendingOrders || 0)}
+                {Math.max((stats.orders || 0) - (stats.completedOrders || 0) - (stats.pendingOrders || 0), 0)}
               </span>
             </div>
           </div>

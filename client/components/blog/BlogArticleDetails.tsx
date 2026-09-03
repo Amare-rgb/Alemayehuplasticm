@@ -10,6 +10,7 @@ import {
   Clock3,
   Leaf,
   Eye,
+  Film,
 } from "lucide-react";
 import {
   BlogPost,
@@ -21,6 +22,58 @@ import { useLanguage } from "@/context/LanguageContext";
 interface BlogArticleDetailsProps {
   post?: BlogPost;
   relatedPosts: BlogPost[];
+}
+
+// ✅ NEW: same regex-based video detection used across the admin panel, the
+// backend, and the blog list page — kept consistent everywhere a post's
+// media gets rendered. Assumes `BlogPost` has (or will have) a
+// `video: string | null` field matching what the API returns.
+const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
+const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
+const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+
+const getKnownPlatformEmbedUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+
+  const yt = url.match(YOUTUBE_ID_REGEX);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+
+  const vm = url.match(VIMEO_ID_REGEX);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+
+  const dm = url.match(DAILYMOTION_ID_REGEX);
+  if (dm) return `https://www.dailymotion.com/embed/video/${dm[1]}`;
+
+  return null;
+};
+
+const isVideoUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  if (getKnownPlatformEmbedUrl(url)) return true;
+  const lowerUrl = url.toLowerCase();
+  return DIRECT_VIDEO_EXTENSIONS.some(ext => lowerUrl.includes(ext));
+};
+
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
+// Resolves a post's media into iframe / video / image, mirroring the same
+// helper used on the blog list page so both views agree.
+function getPostMedia(post: BlogPost) {
+  const video = (post as { video?: string | null }).video;
+  const media = video || post.image;
+  const isVideo = video ? true : isVideoUrl(post.image);
+
+  if (isVideo && media) {
+    const knownEmbed = getKnownPlatformEmbedUrl(media);
+    if (knownEmbed) {
+      return { type: 'iframe' as const, url: knownEmbed };
+    }
+    const fullUrl = media.startsWith('http') ? media : `${apiBaseUrl}${media}`;
+    return { type: 'video' as const, url: fullUrl };
+  }
+
+  return { type: 'image' as const, url: formatBlogImage(post.image) };
 }
 
 function FormattedArticleContent({ content }: { content: string }) {
@@ -129,6 +182,8 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
     );
   }
 
+  const heroMedia = getPostMedia(post);
+
   return (
     <main className="min-h-screen bg-[var(--cream)] text-[var(--ink)]">
       {/* =========================================================
@@ -212,20 +267,55 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
       </section>
 
       {/* =========================================================
-          HERO COVER IMAGE
+          HERO COVER MEDIA - image or video
       ========================================================= */}
       <section className="mx-auto w-[min(1080px,calc(100%-48px))] -mt-10 sm:-mt-14 relative z-10">
         <div className="relative aspect-[16/9] sm:aspect-[16/8] overflow-hidden rounded-[2.5rem] bg-[#071a11] shadow-[0_25px_70px_rgba(18,53,35,.16)] border border-white/10">
-          <img
-            src={formatBlogImage(post.image)}
-            alt={post.title}
-            className="h-full w-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-          <div className="absolute bottom-5 left-5 flex items-center gap-2 rounded-xl bg-[rgba(11,36,25,.85)] px-4 py-2 text-[9px] font-bold uppercase tracking-[0.14em] text-white backdrop-blur-md border border-white/10">
-            <Leaf size={12} className="text-[var(--lime)]" />
-            <span>{t("blog.verified_journal", "Verified Farm Journal")}</span>
-          </div>
+          {heroMedia.type === 'iframe' ? (
+            <iframe
+              src={heroMedia.url}
+              className="h-full w-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              title={post.title}
+            />
+          ) : heroMedia.type === 'video' ? (
+            <video
+              src={heroMedia.url}
+              className="h-full w-full object-cover"
+              controls
+              controlsList="nodownload"
+              playsInline
+              preload="metadata"
+            >
+              Your browser does not support the video tag.
+            </video>
+          ) : (
+            <img
+              src={heroMedia.url}
+              alt={post.title}
+              className="h-full w-full object-cover"
+            />
+          )}
+
+          {/* Gradient + badge only make sense over a static image; an
+              iframe/video already has its own controls and a gradient
+              overlay on top would block clicks on them. */}
+          {heroMedia.type === 'image' && (
+            <>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
+              <div className="absolute bottom-5 left-5 flex items-center gap-2 rounded-xl bg-[rgba(11,36,25,.85)] px-4 py-2 text-[9px] font-bold uppercase tracking-[0.14em] text-white backdrop-blur-md border border-white/10">
+                <Leaf size={12} className="text-[var(--lime)]" />
+                <span>{t("blog.verified_journal", "Verified Farm Journal")}</span>
+              </div>
+            </>
+          )}
+          {heroMedia.type !== 'image' && (
+            <div className="absolute top-5 left-5 flex items-center gap-1.5 rounded-xl bg-[rgba(11,36,25,.85)] px-4 py-2 text-[9px] font-bold uppercase tracking-[0.14em] text-white backdrop-blur-md border border-white/10 pointer-events-none">
+              <Film size={12} className="text-[var(--lime)]" />
+              <span>{t("blog.video_badge", "Video")}</span>
+            </div>
+          )}
         </div>
       </section>
 
@@ -295,40 +385,73 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
             </div>
 
             <div className="grid gap-7 sm:grid-cols-2 md:grid-cols-3">
-              {relatedPosts.map((related) => (
-                <Link
-                  key={related.id || related.slug}
-                  href={`/blog/${encodeURIComponent(related.slug)}`}
-                  className="group flex flex-col overflow-hidden rounded-3xl border border-[rgba(20,33,25,.08)] bg-[#fdfbf7] p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
-                >
-                  <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-[#071a11]">
-                    <img
-                      src={formatBlogImage(related.image)}
-                      alt={related.title}
-                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-                    />
-                    <span className="absolute left-3 top-3 rounded-full bg-[#123523]/90 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--lime)]">
-                      {getCategoryLabel(related.category)}
-                    </span>
-                  </div>
+              {relatedPosts.map((related) => {
+                const relatedMedia = getPostMedia(related);
+                return (
+                  <Link
+                    key={related.id || related.slug}
+                    href={`/blog/${encodeURIComponent(related.slug)}`}
+                    className="group flex flex-col overflow-hidden rounded-3xl border border-[rgba(20,33,25,.08)] bg-[#fdfbf7] p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+                  >
+                    <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-[#071a11]">
+                      {relatedMedia.type === 'iframe' ? (
+                        <>
+                          <iframe
+                            src={relatedMedia.url}
+                            className="absolute inset-0 h-full w-full pointer-events-none"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            title={related.title}
+                          />
+                          <span className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-white">
+                            <Film size={10} />
+                            {t("blog.video_badge", "Video")}
+                          </span>
+                        </>
+                      ) : relatedMedia.type === 'video' ? (
+                        <>
+                          <video
+                            src={relatedMedia.url}
+                            className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                            muted
+                            loop
+                            playsInline
+                            autoPlay
+                          />
+                          <span className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-white">
+                            <Film size={10} />
+                            {t("blog.video_badge", "Video")}
+                          </span>
+                        </>
+                      ) : (
+                        <img
+                          src={relatedMedia.url}
+                          alt={related.title}
+                          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                        />
+                      )}
+                      <span className="absolute left-3 top-3 rounded-full bg-[#123523]/90 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--lime)]">
+                        {getCategoryLabel(related.category)}
+                      </span>
+                    </div>
 
-                  <div className="pt-4 flex-1 flex flex-col justify-between">
-                    <div>
-                      <div className="text-[10px] font-semibold text-[#69736b] mb-1.5">
-                        {formatBlogDate(related.createdAt)} • {related.readTime || 3} {t("blog.min_read", "min")}
+                    <div className="pt-4 flex-1 flex flex-col justify-between">
+                      <div>
+                        <div className="text-[10px] font-semibold text-[#69736b] mb-1.5">
+                          {formatBlogDate(related.createdAt)} • {related.readTime || 3} {t("blog.min_read", "min")}
+                        </div>
+                        <h3 className="font-serif-heading text-lg font-bold leading-snug text-[#123523] group-hover:text-[#28633e] transition-colors line-clamp-2">
+                          {related.title}
+                        </h3>
                       </div>
-                      <h3 className="font-serif-heading text-lg font-bold leading-snug text-[#123523] group-hover:text-[#28633e] transition-colors line-clamp-2">
-                        {related.title}
-                      </h3>
-                    </div>
 
-                    <div className="mt-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#28633e] group-hover:translate-x-1 transition-transform">
-                      {t("blog.read_story", "Read Story")}
-                      <ArrowRight size={13} />
+                      <div className="mt-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#28633e] group-hover:translate-x-1 transition-transform">
+                        {t("blog.read_story", "Read Story")}
+                        <ArrowRight size={13} />
+                      </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           </div>
         </section>

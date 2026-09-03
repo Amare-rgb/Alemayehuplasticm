@@ -257,25 +257,46 @@ router.patch('/bulk-visibility', requireAuth, requireAdmin, async (req, res) => 
   }
 });
 
-// Create category
-router.post('/', requireAdmin, async (req, res) => {
+// ✅ FIXED: Create category (Now requires auth, validates user exists)
+router.post('/', requireAuth, async (req, res) => {
   try {
-    const { name, slug, description, parentId, image, icon } = req.body;
+    const { name, slug, description, parentId, image, icon, status } = req.body;
 
-    if (!name || !slug) {
-      return res.status(400).json({ error: 'Name and slug are required' });
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+    if (!slug) {
+      return res.status(400).json({ error: 'Slug is required' });
     }
 
+    // ✅ SAFELY get the user ID from session
+    const userId = req.session.user?.id || req.session.user?.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    // ✅ CRITICAL FIX: Verify user exists before trying to create
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true }
+    });
+
+    if (!existingUser) {
+      return res.status(401).json({ error: 'Invalid user session. Please login again.' });
+    }
+
+    // ✅ Create category using the verified user ID
     const category = await prisma.category.create({
       data: {
         name,
         slug,
         description,
-        parentId,
+        parentId: parentId || null,
         image,
         icon,
-        createdBy: req.session.user.id,
-        status: 'APPROVED',
+        createdBy: existingUser.id, // ✅ Use the actual validated user ID
+        status: status || 'APPROVED',
       }
     });
 
