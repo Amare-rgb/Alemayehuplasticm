@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowDown,
   ArrowRight,
@@ -28,6 +29,7 @@ interface CategoryItem {
   description: string;
   image: string;
   category: string;
+  slug?: string;
 }
 
 interface ValueItem {
@@ -48,28 +50,49 @@ function useMounted() {
 
 function ProductCard({ product }: { product: CategoryItem }) {
   const { t } = useLanguage();
+  const [imgSrc, setImgSrc] = useState(product.image);
+
+  // Category-specific fallback images
+  const fallbacks: Record<string, string> = {
+    vegetables: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
+    fruits: "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
+    cereals: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
+    grains: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
+    dairy: "https://images.unsplash.com/photo-1628088062854-d1870b4553da?auto=format&fit=crop&w=1200&q=85",
+    meat: "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=1200&q=85",
+    poultry: "https://images.unsplash.com/photo-1587593810169-2efb9f32a2a4?auto=format&fit=crop&w=1200&q=85",
+    default: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
+  };
+
+  const handleError = () => {
+    const key = product.slug?.toLowerCase() || product.category.toLowerCase();
+    const fallback = fallbacks[key] || fallbacks.default;
+    setImgSrc(fallback);
+  };
 
   return (
     <Link
-      href={`/shop?category=${encodeURIComponent(product.category)}`}
+      href={`/shop?category=${encodeURIComponent(product.slug || product.category)}`}
       className="group relative block h-[260px] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl"
     >
-      {/* Background Image */}
-      <img
-        src={product.image}
-        alt={product.title}
-        loading="lazy"
-        className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[101%]"
-        onError={(e) => {
-          e.currentTarget.src =
-            "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
-        }}
-      />
+      {/* Background Image with Next.js Image */}
+      <div className="relative h-full w-full">
+        <Image
+          src={imgSrc}
+          alt={product.title}
+          fill
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 260px"
+          className="object-cover transition-transform duration-300 ease-out group-hover:scale-[101%]"
+          onError={handleError}
+          priority={false}
+          loading="lazy"
+        />
+      </div>
 
       {/* Dark gradient overlay at bottom */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
 
-      {/* Card Content Overlay - Minimized and perfectly aligned */}
+      {/* Card Content Overlay */}
       <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
         <span className="mb-1 block text-[10px] font-mono tracking-widest text-white/70">
           {product.number}
@@ -94,34 +117,8 @@ function ProductCard({ product }: { product: CategoryItem }) {
 
 function ProductCards() {
   const { t } = useLanguage();
-  const fallbackCategories: CategoryItem[] = [
-    {
-      number: "01",
-      title: t("home.cat_veg_title", "Vegetables"),
-      description: t("home.cat_veg_desc", "Crisp, seasonal and farm-fresh."),
-      image:
-        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-      category: "vegetables",
-    },
-    {
-      number: "02",
-      title: t("home.cat_fruit_title", "Fruits"),
-      description: t("home.cat_fruit_desc", "Picked for flavor and freshness."),
-      image:
-        "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
-      category: "fruits",
-    },
-    {
-      number: "03",
-      title: t("home.cat_cereal_title", "Cereals"),
-      description: t("home.cat_cereal_desc", "Reliable staples for every home."),
-      image:
-        "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-      category: "cereals",
-    },
-  ];
-
-  const [categories, setCategories] = useState<CategoryItem[]>(fallbackCategories);
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -129,9 +126,13 @@ function ProductCards() {
 
     const fetchCategories = async () => {
       try {
+        setLoading(true);
         const apiBaseUrl =
           process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+        
+        // ✅ Fetch categories from API
         const res = await fetch(`${apiBaseUrl}/api/categories/public`);
+        
         if (res.ok) {
           const data = await res.json();
           const raw = Array.isArray(data)
@@ -139,37 +140,123 @@ function ProductCards() {
             : data?.categories || data?.data || [];
 
           if (isMounted && raw.length > 0) {
+            // ✅ Get top-level categories (no parent)
             const top = raw.filter((c: CategoryData) => !c.parentId);
             const toMap = top.length > 0 ? top : raw;
 
-            const defaultImages = [
-              "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-              "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
-              "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-              "https://images.unsplash.com/photo-1527153857715-3908f2ae5e81?auto=format&fit=crop&w=1200&q=85",
-              "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=1200&q=85",
-            ];
+            // ✅ Category-specific fallback images
+            const categoryImages: Record<string, string> = {
+              vegetables: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
+              fruits: "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
+              cereals: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
+              grains: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
+              dairy: "https://images.unsplash.com/photo-1628088062854-d1870b4553da?auto=format&fit=crop&w=1200&q=85",
+              meat: "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=1200&q=85",
+              poultry: "https://images.unsplash.com/photo-1587593810169-2efb9f32a2a4?auto=format&fit=crop&w=1200&q=85",
+              default: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
+            };
 
             const mapped: CategoryItem[] = toMap.map((cat: CategoryData, i: number) => {
+              // ✅ Determine the best image to use
               let img = cat.image;
-              if (img && !img.startsWith("http")) {
-                img = `${apiBaseUrl}${img}`;
+              
+              // ✅ If category has an image from admin, use it
+              if (img) {
+                // If it's a relative path, prepend API URL
+                if (!img.startsWith("http")) {
+                  img = `${apiBaseUrl}${img}`;
+                }
+                console.log(`🖼️ Category "${cat.name}" image from admin:`, img);
+              } else {
+                // ✅ Use category-specific fallback based on name/slug
+                const catKey = (cat.slug || cat.name || "").toLowerCase();
+                let fallbackImg = categoryImages.default;
+                
+                for (const [key, value] of Object.entries(categoryImages)) {
+                  if (catKey.includes(key) || key.includes(catKey)) {
+                    fallbackImg = value;
+                    break;
+                  }
+                }
+                img = fallbackImg;
+                console.log(`🖼️ Category "${cat.name}" using fallback image`);
               }
+
               return {
                 number: String(i + 1).padStart(2, "0"),
                 title: cat.name,
                 description:
-                  cat.description || t("home.cat_default_desc", "Crisp, seasonal and farm-fresh produce."),
-                image: img || defaultImages[i % defaultImages.length],
+                  cat.description || t("home.cat_default_desc", "Fresh, quality produce from our farms."),
+                image: img,
                 category: cat.slug || cat.id || String(i),
+                slug: cat.slug || undefined,
               };
             });
 
             setCategories(mapped);
+          } else {
+            // ✅ If no categories from API, use fallback
+            setCategories([
+              {
+                number: "01",
+                title: t("home.cat_veg_title", "Vegetables"),
+                description: t("home.cat_veg_desc", "Crisp, seasonal and farm-fresh."),
+                image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
+                category: "vegetables",
+                slug: "vegetables",
+              },
+              {
+                number: "02",
+                title: t("home.cat_fruit_title", "Fruits"),
+                description: t("home.cat_fruit_desc", "Picked for flavor and freshness."),
+                image: "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
+                category: "fruits",
+                slug: "fruits",
+              },
+              {
+                number: "03",
+                title: t("home.cat_cereal_title", "Cereals"),
+                description: t("home.cat_cereal_desc", "Reliable staples for every home."),
+                image: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
+                category: "cereals",
+                slug: "cereals",
+              },
+            ]);
           }
         }
       } catch (err) {
         console.warn("Failed to fetch categories for home page:", err);
+        // ✅ Set fallback categories on error
+        setCategories([
+          {
+            number: "01",
+            title: t("home.cat_veg_title", "Vegetables"),
+            description: t("home.cat_veg_desc", "Crisp, seasonal and farm-fresh."),
+            image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
+            category: "vegetables",
+            slug: "vegetables",
+          },
+          {
+            number: "02",
+            title: t("home.cat_fruit_title", "Fruits"),
+            description: t("home.cat_fruit_desc", "Picked for flavor and freshness."),
+            image: "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
+            category: "fruits",
+            slug: "fruits",
+          },
+          {
+            number: "03",
+            title: t("home.cat_cereal_title", "Cereals"),
+            description: t("home.cat_cereal_desc", "Reliable staples for every home."),
+            image: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
+            category: "cereals",
+            slug: "cereals",
+          },
+        ]);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
@@ -189,6 +276,42 @@ function ProductCards() {
       });
     }
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <section
+        id="products"
+        className="scroll-mt-20 bg-[var(--cream)] py-[105px] px-4 sm:px-6 lg:px-10 w-full overflow-hidden"
+      >
+        <div className="w-full">
+          <div className="mb-[50px] flex items-end justify-between gap-14 max-md:flex-col max-md:items-start max-md:gap-5">
+            <div>
+              <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
+                {t("home.products_heading_prefix", "Freshness you can")}
+                <br />
+                <em className="font-semibold text-[var(--green-700)]">
+                  {t("home.products_heading_accent", "taste.")}
+                </em>
+              </h2>
+            </div>
+          </div>
+          <div className="flex w-full gap-6 overflow-x-auto pb-6 pt-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="w-[260px] shrink-0 snap-start">
+                <div className="h-[260px] w-full rounded-[28px] bg-gray-200 animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // If no categories, show nothing
+  if (categories.length === 0) {
+    return null;
+  }
 
   return (
     <section
@@ -237,7 +360,7 @@ function ProductCards() {
           </div>
         </div>
 
-        {/* Horizontal scrollable cards container - PERFECTLY MINIMIZED & EQUAL */}
+        {/* Horizontal scrollable cards container */}
         <div
           ref={scrollContainerRef}
           className="flex w-full gap-6 overflow-x-auto pb-6 pt-2 scroll-smooth scrollbar-none snap-x snap-mandatory"
@@ -498,17 +621,17 @@ export default function HomePage() {
         className="scroll-mt-20 bg-white py-[105px]"
       >
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[.95fr_1.05fr] items-center gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
-          {/* FIXED: Image now fills the container without being cut off */}
+          {/* Image now fills the container without being cut off */}
           <div className="relative h-[500px] w-full max-lg:h-[400px]">
-            <div
-              className="h-full w-full overflow-hidden rounded-3xl bg-no-repeat relative"
-              style={{
-                backgroundImage: 'url("/banners/tanafarm.jpg")',
-                backgroundSize: 'contain', // FIXED: Shows full image
-                backgroundPosition: 'center',
-                backgroundColor: '#f6f3e9', // Background color for empty space
-              }}
-            >
+            <div className="relative h-full w-full overflow-hidden rounded-3xl bg-[#f6f3e9]">
+              <Image
+                src="/banners/tanafarm.jpg"
+                alt="Tana Farm"
+                fill
+                sizes="(max-width: 1024px) 100vw, 50vw"
+                className="object-contain"
+                priority={false}
+              />
               <span className="absolute right-5 top-5 bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] rounded-md shadow-md z-10">
                 {t("home.tana_badge", "A SISTER COMPANY")}
               </span>
