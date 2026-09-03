@@ -127,29 +127,47 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
-// Helper function to detect if URL is a video
-const isVideoUrl = (url: string | null): boolean => {
-  if (!url) return false;
-  
-  const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.mpeg', '.mpg', '.3gp'];
-  const lowerUrl = url.toLowerCase();
-  
-  if (videoExtensions.some(ext => lowerUrl.endsWith(ext) || lowerUrl.includes(ext))) {
-    return true;
-  }
-  
-  if (lowerUrl.includes('/video/') || lowerUrl.includes('/videos/')) {
-    return true;
-  }
-  
-  if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be') || lowerUrl.includes('vimeo.com')) {
-    return true;
-  }
-  
-  return false;
+// ✅ FIXED: regex-based ID extraction, identical to the backend, the blog
+// list page, and the new-post page — all four now always agree on what's a
+// video and what its embed URL is.
+const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
+const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
+const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.mpeg', '.mpg', '.3gp'];
+
+const getKnownPlatformEmbedUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+
+  const yt = url.match(YOUTUBE_ID_REGEX);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+
+  const vm = url.match(VIMEO_ID_REGEX);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+
+  const dm = url.match(DAILYMOTION_ID_REGEX);
+  if (dm) return `https://www.dailymotion.com/embed/video/${dm[1]}`;
+
+  return null;
 };
 
-// Media Renderer Component - Handles both images and videos
+const isVideoUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  if (getKnownPlatformEmbedUrl(url)) return true;
+  const lowerUrl = url.toLowerCase();
+  return DIRECT_VIDEO_EXTENSIONS.some(ext => lowerUrl.includes(ext));
+};
+
+const getEmbedUrl = (url: string | null | undefined): string => {
+  if (!url) return '';
+  const platformEmbed = getKnownPlatformEmbedUrl(url);
+  return platformEmbed ?? url;
+};
+
+// ✅ FIXED: MediaRenderer previously had NO iframe branch at all — every
+// video, including YouTube/Vimeo links, was pushed into a plain <video>
+// tag trying to play a webpage URL as a file, which always failed and
+// showed "Video unavailable". Now it renders an iframe for known platform
+// links and a real <video> tag only for direct files/uploads.
 const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: string }> = ({ 
   src, 
   alt, 
@@ -165,10 +183,32 @@ const MediaRenderer: React.FC<{ src: string | null; alt: string; className?: str
     );
   }
 
-  const fullUrl = src.startsWith('http') ? src : `${API_URL}${src}`;
-  const isVideo = isVideoUrl(fullUrl);
+  const isKnownPlatformLink = getKnownPlatformEmbedUrl(src) !== null;
+  const isVideo = isVideoUrl(src);
 
-  // Render video with controls
+  // Known platform link (YouTube/Vimeo/DailyMotion) - always an iframe
+  if (isVideo && isKnownPlatformLink) {
+    const embedUrl = getEmbedUrl(src);
+    return (
+      <div className={`relative w-full h-full ${className}`}>
+        <iframe
+          src={embedUrl}
+          className="w-full h-full"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          title={alt}
+        />
+        <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center space-x-1">
+          <Film className="w-3 h-3" />
+          <span>Video</span>
+        </div>
+      </div>
+    );
+  }
+
+  const fullUrl = src.startsWith('http') ? src : `${API_URL}${src}`;
+
+  // Direct video file (upload or .mp4 link) - render <video> tag
   if (isVideo) {
     return (
       <div className={`relative bg-black w-full h-full ${className}`}>
@@ -236,7 +276,6 @@ const EditBlogPostPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
-  // ✅ FIXED: mediaType type - removed 'url'
   const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
   const [showVideoUrlInput, setShowVideoUrlInput] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
@@ -284,23 +323,17 @@ const EditBlogPostPage: React.FC = () => {
     const checkAuth = () => {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
-      
-      console.log('🔍 Edit Blog Post - Checking auth...');
-      console.log('Token exists:', !!token);
-      
+
       if (!token) {
-        console.log('❌ No token found, redirecting to login...');
         router.replace('/auth/signin');
         setAuthLoading(false);
         return;
       }
-      
+
       if (userData) {
         try {
           const parsedUser = JSON.parse(userData);
-          console.log('👤 User role:', parsedUser.role);
           if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
-            console.log('❌ Not an admin, redirecting to home...');
             router.replace('/');
             setAuthLoading(false);
             return;
@@ -311,12 +344,11 @@ const EditBlogPostPage: React.FC = () => {
           router.replace('/auth/signin');
         }
       } else {
-        console.log('❌ No user data found');
         router.replace('/auth/signin');
       }
       setAuthLoading(false);
     };
-    
+
     checkAuth();
   }, [router]);
 
@@ -324,7 +356,7 @@ const EditBlogPostPage: React.FC = () => {
   useEffect(() => {
     const fetchPost = async () => {
       if (!isAuthenticated || !id) return;
-      
+
       try {
         setLoading(true);
         const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
@@ -338,36 +370,38 @@ const EditBlogPostPage: React.FC = () => {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        if (response.data && response.data.post) {
-          const post = response.data.post;
-          const isVideo = post.image ? isVideoUrl(post.image) : false;
-          
+        const post = response.data?.post || response.data?.data;
+
+        if (post) {
+          // ✅ FIXED: check post.video FIRST — it's the source of truth from
+          // the backend. Only fall back to inspecting post.image for legacy
+          // rows that were saved before the image/video split existed. The
+          // old code only ever looked at post.image and silently dropped
+          // any video stored in post.video.
+          let videoValue = '';
+          let imageValue = '';
+
+          if (post.video) {
+            videoValue = post.video;
+            imageValue = post.image && !isVideoUrl(post.image) ? post.image : '';
+          } else if (post.image && isVideoUrl(post.image)) {
+            // Legacy row: video URL was stored in the image column
+            videoValue = post.image;
+          } else {
+            imageValue = post.image || '';
+          }
+
           setFormData({
             title: post.title || '',
             content: post.content || '',
             excerpt: post.excerpt || '',
-            image: isVideo ? '' : (post.image || ''),
-            video: isVideo ? (post.image || '') : '',
+            image: imageValue,
+            video: videoValue,
             category: post.category || 'Agriculture',
             readTime: post.readTime || 3,
             published: post.published !== undefined ? post.published : true,
           });
-          setMediaType(isVideo ? 'video' : (post.image ? 'image' : null));
-        } else if (response.data && response.data.data) {
-          const post = response.data.data;
-          const isVideo = post.image ? isVideoUrl(post.image) : false;
-          
-          setFormData({
-            title: post.title || '',
-            content: post.content || '',
-            excerpt: post.excerpt || '',
-            image: isVideo ? '' : (post.image || ''),
-            video: isVideo ? (post.image || '') : '',
-            category: post.category || 'Agriculture',
-            readTime: post.readTime || 3,
-            published: post.published !== undefined ? post.published : true,
-          });
-          setMediaType(isVideo ? 'video' : (post.image ? 'image' : null));
+          setMediaType(videoValue ? 'video' : (imageValue ? 'image' : null));
         }
       } catch (err) {
         console.error('Error fetching post:', err);
@@ -408,14 +442,14 @@ const EditBlogPostPage: React.FC = () => {
     const file = files[0];
     const isVideo = file.type.startsWith('video/');
     const maxSize = isVideo ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
-    
+
     if (file.size > maxSize) {
       showNotification('error', `File size must be less than ${isVideo ? '50MB' : '5MB'}`);
       return;
     }
 
     setUploadingMedia(true);
-    
+
     try {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
@@ -427,16 +461,12 @@ const EditBlogPostPage: React.FC = () => {
       const formDataUpload = new FormData();
       formDataUpload.append('media', file);
 
-      console.log('📤 Uploading media...', file.name, file.size, 'isVideo:', isVideo);
-      
       const response = await api.post('/api/blog/upload', formDataUpload, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
         },
       });
-
-      console.log('📊 Upload response:', response.data);
 
       let mediaUrl = null;
       if (response.data && response.data.mediaUrl) {
@@ -464,8 +494,8 @@ const EditBlogPostPage: React.FC = () => {
       console.error('Error uploading media:', err);
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{ error: string; message?: string }>;
-        const errorMsg = axiosError.response?.data?.error || 
-                         axiosError.response?.data?.message || 
+        const errorMsg = axiosError.response?.data?.error ||
+                         axiosError.response?.data?.message ||
                          'Failed to upload media';
         showNotification('error', errorMsg);
       } else {
@@ -493,12 +523,17 @@ const EditBlogPostPage: React.FC = () => {
       return;
     }
 
+    // ✅ FIXED: normalize known platform links immediately, same as the
+    // new-post page, so the preview and the payload sent on save always
+    // use a real embeddable URL.
+    const trimmed = videoUrl.trim();
+    const normalized = getKnownPlatformEmbedUrl(trimmed) ?? trimmed;
+
     setFormData(prev => ({
       ...prev,
-      video: videoUrl.trim(),
-      image: '' // Clear image if video is added
+      video: normalized,
+      image: ''
     }));
-    // ✅ FIXED: Don't set mediaType to 'url'
     setMediaType('video');
     setShowVideoUrlInput(false);
     setVideoUrl('');
@@ -519,7 +554,7 @@ const EditBlogPostPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    
+
     try {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) {
@@ -541,15 +576,18 @@ const EditBlogPostPage: React.FC = () => {
         return;
       }
 
-      // Use video field if present, otherwise use image
-      const mediaField = formData.video || formData.image || '';
-
+      // ✅ FIXED: keep image and video as separate fields — the old code
+      // wrote the video URL into BOTH `image` and `video`
+      // (`image: mediaField`), which polluted the image column with a
+      // YouTube URL and broke anything that assumed `image` was always
+      // a plain image (e.g. Open Graph tags, thumbnails elsewhere in the
+      // app). Send each field for what it actually is.
       const submitData = {
         title: formData.title.trim(),
         content: formData.content.trim(),
         excerpt: formData.excerpt.trim() || formData.content.substring(0, 150),
-        image: mediaField, // Store media in image field
-        video: formData.video || '', // Keep video field for reference
+        image: formData.image || null,
+        video: formData.video || null,
         category: formData.category,
         readTime: formData.readTime || 3,
         published: formData.published,
@@ -560,7 +598,7 @@ const EditBlogPostPage: React.FC = () => {
           'Authorization': `Bearer ${token}`
         }
       });
-      
+
       if (response.data.success) {
         showNotification('success', 'Blog post updated successfully! 🎉');
         setTimeout(() => {
@@ -660,7 +698,7 @@ const EditBlogPostPage: React.FC = () => {
                 <FileText className="w-5 h-5 text-green-600" />
                 <h3 className="font-semibold text-gray-900">Blog Post Content</h3>
               </div>
-              
+
               <div className="space-y-5">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -720,7 +758,7 @@ const EditBlogPostPage: React.FC = () => {
                 <h3 className="font-semibold text-gray-900 text-sm">Featured Media</h3>
                 <span className="text-xs text-gray-400 ml-auto">Image or Video</span>
               </div>
-              
+
               {hasMedia && mediaSrc ? (
                 <div className="relative bg-gray-100 rounded-lg overflow-hidden group">
                   <div className="aspect-video">
@@ -766,7 +804,7 @@ const EditBlogPostPage: React.FC = () => {
                     className="hidden"
                     multiple={false}
                   />
-                  
+
                   {/* OR Divider */}
                   <div className="flex items-center gap-3">
                     <div className="flex-1 border-t border-gray-200"></div>
@@ -826,7 +864,7 @@ const EditBlogPostPage: React.FC = () => {
                 <Settings className="w-4 h-4 text-green-600" />
                 <h3 className="font-semibold text-gray-900 text-sm">Post Settings</h3>
               </div>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">

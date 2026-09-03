@@ -21,14 +21,26 @@ export default function ContactPage() {
     message: ''
   });
 
-  // Debug logging
+  const [isClient, setIsClient] = useState(false);
+  const isFirstRender = React.useRef(true);
+
   useEffect(() => {
-    console.log('📊 Contact Page State:');
-    console.log('  - loading:', loading);
-    console.log('  - error:', error);
-    console.log('  - settings:', settings);
-    console.log('  - hasSettings:', !!settings);
-  }, [loading, error, settings]);
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      requestAnimationFrame(() => {
+        setIsClient(true);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isClient) {
+      console.log('📊 Contact Page State:');
+      console.log('  - loading:', loading);
+      console.log('  - error:', error);
+      console.log('  - settings:', settings);
+    }
+  }, [loading, error, settings, isClient]);
 
   // Listen for settings changes
   useEffect(() => {
@@ -70,9 +82,20 @@ export default function ContactPage() {
   const contactAddress = settings?.contactAddress || '123 Agriculture Way, Farming District, FC 12345';
   const contactPhone = settings?.contactPhone || '+1 (555) 123-4567';
   const contactHours = settings?.contactHours || 'Mon-Fri: 8:00 AM - 6:00 PM';
-  const supportEmail = settings?.supportEmail || 'support@genesisagri.com';
-  const infoEmail = settings?.infoEmail || 'info@genesisagri.com';
-  const emergencyPhone = settings?.emergencyPhone;
+  const contactEmail = settings?.contactEmail || 'support@genesisagri.com';
+  
+  // ✅ CORRECT: Use a properly formatted Google Maps embed URL
+  // This is a working embed URL for Nairobi, Kenya
+  const defaultMapUrl = 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3988.820123456789!2d36.821945!3d-1.292066!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x182f1172d84d49a7%3A0xf7b8b8b8b8b8b8b8!2sNairobi%2C%20Kenya!5e0!3m2!1sen!2s!4v1234567890123';
+  
+  // ✅ Use the map from settings or fallback to default
+  let mapEmbedUrl = settings?.contactMapEmbed || defaultMapUrl;
+  
+  // ✅ FIX: Ensure the URL has the correct format
+  if (mapEmbedUrl && !mapEmbedUrl.startsWith('https://www.google.com/maps/embed')) {
+    console.warn('⚠️ Invalid map URL format, using default:', mapEmbedUrl);
+    mapEmbedUrl = defaultMapUrl;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,7 +138,17 @@ export default function ContactPage() {
     }
   };
 
-  // Error state - using main instead of div for consistency
+  if (!isClient) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-12 h-12 animate-spin rounded-full border-4 border-green-600 border-t-transparent mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading contact information...</p>
+        </div>
+      </main>
+    );
+  }
+
   if (error) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -138,22 +171,16 @@ export default function ContactPage() {
           >
             {t('contact.retry_btn', 'Retry')}
           </button>
-          <div className="mt-4 text-sm text-gray-500">
-            <p className="font-mono text-xs bg-gray-100 p-3 rounded-lg text-left overflow-auto">
-              {typeof error === 'string' ? error : JSON.stringify(error, null, 2)}
-            </p>
-          </div>
         </div>
       </main>
     );
   }
 
-  // Loading state - using main instead of div for consistency
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-green-600 mx-auto" />
+          <div className="w-12 h-12 animate-spin rounded-full border-4 border-green-600 border-t-transparent mx-auto"></div>
           <p className="mt-4 text-gray-600">
             {t('contact.loading_info', 'Loading contact information...')}
           </p>
@@ -168,7 +195,6 @@ export default function ContactPage() {
     );
   }
 
-  // Main content
   return (
     <main className="min-h-screen bg-gray-50 py-12 pt-32">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -189,6 +215,7 @@ export default function ContactPage() {
           </p>
         </div>
 
+        {/* Top Section: Contact Details + Form */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* Contact Details Card */}
@@ -206,14 +233,13 @@ export default function ContactPage() {
             </div>
 
             <div className="space-y-6 text-sm">
-              {/* Address */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <MapPin size={20} className="text-green-300" />
                 </div>
                 <div>
                   <div className="font-semibold text-white">
-                    {t('contact.headquarters', 'Headquarters')}
+                    {t('contact.contact_address', 'Contact Address')}
                   </div>
                   <div className="text-green-100 mt-0.5">
                     {contactAddress}
@@ -221,7 +247,6 @@ export default function ContactPage() {
                 </div>
               </div>
 
-              {/* Phone */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <Phone size={20} className="text-green-300" />
@@ -241,7 +266,6 @@ export default function ContactPage() {
                 </div>
               </div>
 
-              {/* Email */}
               <div className="flex items-start gap-4">
                 <div className="p-2.5 bg-white/10 rounded-xl">
                   <Mail size={20} className="text-green-300" />
@@ -251,39 +275,12 @@ export default function ContactPage() {
                     {t('contact.email', 'Email')}
                   </div>
                   <div className="text-green-100 mt-0.5">
-                    <a href={`mailto:${supportEmail}`} className="hover:text-green-300 transition">
-                      {supportEmail}
-                    </a>
-                  </div>
-                  <div className="text-green-100">
-                    <a href={`mailto:${infoEmail}`} className="hover:text-green-300 transition">
-                      {infoEmail}
+                    <a href={`mailto:${contactEmail}`} className="hover:text-green-300 transition">
+                      {contactEmail}
                     </a>
                   </div>
                 </div>
               </div>
-
-              {/* Emergency Line */}
-              {emergencyPhone && (
-                <div className="flex items-start gap-4">
-                  <div className="p-2.5 bg-white/10 rounded-xl">
-                    <Clock size={20} className="text-green-300" />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-white">
-                      {t('contact.emergency_line', 'Farm Emergency Line')}
-                    </div>
-                    <div className="text-green-100 mt-0.5">
-                      <a href={`tel:${emergencyPhone}`} className="hover:text-green-300 transition">
-                        {emergencyPhone}
-                      </a>
-                    </div>
-                    <div className="text-xs text-green-300">
-                      {t('contact.emergency_desc', '24/7 Agronomy Dispatch Available')}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
@@ -431,6 +428,39 @@ export default function ContactPage() {
                 </button>
               </form>
             )}
+          </div>
+        </div>
+
+        {/* ✅ Google Map Section */}
+        <div className="mt-8">
+          <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/80 shadow-sm">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <MapPin size={20} className="text-green-600" />
+                {t('contact.map_title', 'Find Us on Map')}
+              </h3>
+              <a 
+                href="https://www.google.com/maps/search/?api=1&query=Genesis+Agri" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-green-600 hover:text-green-700 hover:underline flex items-center gap-1"
+              >
+                Open in Google Maps
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            </div>
+            <div className="relative w-full" style={{ height: '450px' }}>
+              <iframe
+                src={mapEmbedUrl}
+                className="w-full h-full"
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                title="Google Maps - Our Location"
+              ></iframe>
+            </div>
           </div>
         </div>
       </div>

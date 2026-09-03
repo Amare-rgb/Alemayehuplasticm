@@ -25,7 +25,6 @@ import {
   Phone,
   MapPin,
   Clock,
-  MessageSquare,
   Globe,
 } from 'lucide-react';
 
@@ -233,11 +232,7 @@ interface SettingsData {
   contactPhone: string;
   contactAddress: string;
   contactHours: string;
-  contactMapEmbed: string;
   enableContactForm: boolean;
-  enableWhatsApp: boolean;
-  whatsAppNumber: string;
-  enableLiveChat: boolean;
   themeColor: string;
   darkMode: boolean;
   emailNotifications: boolean;
@@ -245,9 +240,6 @@ interface SettingsData {
   productNotifications: boolean;
   userNotifications: boolean;
   marketingEmails: boolean;
-  emergencyPhone: string;
-  supportEmail: string;
-  infoEmail: string;
 }
 
 interface PasswordData {
@@ -283,11 +275,7 @@ const defaultSettings: SettingsData = {
   contactPhone: '+1 (555) 123-4567',
   contactAddress: '123 Agriculture Way, Farming District, FC 12345',
   contactHours: 'Mon-Fri: 8:00 AM - 6:00 PM',
-  contactMapEmbed: '',
   enableContactForm: true,
-  enableWhatsApp: true,
-  whatsAppNumber: '+254700000000',
-  enableLiveChat: false,
   themeColor: '#22c55e',
   darkMode: false,
   emailNotifications: true,
@@ -295,9 +283,6 @@ const defaultSettings: SettingsData = {
   productNotifications: true,
   userNotifications: true,
   marketingEmails: false,
-  emergencyPhone: '+1 (555) 999-9999',
-  supportEmail: 'support@genesisagri.com',
-  infoEmail: 'info@genesisagri.com',
 };
 
 const SettingsPage: React.FC = () => {
@@ -556,9 +541,6 @@ const SettingsPage: React.FC = () => {
             contactPhone: updatedData.contactPhone || '',
             contactAddress: updatedData.contactAddress || '',
             contactHours: updatedData.contactHours || '',
-            supportEmail: updatedData.supportEmail || '',
-            infoEmail: updatedData.infoEmail || '',
-            emergencyPhone: updatedData.emergencyPhone || '',
             logo: updatedData.logo || '',
           });
         }
@@ -652,9 +634,6 @@ const SettingsPage: React.FC = () => {
             contactPhone: updatedData.contactPhone || '',
             contactAddress: updatedData.contactAddress || '',
             contactHours: updatedData.contactHours || '',
-            supportEmail: updatedData.supportEmail || '',
-            infoEmail: updatedData.infoEmail || '',
-            emergencyPhone: updatedData.emergencyPhone || '',
           });
         }
         
@@ -1151,7 +1130,7 @@ const SettingsPage: React.FC = () => {
             </SettingSection>
           </TabPanel>
 
-          {/* Contact Tab */}
+          {/* ✅ Contact Tab - Google Maps Embed URL REMOVED */}
           <TabPanel active={activeTab === 'contact'}>
             <SettingSection
               title="Contact Information"
@@ -1176,40 +1155,6 @@ const SettingsPage: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Support Email
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="email"
-                    name="supportEmail"
-                    value={formData.supportEmail || ''}
-                    onChange={handleChange}
-                    placeholder="support@genesisagri.com"
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Info Email
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="email"
-                    name="infoEmail"
-                    value={formData.infoEmail || ''}
-                    onChange={handleChange}
-                    placeholder="info@genesisagri.com"
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Contact Phone
                 </label>
                 <div className="relative">
@@ -1223,24 +1168,6 @@ const SettingsPage: React.FC = () => {
                     className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Emergency Phone
-                </label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="tel"
-                    name="emergencyPhone"
-                    value={formData.emergencyPhone || ''}
-                    onChange={handleChange}
-                    placeholder="+1 (555) 999-9999"
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
-                  />
-                </div>
-                <p className="text-xs text-gray-400 mt-1">24/7 Emergency support line</p>
               </div>
 
               <div>
@@ -1277,65 +1204,14 @@ const SettingsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Google Maps Embed URL
-                </label>
-                <div className="relative">
-                  <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    name="contactMapEmbed"
-                    value={formData.contactMapEmbed}
-                    onChange={handleChange}
-                    placeholder="https://www.google.com/maps/embed?pb=..."
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
-                  />
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Paste the embed URL from Google Maps</p>
-              </div>
+              {/* ❌ Google Maps Embed URL - COMPLETELY REMOVED */}
 
-              <div className="pt-4 border-t border-gray-200 space-y-4">
-                <h4 className="text-sm font-medium text-gray-700">Contact Form Settings</h4>
-                
+              <div className="pt-4 border-t border-gray-200">
                 <ToggleSwitch
                   label="Enable Contact Form"
                   description="Show contact form on the contact page"
                   checked={formData.enableContactForm}
                   onChange={() => handleToggle('enableContactForm')}
-                />
-
-                <ToggleSwitch
-                  label="Enable WhatsApp"
-                  description="Show WhatsApp button on the contact page"
-                  checked={formData.enableWhatsApp}
-                  onChange={() => handleToggle('enableWhatsApp')}
-                />
-
-                {formData.enableWhatsApp && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      WhatsApp Number
-                    </label>
-                    <div className="relative">
-                      <MessageSquare className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="text"
-                        name="whatsAppNumber"
-                        value={formData.whatsAppNumber}
-                        onChange={handleChange}
-                        placeholder="+254700000000"
-                        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <ToggleSwitch
-                  label="Enable Live Chat"
-                  description="Show live chat widget on the website"
-                  checked={formData.enableLiveChat}
-                  onChange={() => handleToggle('enableLiveChat')}
                 />
               </div>
             </SettingSection>

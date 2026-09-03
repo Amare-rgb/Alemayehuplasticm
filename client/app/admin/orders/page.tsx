@@ -2,9 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import { ordersApi } from '@/lib/api';
 import {
   ShoppingCart,
@@ -30,6 +28,7 @@ import {
   Banknote,
   Wallet,
   Building,
+  ThumbsUp,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -74,7 +73,7 @@ interface Order {
   userId: string;
   addressId: string;
   total: number;
-  status: 'PENDING' | 'PROCESSING' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED';
+  status: 'PENDING' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED'; // ✅ PROCESSING removed
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   paymentMethod?: string;
   notes?: string;
@@ -158,13 +157,11 @@ interface OrderDetailModalProps {
 }
 
 const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onClose, onStatusUpdate }) => {
-  const [updating, setUpdating] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState('');
+  const [approving, setApproving] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
 
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
-    // Fix: Use toast with proper type handling
     if (type === 'info') {
       toast(message, { icon: 'ℹ️' });
     } else if (type === 'warning') {
@@ -204,7 +201,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-      PROCESSING: 'bg-blue-100 text-blue-700 border-blue-200',
       SHIPPED: 'bg-purple-100 text-purple-700 border-purple-200',
       COMPLETED: 'bg-green-100 text-green-700 border-green-200',
       CANCELLED: 'bg-red-100 text-red-700 border-red-200',
@@ -236,7 +232,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
   const getStatusLabel = (status: string) => {
     const labels: Record<string, string> = {
       PENDING: 'Pending',
-      PROCESSING: 'Processing',
       SHIPPED: 'Shipped',
       COMPLETED: 'Completed',
       CANCELLED: 'Cancelled',
@@ -245,40 +240,42 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
     return labels[status] || status;
   };
 
-  const getStatusOptions = () => {
-    if (!order) return [];
-    const allStatuses = ['PENDING', 'PROCESSING', 'SHIPPED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
-    return allStatuses;
-  };
+  // ✅ Approve Order function - sets status to COMPLETED directly
+  const handleApproveOrder = async () => {
+    if (!order) return;
+    
+    if (order.status !== 'PENDING') {
+      showNotification('warning', 'Only pending orders can be approved');
+      return;
+    }
 
-  const handleStatusUpdate = async () => {
-    if (!order || !selectedStatus) return;
-
-    setUpdating(true);
+    setApproving(true);
     try {
       const response = await ordersApi.updateOrder({
         orderId: order.id,
-        status: selectedStatus,
+        status: 'COMPLETED', // ✅ Directly to COMPLETED
       });
 
       if (response.success) {
-        showNotification('success', `Order status updated to ${getStatusLabel(selectedStatus)}`);
+        showNotification('success', `Order #${order.id.slice(0, 8)} approved successfully!`);
         onStatusUpdate();
         setTimeout(() => {
           onClose();
         }, 1500);
       } else {
-        showNotification('error', response.message || 'Failed to update order status');
+        showNotification('error', response.message || 'Failed to approve order');
       }
     } catch (err) {
-      console.error('Error updating order:', err);
-      showNotification('error', 'Failed to update order status');
+      console.error('Error approving order:', err);
+      showNotification('error', 'Failed to approve order');
     } finally {
-      setUpdating(false);
+      setApproving(false);
     }
   };
 
   if (!isOpen || !order) return null;
+
+  const canApprove = order.status === 'PENDING';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
@@ -317,35 +314,82 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
         </div>
 
         <div className="p-6 space-y-6">
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+          <div className={`rounded-lg p-4 border ${
+            canApprove ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200' : 
+            order.status === 'COMPLETED' ? 'bg-green-50 border-green-200' :
+            order.status === 'CANCELLED' ? 'bg-red-50 border-red-200' :
+            order.status === 'REJECTED' ? 'bg-gray-50 border-gray-200' :
+            order.status === 'SHIPPED' ? 'bg-purple-50 border-purple-200' :
+            'bg-blue-50 border-blue-200'
+          }`}>
             <div className="flex flex-wrap items-center gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700">Update Status</label>
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="ml-2 px-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                >
-                  <option value="">Select Status</option>
-                  {getStatusOptions().map(status => (
-                    <option key={status} value={status}>{getStatusLabel(status)}</option>
-                  ))}
-                </select>
+              <div className="flex items-center space-x-3">
+                {canApprove ? (
+                  <Clock className="w-5 h-5 text-amber-600" />
+                ) : order.status === 'COMPLETED' ? (
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                ) : order.status === 'CANCELLED' ? (
+                  <XCircle className="w-5 h-5 text-red-600" />
+                ) : order.status === 'REJECTED' ? (
+                  <XCircle className="w-5 h-5 text-gray-600" />
+                ) : order.status === 'SHIPPED' ? (
+                  <Truck className="w-5 h-5 text-purple-600" />
+                ) : (
+                  <Package className="w-5 h-5 text-blue-600" />
+                )}
+                <span className="text-sm font-medium text-gray-700">
+                  {canApprove ? 'Order Pending Review' :
+                   order.status === 'COMPLETED' ? 'Order Completed' :
+                   order.status === 'CANCELLED' ? 'Order Cancelled' :
+                   order.status === 'REJECTED' ? 'Order Rejected' :
+                   order.status === 'SHIPPED' ? 'Order Shipped' :
+                   'Order Status'}
+                </span>
               </div>
-              <button
-                onClick={handleStatusUpdate}
-                disabled={!selectedStatus || updating}
-                className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-              >
-                {updating ? 'Updating...' : 'Update Status'}
-              </button>
-              <div className="ml-auto flex items-center space-x-2">
-                <span className="text-sm text-gray-500">Current Status:</span>
+              
+              <div className="flex-1"></div>
+
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-500">Status:</span>
                 <span className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(order.status)}`}>
                   <span>{getStatusLabel(order.status)}</span>
                 </span>
               </div>
             </div>
+
+            {canApprove ? (
+              <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-amber-200">
+                <span className="text-xs text-gray-500 font-medium">Take Action:</span>
+                
+                <button
+                  onClick={handleApproveOrder}
+                  disabled={approving}
+                  className="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-sm hover:shadow-md"
+                >
+                  {approving ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Approving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ThumbsUp className="w-4 h-4" />
+                      <span>Approve Order</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2 mt-4 pt-4 border-t border-gray-200">
+                <Info className="w-4 h-4 text-gray-400" />
+                <span className="text-xs text-gray-500">
+                  {order.status === 'COMPLETED' && 'This order is already completed.'}
+                  {order.status === 'CANCELLED' && 'This order has been cancelled.'}
+                  {order.status === 'REJECTED' && 'This order has been rejected.'}
+                  {order.status === 'SHIPPED' && 'This order has already been shipped.'}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -510,8 +554,8 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
   );
 };
 
+// Main OrdersPage component
 const OrdersPage: React.FC = () => {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
@@ -536,7 +580,6 @@ const OrdersPage: React.FC = () => {
 
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
-    // Fix: Use proper toast methods
     if (type === 'info') {
       toast(message, { icon: 'ℹ️' });
     } else if (type === 'warning') {
@@ -576,7 +619,6 @@ const OrdersPage: React.FC = () => {
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-      PROCESSING: 'bg-blue-100 text-blue-700 border-blue-200',
       SHIPPED: 'bg-purple-100 text-purple-700 border-purple-200',
       COMPLETED: 'bg-green-100 text-green-700 border-green-200',
       CANCELLED: 'bg-red-100 text-red-700 border-red-200',
@@ -589,7 +631,6 @@ const OrdersPage: React.FC = () => {
     const icons: Record<string, React.ReactNode> = {
       COMPLETED: <CheckCircle className="w-3.5 h-3.5" />,
       PENDING: <Clock className="w-3.5 h-3.5" />,
-      PROCESSING: <Package className="w-3.5 h-3.5" />,
       SHIPPED: <Truck className="w-3.5 h-3.5" />,
       CANCELLED: <XCircle className="w-3.5 h-3.5" />,
       REJECTED: <XCircle className="w-3.5 h-3.5" />,
@@ -600,7 +641,6 @@ const OrdersPage: React.FC = () => {
   const getStatusLabel = (status: string) => {
     const labels: Record<string, string> = {
       PENDING: 'Pending',
-      PROCESSING: 'Processing',
       SHIPPED: 'Shipped',
       COMPLETED: 'Completed',
       CANCELLED: 'Cancelled',
@@ -619,23 +659,21 @@ const OrdersPage: React.FC = () => {
     return colors[status] || 'bg-gray-100 text-gray-700';
   };
 
-  const statuses = ['ALL', 'PENDING', 'PROCESSING', 'SHIPPED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
+  // ✅ PROCESSING completely removed from filter options
+  const statuses = ['ALL', 'PENDING', 'SHIPPED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
 
-  // Fetch orders using ordersApi
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       
       const response = await ordersApi.getOrders({
-        status: selectedStatus,
+        status: selectedStatus === 'ALL' ? undefined : selectedStatus,
         page: currentPage,
         limit: pageSize,
       });
 
       if (!isMounted.current) return;
 
-      console.log('📊 Orders loaded:', response);
-      
       if (response && response.orders) {
         setOrders(response.orders);
         setTotal(response.total);
@@ -658,7 +696,6 @@ const OrdersPage: React.FC = () => {
     }
   }, [selectedStatus, currentPage, pageSize]);
 
-  // Initial load - only runs once
   useEffect(() => {
     isMounted.current = true;
     
@@ -673,41 +710,33 @@ const OrdersPage: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reload when status or page changes (skip initial load)
   useEffect(() => {
-    // Skip if initial load hasn't completed
     if (!initialLoadDone.current) return;
-    
     fetchOrders();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStatus, currentPage]);
 
-  // Handle search change
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
     setCurrentPage(1);
   };
 
-  // Handle status filter change
   const handleStatusChange = (value: string) => {
     setSelectedStatus(value);
     setCurrentPage(1);
   };
 
-  // Handle clear filters
   const handleClearFilters = () => {
     setSelectedStatus('ALL');
     setSearchQuery('');
     setCurrentPage(1);
   };
 
-  // Handle refresh
   const handleRefresh = () => {
     showNotification('info', 'Refreshing orders...');
     fetchOrders();
   };
 
-  // Filter orders based on search
   const filteredOrders = orders.filter(order => {
     const matchesSearch = 
       order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -718,7 +747,6 @@ const OrdersPage: React.FC = () => {
     return matchesSearch;
   });
 
-  // Paginated orders
   const paginatedOrders = filteredOrders.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
@@ -726,11 +754,9 @@ const OrdersPage: React.FC = () => {
 
   const totalFiltered = filteredOrders.length;
 
-  // Stats
   const totalOrders = orders.length;
   const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
   const pendingOrders = orders.filter(o => o.status === 'PENDING').length;
-  const processingOrders = orders.filter(o => o.status === 'PROCESSING').length;
   const shippedOrders = orders.filter(o => o.status === 'SHIPPED').length;
   const completedOrders = orders.filter(o => o.status === 'COMPLETED').length;
 
@@ -784,7 +810,7 @@ const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Total</p>
           <p className="text-lg font-bold text-gray-900">{totalOrders}</p>
@@ -796,10 +822,6 @@ const OrdersPage: React.FC = () => {
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Pending</p>
           <p className="text-lg font-bold text-yellow-600">{pendingOrders}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-3">
-          <p className="text-xs text-gray-500">Processing</p>
-          <p className="text-lg font-bold text-blue-600">{processingOrders}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Completed</p>

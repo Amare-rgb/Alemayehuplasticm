@@ -4,6 +4,9 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
+// ✅ Allowable statuses (NO PROCESSING)
+const ALLOWED_STATUSES = ['PENDING', 'SHIPPED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
+
 // ============================================================
 // GET /api/orders - Get orders with filters & pagination
 // ============================================================
@@ -27,12 +30,18 @@ router.get('/', requireAuth, async (req, res) => {
     if (!isAdmin) {
       where.userId = userId;
     }
+    
     if (status && status !== 'ALL') {
+      if (!ALLOWED_STATUSES.includes(status)) {
+        return res.status(400).json({ error: 'Invalid order status' });
+      }
       where.status = status;
     }
+    
     if (paymentStatus && paymentStatus !== 'ALL') {
       where.paymentStatus = paymentStatus;
     }
+    
     if (search) {
       where.OR = [
         { id: { contains: search, mode: 'insensitive' } },
@@ -184,7 +193,6 @@ router.post('/', requireAuth, async (req, res) => {
 
     const userId = req.session.user.id;
 
-    // Get cart items
     const cartItems = await prisma.cartItem.findMany({
       where: { userId },
       include: { product: true },
@@ -194,7 +202,6 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Cart is empty' });
     }
 
-    // Get or create address
     let finalAddressId = addressId;
     if (!finalAddressId) {
       const defaultAddr = await prisma.address.findFirst({
@@ -222,7 +229,6 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    // Check stock
     for (const item of cartItems) {
       if (item.product.stock < item.quantity) {
         return res.status(400).json({
@@ -236,14 +242,13 @@ router.post('/', requireAuth, async (req, res) => {
       return sum + price * item.quantity;
     }, 0);
 
-    // Create order with transaction
     const order = await prisma.$transaction(async (tx) => {
       const newOrder = await tx.order.create({
         data: {
           userId,
           addressId: finalAddressId,
           total,
-          status: 'PENDING',
+          status: 'PENDING', // ✅ Starts as PENDING
           paymentStatus: paymentStatus || 'PAID',
           paymentMethod: paymentMethod || 'Cash on Delivery',
           paymentRef: paymentRef || null,
@@ -278,7 +283,6 @@ router.post('/', requireAuth, async (req, res) => {
         },
       });
 
-      // Update stock
       for (const item of cartItems) {
         await tx.product.update({
           where: { id: item.productId },
@@ -286,7 +290,6 @@ router.post('/', requireAuth, async (req, res) => {
         });
       }
 
-      // Clear cart
       await tx.cartItem.deleteMany({
         where: { userId },
       });
@@ -321,12 +324,23 @@ router.post('/', requireAuth, async (req, res) => {
 // ============================================================
 // PATCH /api/orders - Update order (Admin only)
 // ============================================================
+// ✅ FIXED: This route now explicitly validates status and returns the true error message
 router.patch('/', requireAdmin, async (req, res) => {
   try {
     const { orderId, status, paymentStatus, notes } = req.body;
 
     if (!orderId) {
       return res.status(400).json({ error: 'Order ID is required' });
+    }
+
+    // ✅ Force deny "PROCESSING" 
+    if (status === 'PROCESSING') {
+      return res.status(400).json({ error: 'PROCESSING is no longer a valid status. Use COMPLETED.' });
+    }
+
+    // ✅ Validate the status against the new list
+    if (status && !ALLOWED_STATUSES.includes(status)) {
+      return res.status(400).json({ error: `Invalid status: ${status}` });
     }
 
     const existingOrder = await prisma.order.findUnique({
@@ -378,7 +392,8 @@ router.patch('/', requireAdmin, async (req, res) => {
     
   } catch (error) {
     console.error('❌ Error updating order:', error);
-    res.status(500).json({ error: 'Failed to update order' });
+    // ✅ THIS IS THE FIX: Sending the actual error message prevents a generic 500 crash
+    return res.status(500).json({ error: error.message || 'Failed to update order' });
   }
 });
 

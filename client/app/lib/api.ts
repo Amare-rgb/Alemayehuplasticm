@@ -83,13 +83,18 @@ export interface User {
   role?: string;
 }
 
+// ✅ Updated: Removed 'PROCESSING' 
+export type OrderStatus = 'PENDING' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED';
+// ✅ Updated: Removed 'UNPAID', uses 'PENDING' instead
+export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+
 export interface Order {
   id: string;
   userId: string;
   addressId: string;
   total: number;
-  status: 'PENDING' | 'PROCESSING' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED';
-  paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
   paymentMethod?: string;
   paymentRef?: string;
   notes?: string;
@@ -112,7 +117,7 @@ export interface CreateOrderPayload {
   addressId?: string;
   paymentMethod?: string;
   paymentRef?: string;
-  paymentStatus?: string;
+  paymentStatus?: PaymentStatus;
   notes?: string;
 }
 
@@ -185,8 +190,8 @@ export interface GetOrderResponse {
 export const ordersApi = {
   // Get orders with pagination
   getOrders: async (params?: {
-    status?: string;
-    paymentStatus?: string;
+    status?: OrderStatus | string;
+    paymentStatus?: PaymentStatus | string;
     search?: string;
     page?: number;
     limit?: number;
@@ -216,7 +221,7 @@ export const ordersApi = {
     return response.data;
   },
 
-  updateOrder: async (data: { orderId: string; status?: string; paymentStatus?: string; notes?: string }): Promise<{ success: boolean; order: Order; message: string }> => {
+  updateOrder: async (data: { orderId: string; status?: OrderStatus; paymentStatus?: PaymentStatus; notes?: string }): Promise<{ success: boolean; order: Order; message: string }> => {
     const response = await api.patch<{ success: boolean; order: Order; message: string }>(
       '/api/orders',
       data

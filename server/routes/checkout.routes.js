@@ -219,7 +219,8 @@ router.post('/', optionalAuth, async (req, res) => {
           email: guestInfo.email || `guest_${Date.now()}@temp.com`,
           phone: guestInfo.phone,
           password: 'GUEST_TEMP_' + Date.now(),
-          role: 'GUEST'
+          // ✅ FIXED: Role enum only has USER or ADMIN. 
+          role: 'USER' 
         }
       });
 
@@ -261,7 +262,7 @@ router.post('/', optionalAuth, async (req, res) => {
           userId: finalUserId,
           total: total,
           status: 'PENDING',
-          paymentStatus: 'UNPAID',
+          paymentStatus: 'PENDING', // ✅ FIXED: 'UNPAID' does not exist in enum
           addressId: finalAddressId,
           notes: notes || '',
           items: {
@@ -295,7 +296,6 @@ router.post('/', optionalAuth, async (req, res) => {
       });
 
       // Only clear the DB cart when the items actually came from it
-      // (Priority 3). CartItem has no userId field — it's related via cartId.
       if (sourceCartId) {
         await tx.cartItem.deleteMany({
           where: { cartId: sourceCartId }
@@ -503,7 +503,7 @@ router.post('/complete/:orderId', requireAuth, async (req, res) => {
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
-          status: 'PROCESSING',
+          status: 'COMPLETED', // ✅ FIXED: Removed 'PROCESSING'
           paymentStatus: 'PAID',
           paymentRef: paymentRef || 'Manual payment'
         },
@@ -643,10 +643,11 @@ router.post('/cancel/:orderId', requireAuth, async (req, res) => {
       });
     }
 
-    if (order.status === 'DELIVERED' || order.status === 'COMPLETED') {
+    // ✅ FIXED: Removed 'DELIVERED' check
+    if (order.status === 'COMPLETED') {
       return res.status(400).json({
         success: false,
-        error: 'Cannot cancel delivered or completed order'
+        error: 'Cannot cancel completed order'
       });
     }
 
