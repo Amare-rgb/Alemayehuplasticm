@@ -27,7 +27,7 @@ const CartContext = createContext<CartContextValue | undefined>(undefined)
 const STORAGE_KEY = 'shophub_cart_v1'
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
 
   // ── FIX: Initialize state lazily from localStorage to avoid cascading renders ──
   const [items, setItems] = useState<CartItem[]>(() => {
@@ -65,9 +65,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [items, isInitialized])
 
   // ── FIX 6: Drop any items whose product no longer exists in the DB. ──────
-  // This is what prevents stale localStorage/DB-cart entries (e.g. after a
-  // reseed, or a product being deleted) from surviving all the way to
-  // checkout and blowing up on the order_items_productId_fkey constraint.
   const validate = useCallback(async () => {
     setItems((current) => {
       if (current.length === 0) return current
@@ -98,38 +95,56 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   // ── FIX 3: Sync from server when logged in ──────────────────────────────────
   const syncFromServer = useCallback(async () => {
-    if (!session) return
+    // ✅ Only sync if session exists and is authenticated
+    if (!session || status !== 'authenticated') {
+      console.log('🛒 Skipping cart sync - user not authenticated')
+      return
+    }
+
     try {
+      console.log('🛒 Syncing cart from server...')
       const res = await fetch('/api/cart')
-      if (!res.ok) return
+      
+      // ✅ Handle 401 Unauthorized gracefully
+      if (res.status === 401) {
+        console.log('🛒 Session expired or invalid, keeping local cart')
+        return
+      }
+      
+      if (!res.ok) {
+        console.error('🛒 Failed to sync cart:', res.status)
+        return
+      }
+      
       const data = await res.json() as { items: CartItemResponse[] }
       const serverItems: CartItem[] = (data.items || []).map((it: CartItemResponse) => ({
         productId: it.productId,
         quantity: it.quantity
       }))
+      
+      console.log(`🛒 Synced ${serverItems.length} items from server`)
       setItems(serverItems)
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error('🛒 Error syncing cart from server:', error)
+      // Keep local cart on error
     }
-  }, [session])
+  }, [session, status])
 
   // ── FIX 4: Sync when session changes ─────────────────────────────────────────
   useEffect(() => {
-    if (session && !hasSyncedSession.current && isInitialized) {
+    // ✅ Only sync when session is fully authenticated and not loading
+    if (status === 'authenticated' && session && !hasSyncedSession.current && isInitialized) {
       hasSyncedSession.current = true
       syncFromServer()
     }
-  }, [session?.user?.id, isInitialized, syncFromServer])
-
-  // ── FIX 5: Reset session sync flag when user logs out ──────────────────────
-  useEffect(() => {
-    if (!session) {
+    
+    // ✅ Reset sync flag when session status changes to unauthenticated
+    if (status === 'unauthenticated') {
       hasSyncedSession.current = false
     }
-  }, [session])
+  }, [session?.user?.id, status, isInitialized, syncFromServer])
 
-  // ── FIX 7: Validate once on mount (covers the guest/localStorage cart), ──
-  // and again any time the logged-in items finish syncing from the server.
+  // ── FIX 7: Validate once on mount ──────────────────────────────────────────
   useEffect(() => {
     if (!isInitialized || hasValidated.current) return
     hasValidated.current = true
@@ -137,20 +152,29 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [isInitialized, validate])
 
   const add = useCallback(async (productId: string, quantity = 1) => {
-    if (session) {
+    if (status === 'authenticated' && session) {
       try {
-        await fetch('/api/cart', {
+        const res = await fetch('/api/cart', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ productId, quantity })
         })
-        await syncFromServer()
-        return
+        
+        // ✅ Handle 401 Unauthorized
+        if (res.status === 401) {
+          console.log('🛒 Session expired, adding to local cart instead')
+          // Fall through to local cart
+        } else if (res.ok) {
+          await syncFromServer()
+          return
+        }
       } catch {
-        // fallback to local
+        // Fallback to local
+        console.log('🛒 Network error, adding to local cart')
       }
     }
 
+    // Local cart update (guest or fallback)
     setItems((prev) => {
       const found = prev.find((p) => p.productId === productId)
       if (found) {
@@ -160,44 +184,64 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       }
       return [...prev, { productId, quantity }]
     })
-  }, [session, syncFromServer])
+  }, [session, status, syncFromServer])
 
   const remove = useCallback(async (productId: string) => {
-    if (session) {
+    if (status === 'authenticated' && session) {
       try {
-        await fetch('/api/cart', {
+        const res = await fetch('/api/cart', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ productId })
         })
-        await syncFromServer()
-        return
+        
+        // ✅ Handle 401 Unauthorized
+        if (res.status === 401) {
+          console.log('🛒 Session expired, removing from local cart instead')
+          // Fall through to local cart
+        } else if (res.ok) {
+          await syncFromServer()
+          return
+        }
       } catch {
-        // fallback to local
+        // Fallback to local
+        console.log('🛒 Network error, removing from local cart')
       }
     }
+
+    // Local cart update (guest or fallback)
     setItems((prev) => prev.filter((p) => p.productId !== productId))
-  }, [session, syncFromServer])
+  }, [session, status, syncFromServer])
 
   const update = useCallback(async (productId: string, quantity: number) => {
-    if (session) {
+    if (status === 'authenticated' && session) {
       try {
-        await fetch('/api/cart', {
+        const res = await fetch('/api/cart', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ productId, quantity })
         })
-        await syncFromServer()
-        return
+        
+        // ✅ Handle 401 Unauthorized
+        if (res.status === 401) {
+          console.log('🛒 Session expired, updating local cart instead')
+          // Fall through to local cart
+        } else if (res.ok) {
+          await syncFromServer()
+          return
+        }
       } catch {
-        // fallback to local
+        // Fallback to local
+        console.log('🛒 Network error, updating local cart')
       }
     }
+
+    // Local cart update (guest or fallback)
     setItems((prev) =>
       prev.map((p) => p.productId === productId ? { ...p, quantity } : p)
          .filter((p) => p.quantity > 0)
     )
-  }, [session, syncFromServer])
+  }, [session, status, syncFromServer])
 
   const clear = useCallback(async () => {
     setItems([])
@@ -206,18 +250,24 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     }
-    if (session) {
+    
+    if (status === 'authenticated' && session) {
       try {
-        await fetch('/api/cart', {
+        const res = await fetch('/api/cart', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({})
         })
+        
+        // ✅ Handle 401 silently - cart is already cleared locally
+        if (res.status === 401) {
+          console.log('🛒 Session expired, cart cleared locally only')
+        }
       } catch {
         // ignore
       }
     }
-  }, [session])
+  }, [session, status])
 
   const count = items.reduce((s, it) => s + it.quantity, 0)
 
