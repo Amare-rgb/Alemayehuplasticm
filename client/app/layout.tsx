@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { Providers } from './providers';
+import ChatbotToggle from '@/components/ChatbotToggle'; // ✅ Import ChatbotToggle
 import './globals.css';
 
 const inter = Inter({ 
@@ -31,6 +32,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <Footer />
           <Toaster position="top-right" />
+          {/* ✅ Add Chatbot Toggle - appears on all pages */}
+          <ChatbotToggle />
         </Providers>
       </body>
     </html>

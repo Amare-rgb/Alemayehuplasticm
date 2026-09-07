@@ -27,6 +27,7 @@ const usersRoutes = require('./routes/users.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const profileRoutes = require('./routes/profile.routes');
 const articlesRoutes = require('./routes/articles.routes');
+const chatbotRoutes = require('./routes/chatbot.routes'); // ✅ ADD THIS LINE
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -135,6 +136,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/admin/settings', settingsRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/articles', articlesRoutes);
+app.use('/api/chatbot', chatbotRoutes); // ✅ ADD THIS LINE
 
 // Health check with database status
 app.get('/api/health', async (req, res) => {
@@ -182,6 +184,7 @@ app.get('/', (req, res) => {
       blog: '/api/blog',
       cart: '/api/cart',
       categories: '/api/categories',
+      chatbot: '/api/chatbot', // ✅ ADD THIS LINE
       checkout: '/api/checkout',
       orders: '/api/orders',
       products: '/api/products',
@@ -242,6 +245,7 @@ async function startServer() {
     console.log('   /api/blog         - Blog routes');
     console.log('   /api/cart         - Cart routes');
     console.log('   /api/categories   - Category routes');
+    console.log('   /api/chatbot      - Chatbot routes'); // ✅ ADD THIS LINE
     console.log('   /api/checkout     - Checkout routes');
     console.log('   /api/orders       - Order routes');
     console.log('   /api/products     - Product routes');
