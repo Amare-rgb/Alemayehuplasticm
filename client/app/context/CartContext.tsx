@@ -128,7 +128,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       console.error('🛒 Error syncing cart from server:', error)
       // Keep local cart on error
     }
-  }, [session, status])
+  }, [session, status]) // ✅ Added both dependencies
 
   // ── FIX 4: Sync when session changes ─────────────────────────────────────────
   useEffect(() => {
@@ -142,7 +142,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     if (status === 'unauthenticated') {
       hasSyncedSession.current = false
     }
-  }, [session?.user?.id, status, isInitialized, syncFromServer])
+  }, [session, status, isInitialized, syncFromServer]) // ✅ Added all dependencies
 
   // ── FIX 7: Validate once on mount ──────────────────────────────────────────
   useEffect(() => {
@@ -184,7 +184,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       }
       return [...prev, { productId, quantity }]
     })
-  }, [session, status, syncFromServer])
+  }, [session, status, syncFromServer]) // ✅ Added all dependencies
 
   const remove = useCallback(async (productId: string) => {
     if (status === 'authenticated' && session) {
@@ -211,7 +211,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
     // Local cart update (guest or fallback)
     setItems((prev) => prev.filter((p) => p.productId !== productId))
-  }, [session, status, syncFromServer])
+  }, [session, status, syncFromServer]) // ✅ Added all dependencies
 
   const update = useCallback(async (productId: string, quantity: number) => {
     if (status === 'authenticated' && session) {
@@ -241,7 +241,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       prev.map((p) => p.productId === productId ? { ...p, quantity } : p)
          .filter((p) => p.quantity > 0)
     )
-  }, [session, status, syncFromServer])
+  }, [session, status, syncFromServer]) // ✅ Added all dependencies
 
   const clear = useCallback(async () => {
     setItems([])
@@ -267,7 +267,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         // ignore
       }
     }
-  }, [session, status])
+  }, [session, status]) // ✅ Added both dependencies
 
   const count = items.reduce((s, it) => s + it.quantity, 0)
 

@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")  // ✅ ADD THIS LINE
+  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -24,7 +24,6 @@ enum ProductVisibility {
   HIDDEN
 }
 
-// ✅ FIXED: Removed PROCESSING, changed DELIVERED to COMPLETED
 enum OrderStatus {
   PENDING
   SHIPPED
@@ -33,7 +32,6 @@ enum OrderStatus {
   REJECTED
 }
 
-// ✅ FIXED: Removed the duplicate PaymentStatus enum (The one below matches your API)
 enum PaymentStatus {
   PENDING
   PAID
@@ -77,8 +75,28 @@ model User {
   categories      Category[]      @relation("CategoryCreator")
   approvedCategories Category[]   @relation("CategoryApprover")
   articles        Article[]       @relation("ArticleAuthor")
+  chatMessages    ChatMessage[]   // ✅ ADD THIS RELATIONSHIP
 
   @@map("users")
+}
+
+// ============================================
+// CHAT MESSAGE MODEL - ✅ ADD THIS
+// ============================================
+model ChatMessage {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String
+  userMessage    String   @db.Text
+  botResponse    String   @db.Text
+  timestamp      DateTime @default(now())
+  
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([conversationId])
+  @@index([timestamp])
+  @@map("chat_messages")
 }
 
 // ============================================
@@ -225,7 +243,7 @@ model Order {
   userId          String
   total           Decimal       @db.Decimal(10, 2)
   status          OrderStatus   @default(PENDING)
-  paymentStatus   PaymentStatus @default(PENDING) // ✅ Changed from UNPAID to PENDING to match your API
+  paymentStatus   PaymentStatus @default(PENDING)
   addressId       String
   paymentRef      String?
   stripeSessionId String?
@@ -286,15 +304,14 @@ model Address {
   @@map("addresses")
 }
 
-// ✅ FIXED: Added `video` field to store video URLs separately
 model BlogPost {
   id        String   @id @default(cuid())
   title     String
   slug      String   @unique
   content   String   @db.Text
   excerpt   String?
-  image     String?  // ✅ Stores Image URLs
-  video     String?  // ✅ Stores Video URLs (Uploaded or YouTube/Vimeo)
+  image     String?  // Stores Image URLs
+  video     String?  // Stores Video URLs (Uploaded or YouTube/Vimeo)
   category  String   @default("Agriculture")
   readTime  Int      @default(3)
   published Boolean  @default(true)
