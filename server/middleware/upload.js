@@ -3,105 +3,157 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Ensure uploads directory exists
-const uploadDir = path.join(__dirname, '../uploads/products');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// ============================================
+// Ensure upload directories exist
+// ============================================
+const productsDir = path.join(__dirname, '../uploads/products');
+const avatarsDir = path.join(__dirname, '../uploads/avatars');
 
-// Configure storage
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    // Clean the original name
-    const cleanName = file.originalname
-      .replace(/[^a-zA-Z0-9]/g, '_')
-      .replace(/\s+/g, '_')
-      .replace(/_+/g, '_');
-    cb(null, 'product-' + uniqueSuffix + ext);
+[productsDir, avatarsDir].forEach((dir) => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 });
+
+// ============================================
+// Helpers
+// ============================================
+const makeFilename = (prefix, originalName) => {
+  const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+  const ext = path.extname(originalName).toLowerCase() || '.jpg';
+  return `${prefix}-${uniqueSuffix}${ext}`;
+};
 
 // File filter - only allow images
 const fileFilter = (req, file, cb) => {
   const validTypes = [
-    'image/jpeg', 
-    'image/jpg', 
-    'image/png', 
-    'image/webp', 
-    'image/gif', 
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+    'image/gif',
     'image/avif',
-    'image/svg+xml'
+    'image/svg+xml',
   ];
-  
-  const validExtensions = ['.jpeg', '.jpg', '.png', '.webp', '.gif', '.avif', '.svg'];
+
+  const validExtensions = [
+    '.jpeg',
+    '.jpg',
+    '.png',
+    '.webp',
+    '.gif',
+    '.avif',
+    '.svg',
+  ];
+
   const ext = path.extname(file.originalname).toLowerCase();
-  
+
   if (validTypes.includes(file.mimetype) || validExtensions.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Allowed: JPEG, PNG, WEBP, GIF, AVIF, SVG'));
+    cb(
+      new Error(
+        'Invalid file type. Allowed: JPEG, PNG, WEBP, GIF, AVIF, SVG'
+      )
+    );
   }
 };
 
-// Create upload middleware
-const upload = multer({
-  storage: storage,
-  limits: { 
-    fileSize: 10 * 1024 * 1024, // 10MB
-    files: 1 // Maximum 1 file
+// ============================================
+// PRODUCT storage (uploads/products/)
+// ============================================
+const productStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, productsDir);
   },
-  fileFilter: fileFilter
+  filename: function (req, file, cb) {
+    cb(null, makeFilename('product', file.originalname));
+  },
 });
 
-// For single file upload - expects field name 'image'
-const uploadSingle = upload.single('image');
+// ============================================
+// AVATAR storage (uploads/avatars/)
+// ============================================
+const avatarStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, avatarsDir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, makeFilename('avatar', file.originalname));
+  },
+});
 
-// For multiple documents
-const uploadDocuments = upload.array('documents', 5);
+// ============================================
+// Multer instances
+// ============================================
+const uploadProducts = multer({
+  storage: productStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+    files: 1,
+  },
+  fileFilter: fileFilter,
+});
 
-// For multiple images
-const uploadMultiple = upload.array('images', 5);
+const uploadAvatars = multer({
+  storage: avatarStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB for avatars
+    files: 1,
+  },
+  fileFilter: fileFilter,
+});
 
-// Error handling wrapper
+// ============================================
+// Exported middlewares
+// ============================================
+
+// Products — expects field name 'image'
+const uploadSingle = uploadProducts.single('image');
+
+// Avatars — expects field name 'avatar'
+const uploadAvatar = uploadAvatars.single('avatar');
+
+// Multiple documents
+const uploadDocuments = uploadProducts.array('documents', 5);
+
+// Multiple images
+const uploadMultiple = uploadProducts.array('images', 5);
+
+// ============================================
+// Error-handling wrapper
+// ============================================
 const handleUpload = (uploadMiddleware) => {
   return (req, res, next) => {
     uploadMiddleware(req, res, (err) => {
       if (err) {
-        // Handle Multer errors
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: 'File too large. Maximum size is 10MB.',
-            code: 'FILE_TOO_LARGE'
+            code: 'FILE_TOO_LARGE',
           });
         }
         if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-          return res.status(400).json({ 
-            error: 'Unexpected field. Expected field name "image".',
-            code: 'UNEXPECTED_FIELD'
+          return res.status(400).json({
+            error: 'Unexpected field name in the request.',
+            code: 'UNEXPECTED_FIELD',
           });
         }
         if (err.code === 'LIMIT_FILE_COUNT') {
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: 'Too many files.',
-            code: 'TOO_MANY_FILES'
+            code: 'TOO_MANY_FILES',
           });
         }
         if (err.message && err.message.includes('Invalid file type')) {
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: err.message,
-            code: 'INVALID_FILE_TYPE'
+            code: 'INVALID_FILE_TYPE',
           });
         }
-        // Generic error
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: err.message || 'Upload failed',
-          code: 'UPLOAD_FAILED'
+          code: 'UPLOAD_FAILED',
         });
       }
       next();
@@ -110,9 +162,10 @@ const handleUpload = (uploadMiddleware) => {
 };
 
 module.exports = {
-  upload,
-  uploadSingle,
+  upload: uploadProducts,   // kept for backward compatibility
+  uploadSingle,             // products — field name 'image'
+  uploadAvatar,             // ✅ NEW — avatars — field name 'avatar'
   uploadDocuments,
   uploadMultiple,
-  handleUpload
+  handleUpload,
 };

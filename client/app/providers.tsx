@@ -1,8 +1,8 @@
 // app/providers.tsx
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
 // Create axios instance
@@ -13,27 +13,37 @@ const api = axios.create({
   },
 });
 
-// Add token to requests with proper typing
+// Add token to requests
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+    const token =
+      localStorage.getItem('token') || localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
-  (error: AxiosError) => {
-    return Promise.reject(error);
-  }
+  (error: AxiosError) => Promise.reject(error)
 );
 
-interface User {
+export interface User {
   id: string;
   name: string;
   email: string;
   role: string;
   avatar?: string | null;
   phone?: string | null;
+  address?: string | null;
+  bio?: string | null;
+}
+
+// Payload type for updateProfile
+export interface ProfileUpdatePayload {
+  name?: string;
+  phone?: string;
+  address?: string;
+  bio?: string;
+  avatar?: string;
 }
 
 interface AuthContextType {
@@ -42,6 +52,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   register: (name: string, email: string, password: string, role?: string) => Promise<void>;
+  updateProfile: (payload: ProfileUpdatePayload) => Promise<User>;
+  uploadAvatar: (file: File) => Promise<User>;   // ✅ ADDED
 }
 
 interface LoginResponse {
@@ -54,14 +66,6 @@ interface RegisterResponse {
   user: User;
 }
 
-// ── FIX: Define proper types for API response ──────────────────────────────
-interface ApiResponse<T = unknown> {
-  data?: T;
-  user?: User;
-  token?: string;
-}
-
-// ── FIX: Remove 'any' with proper type ──────────────────────────────────────
 interface UserPayload {
   id: string;
   name: string;
@@ -69,55 +73,64 @@ interface UserPayload {
   role: string;
   avatar?: string | null;
   phone?: string | null;
+  address?: string | null;
+  bio?: string | null;
 }
 
-// ── FIX: Use proper types instead of 'any' ──────────────────────────────────
 const extractUserData = (payload: unknown): User | null => {
-  if (!payload) return null;
-  
-  // Check if payload is an object
-  if (typeof payload !== 'object') return null;
-  
+  if (!payload || typeof payload !== 'object') return null;
+
   const data = payload as Record<string, unknown>;
-  
-  // Check if payload has a data property with user data
-  if (data.data && typeof data.data === 'object' && (data.data as Record<string, unknown>).id) {
-    const userData = data.data as UserPayload;
+
+  if (
+    data.data &&
+    typeof data.data === 'object' &&
+    (data.data as Record<string, unknown>).id
+  ) {
+    const u = data.data as UserPayload;
     return {
-      id: userData.id,
-      name: userData.name,
-      email: userData.email,
-      role: userData.role,
-      avatar: userData.avatar || null,
-      phone: userData.phone || null,
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      avatar: u.avatar || null,
+      phone: u.phone || null,
+      address: u.address || null,
+      bio: u.bio || null,
     };
   }
-  
-  // Check if payload has a user property
-  if (data.user && typeof data.user === 'object' && (data.user as Record<string, unknown>).id) {
-    const userData = data.user as UserPayload;
+
+  if (
+    data.user &&
+    typeof data.user === 'object' &&
+    (data.user as Record<string, unknown>).id
+  ) {
+    const u = data.user as UserPayload;
     return {
-      id: userData.id,
-      name: userData.name,
-      email: userData.email,
-      role: userData.role,
-      avatar: userData.avatar || null,
-      phone: userData.phone || null,
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      avatar: u.avatar || null,
+      phone: u.phone || null,
+      address: u.address || null,
+      bio: u.bio || null,
     };
   }
-  
-  // Check if payload itself is the user data
+
   if (data.id && typeof data.id === 'string') {
     return {
       id: data.id as string,
-      name: data.name as string || '',
-      email: data.email as string || '',
-      role: data.role as string || 'USER',
+      name: (data.name as string) || '',
+      email: (data.email as string) || '',
+      role: (data.role as string) || 'USER',
       avatar: (data.avatar as string | null) || null,
       phone: (data.phone as string | null) || null,
+      address: (data.address as string | null) || null,
+      bio: (data.bio as string | null) || null,
     };
   }
-  
+
   return null;
 };
 
@@ -125,28 +138,27 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [status, setStatus] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
+  const [status, setStatus] = useState<
+    'loading' | 'authenticated' | 'unauthenticated'
+  >('loading');
   const router = useRouter();
-  const pathname = usePathname();
 
-  // Initialize auth - runs immediately on mount and syncs with storage
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-        
+        const token =
+          localStorage.getItem('token') || localStorage.getItem('authToken');
+
         if (!token || token === 'undefined' || token === 'null') {
           setStatus('unauthenticated');
           setUser(null);
           return;
         }
 
-        // 1. Immediately read cached user from localStorage for zero flash
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
           try {
-            const raw = JSON.parse(storedUser);
-            const parsedUser = extractUserData(raw);
+            const parsedUser = extractUserData(JSON.parse(storedUser));
             if (parsedUser) {
               setUser(parsedUser);
               setStatus('authenticated');
@@ -156,7 +168,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // 2. Verify with backend in background
         try {
           const response = await api.get('/api/auth/me');
           const fetchedUser = extractUserData(response.data);
@@ -169,7 +180,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
         } catch (err) {
-          // If server returns 401 Unauthorized, wipe storage
           if (axios.isAxiosError(err) && err.response?.status === 401) {
             localStorage.removeItem('token');
             localStorage.removeItem('authToken');
@@ -178,7 +188,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             setStatus('unauthenticated');
           } else {
-            // Network issue or other non-auth error: keep cached user if valid
             const localUser = localStorage.getItem('user');
             if (localUser) {
               try {
@@ -205,7 +214,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     initAuth();
 
-    // Listen to storage events and custom auth-change events
     const handleAuthChange = () => {
       initAuth();
     };
@@ -221,23 +229,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string): Promise<void> => {
     try {
-      const response = await api.post<LoginResponse>('/api/auth/login', { 
-        email, 
-        password 
+      const response = await api.post<LoginResponse>('/api/auth/login', {
+        email,
+        password,
       });
-      
+
       const token = response.data.token;
       const userData = extractUserData(response.data);
-      
-      // Store token with consistent keys
+
       if (token) {
         localStorage.setItem('token', token);
         localStorage.setItem('authToken', token);
         sessionStorage.setItem('token', token);
         sessionStorage.setItem('authToken', token);
       }
-      
-      // Store user data
+
       if (userData) {
         localStorage.setItem('user', JSON.stringify(userData));
         sessionStorage.setItem('user', JSON.stringify(userData));
@@ -246,10 +252,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         setUser(userData);
       }
-      
+
       setStatus('authenticated');
-      
-      // ── FIX: Redirect based on role ──────────────────────────────────────
+
       const userRole = userData?.role?.toUpperCase();
       if (userRole === 'ADMIN') {
         router.push('/admin/dashboard');
@@ -263,47 +268,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = (): void => {
-    // Clear ALL authentication data
     localStorage.removeItem('token');
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
     localStorage.removeItem('userRole');
-    
+
     sessionStorage.removeItem('token');
     sessionStorage.removeItem('authToken');
     sessionStorage.removeItem('user');
     sessionStorage.removeItem('userRole');
-    
+
     setUser(null);
     setStatus('unauthenticated');
-    
+
     router.push('/');
   };
 
   const register = async (
-    name: string, 
-    email: string, 
-    password: string, 
+    name: string,
+    email: string,
+    password: string,
     role: string = 'USER'
   ): Promise<void> => {
     try {
-      const response = await api.post<RegisterResponse>('/api/auth/register', { 
-        name, 
-        email, 
-        password, 
-        role 
+      const response = await api.post<RegisterResponse>('/api/auth/register', {
+        name,
+        email,
+        password,
+        role,
       });
-      
+
       const token = response.data.token;
       const userData = extractUserData(response.data);
-      
+
       if (token) {
         localStorage.setItem('token', token);
         localStorage.setItem('authToken', token);
         sessionStorage.setItem('token', token);
         sessionStorage.setItem('authToken', token);
       }
-      
+
       if (userData) {
         localStorage.setItem('user', JSON.stringify(userData));
         sessionStorage.setItem('user', JSON.stringify(userData));
@@ -312,10 +316,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         setUser(userData);
       }
-      
+
       setStatus('authenticated');
-      
-      // ── FIX: Redirect based on role ──────────────────────────────────────
+
       const userRole = userData?.role?.toUpperCase();
       if (userRole === 'ADMIN') {
         router.push('/admin/dashboard');
@@ -328,19 +331,95 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // ✅ Real profile update
+  const updateProfile = async (
+    payload: ProfileUpdatePayload
+  ): Promise<User> => {
+    try {
+      const response = await api.patch('/api/auth/profile', payload);
+
+      const updated =
+        extractUserData(response.data) ||
+        (user ? { ...user, ...payload } : null);
+      if (!updated) throw new Error('Failed to parse updated user');
+
+      setUser(updated);
+      localStorage.setItem('user', JSON.stringify(updated));
+      sessionStorage.setItem('user', JSON.stringify(updated));
+      if (updated.role) {
+        localStorage.setItem('userRole', updated.role);
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('auth-change'));
+      }
+
+      return updated;
+    } catch (error: unknown) {
+      const err = error as AxiosError<{ error?: string; message?: string }>;
+      throw new Error(
+        err.response?.data?.error ||
+          err.response?.data?.message ||
+          'Failed to update profile'
+      );
+    }
+  };
+
+  // ✅ ADDED: upload avatar file, then save URL on user profile
+  const uploadAvatar = async (file: File): Promise<User> => {
+    try {
+      const formData = new FormData();
+      // Field name MUST match the middleware: "avatar"
+      formData.append('avatar', file);
+
+      const token =
+        localStorage.getItem('token') || localStorage.getItem('authToken');
+
+      // 1. Upload the file
+      const uploadRes = await api.post('/api/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      const url: string | undefined =
+        uploadRes.data?.url ||
+        uploadRes.data?.data?.url ||
+        uploadRes.data?.fileUrl;
+
+      if (!url) {
+        throw new Error('Upload succeeded but no URL returned');
+      }
+
+      // 2. Save the URL on the user's profile
+      const baseURL =
+        process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const fullUrl = url.startsWith('http') ? url : `${baseURL}${url}`;
+
+      const updated = await updateProfile({ avatar: fullUrl });
+      return updated;
+    } catch (error: unknown) {
+      const err = error as AxiosError<{ error?: string; message?: string }>;
+      throw new Error(
+        err.response?.data?.error ||
+          err.response?.data?.message ||
+          'Failed to upload avatar'
+      );
+    }
+  };
+
   const value = {
     user,
     status,
     login,
     logout,
     register,
+    updateProfile,
+    uploadAvatar,   // ✅ ADDED
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextType {
@@ -356,7 +435,6 @@ import { SettingsProvider, useSettings } from '@/context/SettingsContext';
 import { LanguageProvider, useLanguage } from '@/context/LanguageContext';
 export { useCart, CartProvider, useSettings, SettingsProvider, useLanguage, LanguageProvider };
 
-// Export Providers as a wrapper component for easier importing
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <LanguageProvider>

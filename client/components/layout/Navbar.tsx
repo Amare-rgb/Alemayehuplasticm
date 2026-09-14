@@ -60,13 +60,47 @@ function BrandMark() {
   );
 }
 
-// Use the same mounted detection as Footer
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
 
 function useMounted() {
   return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+}
+
+// ✅ NEW: reusable avatar renderer
+function AvatarBubble({
+  src,
+  name,
+  size,
+}: {
+  src?: string | null;
+  name?: string | null;
+  size: number;
+}) {
+  const initial = name ? name.charAt(0).toUpperCase() : null;
+
+  return (
+    <div
+      className="relative flex items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] font-bold overflow-hidden shadow-md"
+      style={{ width: size, height: size, fontSize: size * 0.42 }}
+    >
+      {src ? (
+        <Image
+          src={src}
+          alt={name || "User"}
+          width={size}
+          height={size}
+          className="h-full w-full object-cover"
+          unoptimized
+        />
+      ) : initial ? (
+        initial
+      ) : (
+        <User style={{ width: size * 0.55, height: size * 0.55 }} />
+      )}
+    </div>
+  );
 }
 
 export const Navbar = () => {
@@ -90,7 +124,6 @@ export const Navbar = () => {
   const router = useRouter();
   const pathname = usePathname();
 
-  // FIX: Get settings with refetch and forceUpdate from useSettings hook
   const { settings, loading: settingsLoading, refetch, forceUpdate } = useSettings();
 
   const [localUser, setLocalUser] = useState<User | null>(null);
@@ -98,19 +131,12 @@ export const Navbar = () => {
 
   const mounted = useMounted();
 
-  // FIX: Use a state for render key, but update it safely
   const [renderKey, setRenderKey] = useState(0);
 
-  // Only use settings values after client-side mount
   const logoUrl = mounted ? (settings?.logo || '') : '';
   const siteName = mounted ? (settings?.siteName || 'Genesis') : 'Genesis';
 
-  // FIX: Use useRef to track if we're in a render cycle
-  const isRenderingRef = useRef(false);
-
-  // FIX: Safe way to trigger re-render - use a state update that's batched
   const triggerReRender = useCallback(() => {
-    // Use requestAnimationFrame to ensure we're not in the middle of rendering
     if (typeof window !== 'undefined') {
       requestAnimationFrame(() => {
         setRenderKey(prev => prev + 1);
@@ -118,25 +144,16 @@ export const Navbar = () => {
     }
   }, []);
 
-  // FIX: Listen for settings changes - DON'T call setState directly in event listeners
   useEffect(() => {
     const handleSettingsChange = () => {
-      console.log('🔄 Settings changed event detected, refreshing navbar...');
-      // Force update from the provider
       forceUpdate();
-      // Schedule the re-render safely
       triggerReRender();
-      if (refetch) {
-        refetch();
-      }
+      if (refetch) refetch();
     };
 
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'site_settings' && e.newValue) {
-        console.log('🔄 Settings changed in another tab, refreshing navbar...');
         try {
-          const parsed = JSON.parse(e.newValue);
-          console.log('📦 New settings from storage:', parsed);
           forceUpdate();
           triggerReRender();
         } catch (error) {
@@ -147,30 +164,22 @@ export const Navbar = () => {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        console.log('🔄 Tab visible, refreshing settings...');
         forceUpdate();
         triggerReRender();
-        if (refetch) {
-          refetch();
-        }
+        if (refetch) refetch();
       }
     };
 
     const handleFocus = () => {
-      console.log('🔄 Window focused, refreshing settings...');
       forceUpdate();
       triggerReRender();
-      if (refetch) {
-        refetch();
-      }
+      if (refetch) refetch();
     };
 
     window.addEventListener('settings-change', handleSettingsChange);
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleFocus);
-
-    console.log('✅ Navbar settings listeners registered');
 
     return () => {
       window.removeEventListener('settings-change', handleSettingsChange);
@@ -189,6 +198,19 @@ export const Navbar = () => {
 
   useEffect(() => {
     if (!hasSynced.current) { syncUserFromStorage(); hasSynced.current = true; }
+  }, [syncUserFromStorage]);
+
+  // ✅ Listen for auth-change so avatar updates immediately after upload
+  useEffect(() => {
+    const handleAuthChange = () => {
+      syncUserFromStorage();
+    };
+    window.addEventListener('auth-change', handleAuthChange);
+    window.addEventListener('storage', handleAuthChange);
+    return () => {
+      window.removeEventListener('auth-change', handleAuthChange);
+      window.removeEventListener('storage', handleAuthChange);
+    };
   }, [syncUserFromStorage]);
 
   const activeUser = React.useMemo(() => {
@@ -214,21 +236,20 @@ export const Navbar = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [handleScroll, isHome]);
 
-  // Fetch categories with proper cleanup
   useEffect(() => {
     let isMounted = true;
-    
+
     const fetchCategories = async () => {
       if (!isMounted) return;
-      
+
       try {
         setCategoriesLoading(true);
         setCategoriesError(null);
-        
+
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/categories`);
-        
+
         if (!isMounted) return;
-        
+
         if (res.ok) {
           const data = await res.json();
           const cats = Array.isArray(data) ? data : data.data || [];
@@ -237,9 +258,7 @@ export const Navbar = () => {
             setCategoriesError(null);
           }
         } else {
-          if (isMounted) {
-            setCategories(FALLBACK_CATEGORIES);
-          }
+          if (isMounted) setCategories(FALLBACK_CATEGORIES);
         }
       } catch (error) {
         if (isMounted) {
@@ -247,9 +266,7 @@ export const Navbar = () => {
           setCategoriesError(error instanceof Error ? error.message : "Failed to fetch categories");
         }
       } finally {
-        if (isMounted) {
-          setCategoriesLoading(false);
-        }
+        if (isMounted) setCategoriesLoading(false);
       }
     };
 
@@ -320,8 +337,8 @@ export const Navbar = () => {
   return (
     <header key={renderKey} className={isHome ? `fixed inset-x-0 top-0 z-50 transition-all duration-500 ${scrolled ? "py-3" : "py-5"}` : "relative z-50 w-full bg-[#071a11] text-white border-b border-white/10 shadow-md"}>
       <div className={isHome ? `mx-auto flex h-[70px] w-[min(1180px,calc(100%-48px))] items-center justify-between border-b transition-all duration-500 ${scrolled ? "rounded-full border-white/10 bg-[rgba(7,26,17,.88)] px-5 shadow-[0_15px_40px_rgba(0,0,0,.18)] backdrop-blur-xl" : "border-white/20 px-0"}` : "mx-auto flex h-[75px] w-[min(1180px,calc(100%-48px))] items-center justify-between px-0"}>
-        
-        {/* LOGO - Dynamic from Settings */}
+
+        {/* LOGO */}
         <Link href="/" className="group flex items-center gap-2" onClick={closeMenu}>
           <div className="relative h-10 w-10 rounded-full overflow-hidden flex items-center justify-center bg-[#0b2419] border border-white/10 shadow-sm flex-shrink-0">
             {settingsLoading ? (
@@ -336,8 +353,6 @@ export const Navbar = () => {
                 className="h-full w-full object-cover"
                 priority
                 onError={(e) => {
-                  console.error('Logo failed to load:', logoUrl);
-                  // Show fallback brand mark on error
                   const parent = (e.currentTarget as HTMLElement).parentElement;
                   if (parent) {
                     const fallback = document.createElement('span');
@@ -346,9 +361,6 @@ export const Navbar = () => {
                     parent.appendChild(fallback);
                     (e.currentTarget as HTMLElement).style.display = 'none';
                   }
-                }}
-                onLoad={() => {
-                  console.log('✅ Logo loaded successfully:', logoUrl);
                 }}
               />
             ) : (
@@ -421,10 +433,10 @@ export const Navbar = () => {
           ))}
         </nav>
 
-        {/* Right Controls - keep the same, just copy from original */}
+        {/* Right Controls */}
         <div className="hidden items-center gap-3 lg:flex">
-          
-          {/* Language Switcher UI (Desktop) */}
+
+          {/* Language Switcher */}
           <div className="flex items-center rounded-full bg-white/10 p-0.5 border border-white/20 backdrop-blur-md shadow-sm">
             <Globe size={12} className="ml-1.5 mr-1 text-[var(--lime)] shrink-0" />
             <button
@@ -455,18 +467,24 @@ export const Navbar = () => {
           {isAuthenticated ? (
             <div className="relative" ref={dropdownRef}>
               <button onClick={() => setDropdownOpen((prev) => !prev)} className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white backdrop-blur-md hover:bg-white/15 hover:border-white/30">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] font-bold text-[9px]">
-                  {activeUser?.name ? activeUser.name.charAt(0).toUpperCase() : <User className="h-3 w-3" />}
-                </div>
+                {/* ✅ Avatar in trigger */}
+                <AvatarBubble
+                  src={activeUser?.avatar}
+                  name={activeUser?.name}
+                  size={20}
+                />
                 <span className="max-w-[80px] truncate text-[10px] text-white">{activeUser?.name || t("nav.account", "Account")}</span>
                 <ChevronDown className={`h-3 w-3 text-white/70 transition-transform ${dropdownOpen ? "rotate-180 text-[var(--lime)]" : ""}`} />
               </button>
 
               <div className={`absolute right-0 top-full mt-2 w-56 origin-top-right rounded-xl border border-[#1e4d35] bg-[#071a11] p-2 shadow-[0_20px_60px_rgba(0,0,0,0.85)] transition-all duration-150 ease-out z-50 ${dropdownOpen ? "scale-100 opacity-100 translate-y-0 pointer-events-auto" : "scale-95 opacity-0 -translate-y-2 pointer-events-none"}`}>
                 <div className="flex items-center gap-2 rounded-lg bg-[#0b2419] p-2 border border-[#16412c]">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] font-bold text-[10px] shadow-md">
-                    {activeUser?.name ? activeUser.name.charAt(0).toUpperCase() : <User className="h-4 w-4" />}
-                  </div>
+                  {/* ✅ Avatar in dropdown header */}
+                  <AvatarBubble
+                    src={activeUser?.avatar}
+                    name={activeUser?.name}
+                    size={32}
+                  />
                   <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-center gap-1">
                       <span className="truncate text-[10px] font-semibold text-white">{activeUser?.name || t("nav.my_account", "My Account")}</span>
@@ -489,11 +507,12 @@ export const Navbar = () => {
                 </Link>
 
                 {isAdmin && (
-                  <Link href="/dashboard" onClick={closeAllMenus} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[10px] font-medium text-white/80 hover:bg-[#0b2419] hover:text-white group">
+                  <Link href="/admin/dashboard" onClick={closeAllMenus} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[10px] font-medium text-white/80 hover:bg-[#0b2419] hover:text-white group">
                     <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#0b2419] border border-[#16412c] text-white/70 group-hover:bg-[var(--lime)] group-hover:text-[var(--green-950)] transition-colors"><LayoutDashboard className="h-3.5 w-3.5" /></span>
                     <div><span className="font-semibold text-white text-[10px]">{t("nav.dashboard", "Dashboard")}</span></div>
                   </Link>
                 )}
+
                 <div className="my-1 h-px bg-[#16412c]" />
 
                 <button onClick={() => { setDropdownOpen(false); handleLogout(); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[10px] font-semibold text-red-400 hover:bg-red-950/30 hover:text-red-300 group">
@@ -503,9 +522,14 @@ export const Navbar = () => {
               </div>
             </div>
           ) : (
-            <Link href="/auth/signin" className="rounded border border-white/30 px-2.5 py-1 text-[10px] font-medium text-white/90 hover:text-white hover:border-white/60">
-              {t("nav.sign_in", "Sign In")}
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link href="/auth/signin" className="rounded border border-white/30 px-2.5 py-1 text-[10px] font-medium text-white/90 hover:text-white hover:border-white/60">
+                {t("nav.sign_in", "Sign In")}
+              </Link>
+              <Link href="/auth/register" className="rounded bg-[var(--lime)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--green-950)] hover:brightness-110 transition-all">
+                {t("nav.register", "Register")}
+              </Link>
+            </div>
           )}
 
           {!isAuthenticated && (
@@ -538,10 +562,10 @@ export const Navbar = () => {
         </div>
       </div>
 
-      {/* Mobile Drawer - keep the same */}
+      {/* Mobile Drawer */}
       <div className={isHome ? `mx-auto mt-1.5 w-[min(1180px,calc(100%-48px))] overflow-hidden rounded-[16px] border border-white/10 bg-[rgba(7,26,17,.96)] shadow-[0_20px_60px_rgba(0,0,0,.3)] backdrop-blur-xl transition-all duration-300 lg:hidden ${menuOpen ? "max-h-[650px] opacity-100" : "pointer-events-none max-h-0 opacity-0"}` : `mx-auto w-[min(1180px,calc(100%-48px))] overflow-hidden rounded-b-[12px] bg-[#071a11] transition-all duration-300 lg:hidden ${menuOpen ? "max-h-[650px] opacity-100 border-t border-white/10 py-2" : "pointer-events-none max-h-0 opacity-0"}`}>
         <nav className="p-2">
-          {/* Mobile Language Selector Row */}
+          {/* Mobile Language Selector */}
           <div className="flex items-center justify-between px-3 py-2 mb-1.5 rounded-lg bg-white/[0.04] border border-white/5">
             <span className="flex items-center gap-2 text-xs font-semibold text-white/80">
               <Globe size={14} className="text-[var(--lime)]" />
@@ -601,9 +625,12 @@ export const Navbar = () => {
           {isAuthenticated ? (
             <div className="mt-2 border-t border-white/10 pt-2 space-y-1">
               <div className="flex items-center gap-2 rounded-lg bg-white/[0.04] p-2 border border-white/5 mb-1.5">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] font-bold text-[10px]">
-                  {activeUser?.name ? activeUser.name.charAt(0).toUpperCase() : <User size={14} />}
-                </div>
+                {/* ✅ Avatar in mobile header */}
+                <AvatarBubble
+                  src={activeUser?.avatar}
+                  name={activeUser?.name}
+                  size={28}
+                />
                 <div className="flex flex-col min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-xs font-semibold text-white">{activeUser?.name || t("nav.my_account", "My Account")}</span>
@@ -624,7 +651,7 @@ export const Navbar = () => {
               </Link>
 
               {isAdmin && (
-                <Link href="/dashboard" onClick={closeMenu} className="flex items-center justify-between rounded-lg px-3 py-1.5 text-xs text-white/90 hover:bg-white/5 hover:text-white">
+                <Link href="/admin/dashboard" onClick={closeMenu} className="flex items-center justify-between rounded-lg px-3 py-1.5 text-xs text-white/90 hover:bg-white/5 hover:text-white">
                   <span className="flex items-center gap-2"><LayoutDashboard size={14} /> {t("nav.dashboard", "Dashboard")}</span>
                   <ArrowUpRight size={14} className="text-white/40" />
                 </Link>
@@ -635,9 +662,14 @@ export const Navbar = () => {
               </button>
             </div>
           ) : (
-            <Link href="/auth/signin" onClick={closeMenu} className="flex items-center justify-between rounded-lg px-3 py-2 text-xs text-white/85 hover:bg-white/5">
-              {t("nav.sign_in", "Sign In")} <ArrowUpRight size={14} className="text-white/40" />
-            </Link>
+            <div className="mt-2 border-t border-white/10 pt-2 space-y-1">
+              <Link href="/auth/signin" onClick={closeMenu} className="flex items-center justify-between rounded-lg px-3 py-2 text-xs text-white/85 hover:bg-white/5">
+                {t("nav.sign_in", "Sign In")} <ArrowUpRight size={14} className="text-white/40" />
+              </Link>
+              <Link href="/auth/register" onClick={closeMenu} className="flex items-center justify-between rounded-lg px-3 py-2 text-xs font-bold text-[var(--green-950)] bg-[var(--lime)] hover:brightness-110">
+                {t("nav.register", "Register")} <ArrowUpRight size={14} />
+              </Link>
+            </div>
           )}
 
           {!isAuthenticated && (

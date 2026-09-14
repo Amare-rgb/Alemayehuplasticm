@@ -7,6 +7,44 @@ import { useSettings } from '@/hooks/useSettings';
 import { useLanguage } from '@/context/LanguageContext';
 import toast from 'react-hot-toast';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Map URL helpers
+// ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_MAP_URL =
+  'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3988.820123456789!2d36.821945!3d-1.292066!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x182f1172d84d49a7%3A0xf7b8b8b8b8b8b8b8!2sNairobi%2C%20Kenya!5e0!3m2!1sen!2s!4v1234567890123';
+
+/**
+ * Accepts Google Maps, OpenStreetMap, Bing Maps, Mapbox, ArcGIS embeds.
+ * If a full <iframe ...> HTML string was pasted, it extracts the src.
+ * Falls back to the default silently (no console warnings).
+ */
+function resolveMapUrl(raw?: string): string {
+  if (!raw || typeof raw !== 'string') return DEFAULT_MAP_URL;
+
+  const trimmed = raw.trim();
+
+  // Extract src if user pasted the full <iframe> HTML
+  const iframeMatch = trimmed.match(/<iframe[^>]*\bsrc=["']([^"']+)["']/i);
+  const candidate = iframeMatch ? iframeMatch[1].trim() : trimmed;
+
+  // Must be a valid http(s) URL
+  if (!/^https?:\/\//i.test(candidate)) return DEFAULT_MAP_URL;
+
+  // Recognized map providers
+  const providers = [
+    'google.com/maps',
+    'maps.google.com',
+    'openstreetmap.org',
+    'bing.com/maps',
+    'mapbox.com',
+    'arcgis.com',
+    '/maps/embed',
+  ];
+
+  const isMapProvider = providers.some((p) => candidate.includes(p));
+  return isMapProvider ? candidate : DEFAULT_MAP_URL;
+}
+
 export default function ContactPage() {
   const { settings, loading, error, forceUpdate, refetch } = useSettings();
   const { t } = useLanguage();
@@ -18,7 +56,7 @@ export default function ContactPage() {
     email: '',
     phone: '',
     subject: 'General Inquiry',
-    message: ''
+    message: '',
   });
 
   const [isClient, setIsClient] = useState(false);
@@ -33,25 +71,14 @@ export default function ContactPage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (isClient) {
-      console.log('📊 Contact Page State:');
-      console.log('  - loading:', loading);
-      console.log('  - error:', error);
-      console.log('  - settings:', settings);
-    }
-  }, [loading, error, settings, isClient]);
-
   // Listen for settings changes
   useEffect(() => {
     const handleSettingsChange = () => {
-      console.log('🔄 Contact page: Settings changed, forcing update...');
       forceUpdate();
     };
 
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'site_settings' && e.newValue) {
-        console.log('🔄 Contact page: Storage changed, forcing update...');
         forceUpdate();
       }
     };
@@ -79,23 +106,14 @@ export default function ContactPage() {
 
   // Use settings with fallback defaults
   const siteName = settings?.siteName || 'Genesis Agri';
-  const contactAddress = settings?.contactAddress || '123 Agriculture Way, Farming District, FC 12345';
+  const contactAddress =
+    settings?.contactAddress || '123 Agriculture Way, Farming District, FC 12345';
   const contactPhone = settings?.contactPhone || '+1 (555) 123-4567';
   const contactHours = settings?.contactHours || 'Mon-Fri: 8:00 AM - 6:00 PM';
   const contactEmail = settings?.contactEmail || 'support@genesisagri.com';
-  
-  // ✅ CORRECT: Use a properly formatted Google Maps embed URL
-  // This is a working embed URL for Nairobi, Kenya
-  const defaultMapUrl = 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3988.820123456789!2d36.821945!3d-1.292066!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x182f1172d84d49a7%3A0xf7b8b8b8b8b8b8b8!2sNairobi%2C%20Kenya!5e0!3m2!1sen!2s!4v1234567890123';
-  
-  // ✅ Use the map from settings or fallback to default
-  let mapEmbedUrl = settings?.contactMapEmbed || defaultMapUrl;
-  
-  // ✅ FIX: Ensure the URL has the correct format
-  if (mapEmbedUrl && !mapEmbedUrl.startsWith('https://www.google.com/maps/embed')) {
-    console.warn('⚠️ Invalid map URL format, using default:', mapEmbedUrl);
-    mapEmbedUrl = defaultMapUrl;
-  }
+
+  // ✅ FIXED: silent validation, supports multiple map providers
+  const mapEmbedUrl = resolveMapUrl(settings?.contactMapEmbed);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +144,7 @@ export default function ContactPage() {
         email: '',
         phone: '',
         subject: 'General Inquiry',
-        message: ''
+        message: '',
       });
     } catch (error) {
       console.error('❌ Submit error:', error);
@@ -162,7 +180,7 @@ export default function ContactPage() {
           <p className="text-gray-600 mb-6">
             {t(
               'contact.error_desc',
-              'We couldn\'t load the contact information. Please try again.'
+              "We couldn't load the contact information. Please try again."
             )}
           </p>
           <button
@@ -198,7 +216,6 @@ export default function ContactPage() {
   return (
     <main className="min-h-screen bg-gray-50 py-12 pt-32">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-12">
           <span className="text-xs font-bold text-green-700 uppercase tracking-wider bg-green-100 px-3 py-1 rounded-full">
@@ -217,7 +234,6 @@ export default function ContactPage() {
 
         {/* Top Section: Contact Details + Form */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
           {/* Contact Details Card */}
           <div className="bg-gradient-to-br from-green-800 to-emerald-900 text-white rounded-2xl p-8 space-y-8 shadow-md">
             <div>
@@ -241,9 +257,7 @@ export default function ContactPage() {
                   <div className="font-semibold text-white">
                     {t('contact.contact_address', 'Contact Address')}
                   </div>
-                  <div className="text-green-100 mt-0.5">
-                    {contactAddress}
-                  </div>
+                  <div className="text-green-100 mt-0.5">{contactAddress}</div>
                 </div>
               </div>
 
@@ -256,13 +270,14 @@ export default function ContactPage() {
                     {t('contact.phone_support', 'Phone Support')}
                   </div>
                   <div className="text-green-100 mt-0.5">
-                    <a href={`tel:${contactPhone}`} className="hover:text-green-300 transition">
+                    <a
+                      href={`tel:${contactPhone}`}
+                      className="hover:text-green-300 transition"
+                    >
                       {contactPhone}
                     </a>
                   </div>
-                  <div className="text-xs text-green-300">
-                    {contactHours}
-                  </div>
+                  <div className="text-xs text-green-300">{contactHours}</div>
                 </div>
               </div>
 
@@ -275,7 +290,10 @@ export default function ContactPage() {
                     {t('contact.email', 'Email')}
                   </div>
                   <div className="text-green-100 mt-0.5">
-                    <a href={`mailto:${contactEmail}`} className="hover:text-green-300 transition">
+                    <a
+                      href={`mailto:${contactEmail}`}
+                      className="hover:text-green-300 transition"
+                    >
                       {contactEmail}
                     </a>
                   </div>
@@ -324,7 +342,9 @@ export default function ContactPage() {
                       required
                       placeholder="John Doe"
                       value={formData.name}
-                      onChange={e => setFormData({ ...formData, name: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, name: e.target.value })
+                      }
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:outline-none"
                     />
                   </div>
@@ -338,7 +358,9 @@ export default function ContactPage() {
                       required
                       placeholder="john@farm.com"
                       value={formData.email}
-                      onChange={e => setFormData({ ...formData, email: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, email: e.target.value })
+                      }
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:outline-none"
                     />
                   </div>
@@ -353,7 +375,9 @@ export default function ContactPage() {
                       type="tel"
                       placeholder="+1 (555) 000-0000"
                       value={formData.phone}
-                      onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, phone: e.target.value })
+                      }
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:outline-none"
                     />
                   </div>
@@ -364,7 +388,9 @@ export default function ContactPage() {
                     </label>
                     <select
                       value={formData.subject}
-                      onChange={e => setFormData({ ...formData, subject: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, subject: e.target.value })
+                      }
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:outline-none bg-white"
                     >
                       <option value="General Inquiry">
@@ -377,17 +403,21 @@ export default function ContactPage() {
                         {t('contact.topic_fertilizer', 'Fertilizer Consultation')}
                       </option>
                       <option value="Farm Equipment & Delivery">
-                        {t('contact.topic_equipment', 'Farm Equipment & Delivery')}
+                        {t(
+                          'contact.topic_equipment',
+                          'Farm Equipment & Delivery'
+                        )}
                       </option>
                       <option value="Export & Partnerships">
-                        {t('contact.topic_partnerships', 'Export & Partnerships')}
+                        {t(
+                          'contact.topic_partnerships',
+                          'Export & Partnerships'
+                        )}
                       </option>
                       <option value="Technical Support">
                         {t('contact.topic_technical', 'Technical Support')}
                       </option>
-                      <option value="Other">
-                        {t('contact.topic_other', 'Other')}
-                      </option>
+                      <option value="Other">{t('contact.topic_other', 'Other')}</option>
                     </select>
                   </div>
                 </div>
@@ -404,7 +434,9 @@ export default function ContactPage() {
                       'Tell us about your farm requirements or question...'
                     )}
                     value={formData.message}
-                    onChange={e => setFormData({ ...formData, message: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, message: e.target.value })
+                    }
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:outline-none"
                   />
                 </div>
@@ -431,7 +463,7 @@ export default function ContactPage() {
           </div>
         </div>
 
-        {/* ✅ Google Map Section */}
+        {/* Google Map Section */}
         <div className="mt-8">
           <div className="bg-white rounded-2xl overflow-hidden border border-gray-200/80 shadow-sm">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
@@ -439,15 +471,25 @@ export default function ContactPage() {
                 <MapPin size={20} className="text-green-600" />
                 {t('contact.map_title', 'Find Us on Map')}
               </h3>
-              <a 
-                href="https://www.google.com/maps/search/?api=1&query=Genesis+Agri" 
-                target="_blank" 
+              <a
+                href="https://www.google.com/maps/search/?api=1&query=Genesis+Agri"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-green-600 hover:text-green-700 hover:underline flex items-center gap-1"
               >
                 Open in Google Maps
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                  />
                 </svg>
               </a>
             </div>
@@ -458,7 +500,7 @@ export default function ContactPage() {
                 allowFullScreen
                 loading="lazy"
                 referrerPolicy="no-referrer-when-downgrade"
-                title="Google Maps - Our Location"
+                title="Map - Our Location"
               ></iframe>
             </div>
           </div>

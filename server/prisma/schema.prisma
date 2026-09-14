@@ -61,27 +61,29 @@ model User {
   role      Role     @default(USER)
   avatar    String?
   phone     String?
+  address   String?     // ✅ ADDED
+  bio       String?     // ✅ ADDED
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relationships
-  adminProfile    AdminProfile?
-  profile         Profile?
-  orders          Order[]
-  cartItems       CartItem[]
-  reviews         Review[]
-  addresses       Address[]
-  blogPosts       BlogPost[]
-  categories      Category[]      @relation("CategoryCreator")
-  approvedCategories Category[]   @relation("CategoryApprover")
-  articles        Article[]       @relation("ArticleAuthor")
-  chatMessages    ChatMessage[]   // ✅ ADD THIS RELATIONSHIP
+  adminProfile       AdminProfile?
+  profile            Profile?
+  orders             Order[]
+  cartItems          CartItem[]
+  reviews            Review[]
+  addresses          Address[]
+  blogPosts          BlogPost[]
+  categories         Category[]      @relation("CategoryCreator")
+  approvedCategories Category[]      @relation("CategoryApprover")
+  articles           Article[]       @relation("ArticleAuthor")
+  chatMessages       ChatMessage[]
 
   @@map("users")
 }
 
 // ============================================
-// CHAT MESSAGE MODEL - ✅ ADD THIS
+// CHAT MESSAGE MODEL
 // ============================================
 model ChatMessage {
   id             String   @id @default(cuid())
@@ -90,9 +92,9 @@ model ChatMessage {
   userMessage    String   @db.Text
   botResponse    String   @db.Text
   timestamp      DateTime @default(now())
-  
+
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@index([userId])
   @@index([conversationId])
   @@index([timestamp])
@@ -100,7 +102,7 @@ model ChatMessage {
 }
 
 // ============================================
-// UNIFIED PROFILE MODEL - No seller relation
+// UNIFIED PROFILE MODEL
 // ============================================
 model Profile {
   id           String   @id @default(cuid())
@@ -113,14 +115,14 @@ model Profile {
   totalSales   Int      @default(0)
   address      String?
   banner       String?
-  
+
   // Admin-specific fields
   isAdmin      Boolean  @default(false)
   adminRole    String?
   permissions  String[]
   lastLogin    DateTime?
   status       String   @default("active")
-  
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -164,7 +166,7 @@ model Category {
   children    Category[] @relation("CategoryTree")
   creator     User?      @relation("CategoryCreator", fields: [createdBy], references: [id])
   approver    User?      @relation("CategoryApprover", fields: [approvedBy], references: [id])
-  products    Product[]  
+  products    Product[]
   subProducts Product[]  @relation("ProductSubCategory")
 
   @@map("categories")
@@ -189,10 +191,10 @@ model Product {
   warranty          String?
   videoUrl          String?
   unitOfMeasurement String             @default("pcs")
-  sizes             String?         
-  colors            String?         
+  sizes             String?
+  colors            String?
   brand             String?
-  weight            Float?           
+  weight            Float?
   estimatedDelivery String?
   rejectionReason   String?
   durationTime      String?            @default("1h")
@@ -251,8 +253,8 @@ model Order {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  user    User    @relation(fields: [userId], references: [id])
-  address Address @relation(fields: [addressId], references: [id])
+  user    User        @relation(fields: [userId], references: [id])
+  address Address     @relation(fields: [addressId], references: [id])
   items   OrderItem[]
 
   @@map("orders")
@@ -310,8 +312,8 @@ model BlogPost {
   slug      String   @unique
   content   String   @db.Text
   excerpt   String?
-  image     String?  // Stores Image URLs
-  video     String?  // Stores Video URLs (Uploaded or YouTube/Vimeo)
+  image     String?
+  video     String?
   category  String   @default("Agriculture")
   readTime  Int      @default(3)
   published Boolean  @default(true)
@@ -326,9 +328,6 @@ model BlogPost {
   @@map("blog_posts")
 }
 
-// ============================================
-// Article Model - PDF fields are OPTIONAL
-// ============================================
 model Article {
   id            String        @id @default(cuid())
   title         String
@@ -336,12 +335,11 @@ model Article {
   summary       String?
   content       String        @db.Text
   note          String?       @db.Text
-  
-  // PDF fields are optional
-  pdfUrl        String?       // Made optional with ?
-  pdfFileName   String?       // Made optional with ?
-  pdfFileSize   Int?          // Made optional with ?
-  
+
+  pdfUrl        String?
+  pdfFileName   String?
+  pdfFileSize   Int?
+
   status        ArticleStatus @default(PUBLISHED)
   views         Int           @default(0)
   downloads     Int           @default(0)
@@ -385,7 +383,9 @@ model Settings {
   marketingEmails      Boolean  @default(false)
   themeColor           String   @default("#22c55e")
   darkMode             Boolean  @default(false)
-  
+
+
+
   contactEmail         String?  @default("support@genesisagri.com")
   contactPhone         String?  @default("+1 (555) 123-4567")
   contactAddress       String?  @default("123 Agriculture Way, Farming District, FC 12345")
@@ -398,7 +398,7 @@ model Settings {
   emergencyPhone       String?  @default("+1 (555) 999-9999")
   supportEmail         String?  @default("support@genesisagri.com")
   infoEmail            String?  @default("info@genesisagri.com")
-  
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

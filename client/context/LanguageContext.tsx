@@ -1,7 +1,14 @@
 // context/LanguageContext.tsx
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+  useSyncExternalStore,
+} from 'react';
 import en from '@/locales/en.json';
 import am from '@/locales/am.json';
 
@@ -21,100 +28,116 @@ const LanguageContext = createContext<LanguageContextType>({
   t: (key: string, fallback?: string) => fallback || key,
 });
 
-export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<Language>('en');
+const STORAGE_KEY = 'site_lang';
 
-  // Load language preference from storage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('site_lang') as Language | null;
-      if (stored === 'en' || stored === 'am') {
-        setLanguageState(stored);
-      }
-    } catch (e) {
-      console.error('Error reading language from storage:', e);
+// ─────────────────────────────────────────────────────────────────────────────
+// External store — reads language from localStorage without triggering effects
+// ─────────────────────────────────────────────────────────────────────────────
+const subscribe = (callback: () => void) => {
+  if (typeof window === 'undefined') return () => {};
+
+  window.addEventListener('storage', callback);
+  window.addEventListener('language-change', callback);
+
+  return () => {
+    window.removeEventListener('storage', callback);
+    window.removeEventListener('language-change', callback);
+  };
+};
+
+const getClientSnapshot = (): Language => {
+  if (typeof window === 'undefined') return 'en';
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === 'am' ? 'am' : 'en';
+  } catch {
+    return 'en';
+  }
+};
+
+const getServerSnapshot = (): Language => 'en';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nested dictionary resolver — no `any`
+// ─────────────────────────────────────────────────────────────────────────────
+type Dict = { [key: string]: string | Dict };
+
+function resolveKey(dict: unknown, keys: string[]): string | null {
+  let current: unknown = dict;
+
+  for (const k of keys) {
+    if (
+      current &&
+      typeof current === 'object' &&
+      !Array.isArray(current) &&
+      k in (current as Record<string, unknown>)
+    ) {
+      current = (current as Record<string, unknown>)[k];
+    } else {
+      return null;
     }
+  }
 
-    const handleLanguageEvent = (e: Event) => {
-      const customEvent = e as CustomEvent<Language>;
-      if (customEvent.detail === 'en' || customEvent.detail === 'am') {
-        setLanguageState(customEvent.detail);
-      } else {
-        try {
-          const stored = localStorage.getItem('site_lang') as Language | null;
-          if (stored === 'en' || stored === 'am') {
-            setLanguageState(stored);
-          }
-        } catch {}
-      }
-    };
+  return typeof current === 'string' ? current : null;
+}
 
-    window.addEventListener('language-change', handleLanguageEvent);
-    window.addEventListener('storage', handleLanguageEvent);
+const translations: Record<Language, Dict> = {
+  en: en as unknown as Dict,
+  am: am as unknown as Dict,
+};
 
-    return () => {
-      window.removeEventListener('language-change', handleLanguageEvent);
-      window.removeEventListener('storage', handleLanguageEvent);
-    };
-  }, []);
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider
+// ─────────────────────────────────────────────────────────────────────────────
+export function LanguageProvider({ children }: { children: React.ReactNode }) {
+  // ✅ useSyncExternalStore reads localStorage without a mount-time setState
+  const storedLanguage = useSyncExternalStore(
+    subscribe,
+    getClientSnapshot,
+    getServerSnapshot
+  );
+
+  // Local override state — set when the user clicks EN/አማ in this tab
+  const [overrideLanguage, setOverrideLanguage] = useState<Language | null>(null);
+
+  // Effective language: local override wins, otherwise the stored value
+  const language: Language = overrideLanguage ?? storedLanguage;
 
   const setLanguage = useCallback((lang: Language) => {
-    setLanguageState(lang);
+    setOverrideLanguage(lang);
+
     try {
-      localStorage.setItem('site_lang', lang);
-      window.dispatchEvent(new CustomEvent('language-change', { detail: lang }));
-    } catch {}
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY, lang);
+        window.dispatchEvent(new CustomEvent('language-change', { detail: lang }));
+      }
+    } catch {
+      // Ignore storage errors (private mode, quota, etc.)
+    }
   }, []);
 
   const toggleLanguage = useCallback(() => {
-    setLanguageState((prev) => {
-      const next: Language = prev === 'en' ? 'am' : 'en';
-      try {
-        localStorage.setItem('site_lang', next);
-        window.dispatchEvent(new CustomEvent('language-change', { detail: next }));
-      } catch {}
-      return next;
-    });
-  }, []);
+    const next: Language = language === 'en' ? 'am' : 'en';
+    setLanguage(next);
+  }, [language, setLanguage]);
 
-  const currentTranslations = useMemo(() => {
-    return {
-      en,
-      am,
-    };
-  }, []);
-
-  // Nested key resolver helper (e.g. t('contact.form_title'))
+  // ✅ Pure — no effects, no setState
   const t = useCallback(
     (key: string, fallback?: string): string => {
-      try {
-        const keys = key.split('.');
-        const activeDict = currentTranslations[language] || currentTranslations.en;
-        let current: any = activeDict;
+      const keys = key.split('.');
 
-        for (const k of keys) {
-          if (current && typeof current === 'object' && k in current) {
-            current = current[k];
-          } else {
-            // Fallback to English if translation is missing in Amharic
-            let fallbackEn: any = currentTranslations.en;
-            for (const f of keys) {
-              if (fallbackEn && typeof fallbackEn === 'object' && f in fallbackEn) {
-                fallbackEn = fallbackEn[f];
-              } else {
-                return fallback || key;
-              }
-            }
-            return typeof fallbackEn === 'string' ? fallbackEn : fallback || key;
-          }
-        }
+      // Try active language first
+      const activeValue = resolveKey(translations[language], keys);
+      if (activeValue !== null) return activeValue;
 
-        return typeof current === 'string' ? current : fallback || key;
-      } catch (err) {
-        return fallback || key;
-      }
+      // Fall back to English
+      const englishValue = resolveKey(translations.en, keys);
+      if (englishValue !== null) return englishValue;
+
+      // Final fallback
+      return fallback || key;
     },
-    [language, currentTranslations]
+    [language]
   );
 
   const contextValue = useMemo(
