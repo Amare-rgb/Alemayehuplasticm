@@ -65,7 +65,10 @@ router.post('/register', async (req, res) => {
         name: true,
         email: true,
         phone: true,
+        address: true,
+        bio: true,
         role: true,
+        avatar: true,
         createdAt: true
       }
     });
@@ -180,7 +183,7 @@ router.post('/login', async (req, res) => {
 });
 
 // ============================================
-// GET CURRENT USER - FIXED (removed sellerProfile)
+// GET CURRENT USER
 // GET /api/auth/me
 // ============================================
 router.get('/me', requireAuth, async (req, res) => {
@@ -194,11 +197,12 @@ router.get('/me', requireAuth, async (req, res) => {
         name: true,
         email: true,
         phone: true,
+        address: true,
+        bio: true,
         role: true,
         avatar: true,
         createdAt: true,
         updatedAt: true,
-        // ✅ Keep profile (unified profile)
         profile: {
           select: {
             id: true,
@@ -214,7 +218,6 @@ router.get('/me', requireAuth, async (req, res) => {
             permissions: true
           }
         },
-        // ✅ Keep adminProfile for admin users
         adminProfile: {
           select: {
             id: true,
@@ -222,7 +225,6 @@ router.get('/me', requireAuth, async (req, res) => {
             department: true
           }
         }
-        // ❌ REMOVED: sellerProfile (no longer exists)
       }
     });
 
@@ -273,7 +275,6 @@ router.post('/change-password', requireAuth, async (req, res) => {
       });
     }
 
-    // Get user
     const user = await prisma.user.findUnique({
       where: { id: userId }
     });
@@ -285,7 +286,6 @@ router.post('/change-password', requireAuth, async (req, res) => {
       });
     }
 
-    // Verify current password
     const isValid = await bcrypt.compare(currentPassword, user.password);
     if (!isValid) {
       return res.status(401).json({
@@ -294,10 +294,8 @@ router.post('/change-password', requireAuth, async (req, res) => {
       });
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 12);
 
-    // Update password
     await prisma.user.update({
       where: { id: userId },
       data: { password: hashedPassword }
@@ -318,25 +316,38 @@ router.post('/change-password', requireAuth, async (req, res) => {
 
 // ============================================
 // UPDATE PROFILE
-// PUT /api/auth/profile
+// PATCH /api/auth/profile
 // ============================================
-router.put('/profile', requireAuth, async (req, res) => {
+router.patch('/profile', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, phone, avatar } = req.body;
+    const { name, phone, address, bio, avatar } = req.body;
+
+    // Build update payload only with fields that were actually sent
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (phone !== undefined) data.phone = phone;
+    if (address !== undefined) data.address = address;
+    if (bio !== undefined) data.bio = bio;
+    if (avatar !== undefined) data.avatar = avatar;
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No fields provided to update'
+      });
+    }
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
-      data: {
-        name,
-        phone,
-        avatar
-      },
+      data,
       select: {
         id: true,
         name: true,
         email: true,
         phone: true,
+        address: true,
+        bio: true,
         role: true,
         avatar: true,
         createdAt: true,
@@ -353,7 +364,8 @@ router.put('/profile', requireAuth, async (req, res) => {
     console.error('❌ Profile update error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update profile'
+      error: 'Failed to update profile',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -384,7 +396,6 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
 
-    // In production, send password reset email
     console.log(`📧 Password reset requested for: ${email}`);
 
     res.json({
@@ -426,10 +437,8 @@ router.post('/reset-password', async (req, res) => {
       });
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 12);
 
-    // Update password
     await prisma.user.update({
       where: { id: user.id },
       data: { password: hashedPassword }
@@ -463,7 +472,6 @@ router.post('/create-admin', async (req, res) => {
       });
     }
 
-    // Check if user exists
     const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase() }
     });
@@ -475,10 +483,8 @@ router.post('/create-admin', async (req, res) => {
       });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create admin user
     const user = await prisma.user.create({
       data: {
         name,
@@ -488,7 +494,6 @@ router.post('/create-admin', async (req, res) => {
       }
     });
 
-    // Remove password from response
     const { password: _, ...userData } = user;
 
     res.status(201).json({

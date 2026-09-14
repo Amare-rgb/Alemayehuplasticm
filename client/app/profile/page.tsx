@@ -24,13 +24,11 @@ import {
   LogOut,
   Star,
   Truck,
-  Gift,
-  Bell,
   HelpCircle,
 } from "lucide-react";
 import { useAuth } from "@/app/providers";
 
-// ─── Mock data for display (no backend fetching) ────────────────────────────
+// ─── Mock data for display ─────────────────────────────────────────────────
 const MOCK_STATS = {
   totalOrders: 24,
   wishlistItems: 8,
@@ -39,27 +37,9 @@ const MOCK_STATS = {
 };
 
 const MOCK_RECENT_ORDERS = [
-  {
-    id: "GEN-2024-0847",
-    date: "Aug 25, 2026",
-    status: "Delivered",
-    total: 2450,
-    items: 3,
-  },
-  {
-    id: "GEN-2024-0831",
-    date: "Aug 18, 2026",
-    status: "In Transit",
-    total: 1875,
-    items: 2,
-  },
-  {
-    id: "GEN-2024-0819",
-    date: "Aug 10, 2026",
-    status: "Processing",
-    total: 3200,
-    items: 5,
-  },
+  { id: "GEN-2024-0847", date: "Aug 25, 2026", status: "Delivered", total: 2450, items: 3 },
+  { id: "GEN-2024-0831", date: "Aug 18, 2026", status: "In Transit", total: 1875, items: 2 },
+  { id: "GEN-2024-0819", date: "Aug 10, 2026", status: "Processing", total: 3200, items: 5 },
 ];
 
 const ORDER_STATUS_CONFIG: Record<
@@ -89,58 +69,113 @@ const ORDER_STATUS_CONFIG: Record<
 };
 
 export default function ProfilePage() {
-  const { user, status, logout } = useAuth();
+  const { user, status, logout, updateProfile, uploadAvatar } = useAuth(); // ✅ added uploadAvatar
   const router = useRouter();
 
-  // ── FIX: Use useMemo to derive form data from user ──────────────────────
-  // This eliminates the need for useEffect to update state
-  const derivedFormData = useMemo(() => ({
-    name: user?.name || "",
-    phone: user?.phone || "+251 912 345 678",
-    address: "Addis Ababa, Ethiopia",
-    bio: "Passionate about fresh, organic produce from local farms.",
-  }), [user]);
+  const derivedFormData = useMemo(
+    () => ({
+      name: user?.name || "",
+      phone: user?.phone || "",
+      address: user?.address || "",
+      bio: user?.bio || "",
+    }),
+    [user]
+  );
 
-  // ── Editable fields state ──────────────────────────────────────────────────
   const [isEditing, setIsEditing] = useState(false);
-  // Initialize with derived data, but allow edits
   const [formData, setFormData] = useState(derivedFormData);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false); // ✅ added
 
-   useEffect(() => {
-    // Only reset if we're not in edit mode to avoid losing changes
+  useEffect(() => {
     if (!isEditing && user) {
-      // Use queueMicrotask or a small check to avoid synchronous cascading render warning
       queueMicrotask(() => {
         setFormData({
           name: user.name || "",
-          phone: user.phone || "+251 912 345 678",
-          address: "Addis Ababa, Ethiopia",
-          bio: "Passionate about fresh, organic produce from local farms.",
+          phone: user.phone || "",
+          address: user.address || "",
+          bio: user.bio || "",
         });
       });
     }
-  }, [user?.id, isEditing]);
-  // ── Redirect if not authenticated ──────────────────────────────────────────
+  }, [user?.id, isEditing, user]);
+
+  // Redirect if not authenticated
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/auth/login");
     }
   }, [status, router]);
 
-  const handleAvatarChange = (e: ChangeEvent<HTMLInputElement>) => {
+  // ✅ FIXED: uploads the file to the server immediately
+  const handleAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setAvatarUrl(URL.createObjectURL(file));
+    if (!file) return;
+
+    // Size check
+    if (file.size > 5 * 1024 * 1024) {
+      setSaveError("Image must be smaller than 5 MB");
+      setTimeout(() => setSaveError(null), 4000);
+      return;
+    }
+
+    // Type check
+    if (!file.type.startsWith("image/")) {
+      setSaveError("Please choose an image file");
+      setTimeout(() => setSaveError(null), 4000);
+      return;
+    }
+
+    // Instant local preview
+    const preview = URL.createObjectURL(file);
+    setAvatarUrl(preview);
+
+    setAvatarUploading(true);
+    setSaveError(null);
+
+    try {
+      await uploadAvatar(file);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to upload avatar";
+      setSaveError(msg);
+      setTimeout(() => setSaveError(null), 4000);
+      setAvatarUrl(null);
+    } finally {
+      setAvatarUploading(false);
+      // Allow re-selecting the same file
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
     }
   };
 
-  const handleSave = () => {
-    setIsEditing(false);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      await updateProfile({
+        name: formData.name,
+        phone: formData.phone,
+        address: formData.address,
+        bio: formData.bio,
+      });
+
+      setIsEditing(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save profile";
+      setSaveError(msg);
+      setTimeout(() => setSaveError(null), 4000);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -148,9 +183,9 @@ export default function ProfilePage() {
     if (user) {
       setFormData({
         name: user.name || "",
-        phone: user.phone || "+251 912 345 678",
-        address: "Addis Ababa, Ethiopia",
-        bio: "Passionate about fresh, organic produce from local farms.",
+        phone: user.phone || "",
+        address: user.address || "",
+        bio: user.bio || "",
       });
     }
   };
@@ -178,32 +213,28 @@ export default function ProfilePage() {
       .join("")
       .toUpperCase() || "U";
 
-  const avatarSrc = avatarUrl || user.avatar || "";
+  // ✅ Prefer the server URL once the avatar is saved
+  const avatarSrc = user.avatar || avatarUrl || "";
 
   return (
     <div className="min-h-screen bg-genesis-cream">
-      {/* ═══════════════════════════════════════════════════════════════════════
-          HERO BANNER
-      ═══════════════════════════════════════════════════════════════════════ */}
+      {/* HERO BANNER */}
       <div className="relative overflow-hidden">
-        {/* Gradient background */}
         <div className="absolute inset-0 bg-gradient-to-br from-genesis-950 via-genesis-900 to-genesis-800" />
-        {/* Decorative pattern overlay */}
         <div
           className="absolute inset-0 opacity-[0.04]"
           style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23b9d873' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
           }}
         />
-        {/* Decorative circles */}
         <div className="absolute -top-20 -right-20 w-72 h-72 bg-genesis-lime/5 rounded-full blur-3xl" />
         <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-genesis-500/10 rounded-full blur-3xl" />
 
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-28 sm:pt-28 sm:pb-32">
           <div className="flex flex-col sm:flex-row items-center sm:items-end gap-5 sm:gap-6">
-            {/* Avatar - Using Next.js Image component */}
+            {/* Circular avatar */}
             <div className="relative group">
-              <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-2xl overflow-hidden ring-4 ring-white/20 shadow-2xl transition-transform duration-300 group-hover:scale-[1.02] relative">
+              <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-white/20 shadow-2xl transition-transform duration-300 group-hover:scale-[1.02] relative">
                 {avatarSrc ? (
                   <Image
                     src={avatarSrc}
@@ -221,14 +252,22 @@ export default function ProfilePage() {
                   </div>
                 )}
               </div>
+
+              {/* ✅ Circular camera button with upload spinner */}
               <button
                 onClick={() => avatarInputRef.current?.click()}
-                className="absolute -bottom-2 -right-2 w-9 h-9 bg-genesis-lime text-genesis-950 rounded-xl flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200 border-2 border-white"
+                disabled={avatarUploading}
+                className="absolute -bottom-1 -right-1 w-9 h-9 bg-genesis-lime text-genesis-950 rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200 border-2 border-white disabled:opacity-60 disabled:cursor-not-allowed"
                 aria-label="Change profile picture"
                 title="Change profile picture"
               >
-                <Camera size={16} />
+                {avatarUploading ? (
+                  <div className="w-4 h-4 border-2 border-genesis-950 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Camera size={16} />
+                )}
               </button>
+
               <input
                 ref={avatarInputRef}
                 type="file"
@@ -239,7 +278,6 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* Name & info */}
             <div className="text-center sm:text-left pb-1">
               <h1 className="text-2xl sm:text-3xl font-bold text-white font-serif tracking-tight">
                 {user.name || "Genesis User"}
@@ -251,11 +289,7 @@ export default function ProfilePage() {
               <div className="flex items-center justify-center sm:justify-start gap-3 mt-3">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-genesis-lime/15 text-genesis-lime border border-genesis-lime/20">
                   <Star size={12} />
-                  {user.role === "ADMIN"
-                    ? "Administrator"
-                    : user.role === "SELLER"
-                      ? "Verified Seller"
-                      : "Member"}
+                  {user.role === "ADMIN" ? "Administrator" : "Member"}
                 </span>
                 <span className="text-white/40 text-xs flex items-center gap-1">
                   <Calendar size={12} />
@@ -267,9 +301,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════════════
-          QUICK LINKS BAR — Sticky on scroll
-      ═══════════════════════════════════════════════════════════════════════ */}
+      {/* QUICK LINKS BAR */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-genesis-cream-dark shadow-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-1 overflow-x-auto py-3 scrollbar-hide -mx-1">
@@ -294,7 +326,9 @@ export default function ProfilePage() {
                 href={link.href}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-genesis-ink hover:bg-genesis-cream transition-all duration-200 whitespace-nowrap group"
               >
-                <span className={`${link.color} group-hover:scale-110 transition-transform duration-200`}>
+                <span
+                  className={`${link.color} group-hover:scale-110 transition-transform duration-200`}
+                >
                   {link.icon}
                 </span>
                 <span>{link.label}</span>
@@ -309,9 +343,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════════════
-          MAIN CONTENT
-      ═══════════════════════════════════════════════════════════════════════ */}
+      {/* MAIN CONTENT */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Success toast */}
         {saveSuccess && (
@@ -323,13 +355,18 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* ─── Two-column layout ──────────────────────────────────────────── */}
+        {/* Error toast */}
+        {saveError && (
+          <div className="animate-fade-in-up fixed top-20 right-4 sm:right-8 z-50 flex items-center gap-3 px-5 py-3 bg-red-600 text-white rounded-xl shadow-2xl border border-red-700">
+            <X size={18} />
+            <span className="text-sm font-semibold">{saveError}</span>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* ═══════════════════════════════════════════════════════════════
-              LEFT COLUMN — Profile Info (2/3 width)
-          ═══════════════════════════════════════════════════════════════ */}
+          {/* LEFT COLUMN */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Personal Information Card */}
+            {/* Personal Information */}
             <div className="bg-white rounded-2xl border border-genesis-cream-dark shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b border-genesis-cream-dark">
                 <div>
@@ -352,17 +389,28 @@ export default function ProfilePage() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleCancel}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-genesis-muted bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-all duration-200"
+                      disabled={saving}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-genesis-muted bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-all duration-200 disabled:opacity-50"
                     >
                       <X size={14} />
                       Cancel
                     </button>
                     <button
                       onClick={handleSave}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-white bg-genesis-700 hover:bg-genesis-800 shadow-md shadow-genesis-700/20 transition-all duration-200"
+                      disabled={saving}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-white bg-genesis-700 hover:bg-genesis-800 shadow-md shadow-genesis-700/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Check size={14} />
-                      Save
+                      {saving ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Saving…
+                        </>
+                      ) : (
+                        <>
+                          <Check size={14} />
+                          Save
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -396,7 +444,7 @@ export default function ProfilePage() {
                     )}
                   </div>
 
-                  {/* Email (always read-only) */}
+                  {/* Email */}
                   <div className="space-y-1.5">
                     <label className="flex items-center gap-1.5 text-xs font-semibold text-genesis-muted uppercase tracking-wider">
                       <Mail size={12} />
@@ -404,10 +452,7 @@ export default function ProfilePage() {
                     </label>
                     <p className="px-4 py-2.5 rounded-xl bg-genesis-cream/40 text-genesis-muted text-sm font-medium flex items-center justify-between">
                       <span>{user.email}</span>
-                      <Shield
-                        size={14}
-                        className="text-genesis-500 flex-shrink-0"
-                      />
+                      <Shield size={14} className="text-genesis-500 flex-shrink-0" />
                     </p>
                   </div>
 
@@ -492,7 +537,7 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* ─── Recent Orders Card ────────────────────────────────────── */}
+            {/* Recent Orders */}
             <div className="bg-white rounded-2xl border border-genesis-cream-dark shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b border-genesis-cream-dark">
                 <div>
@@ -504,7 +549,7 @@ export default function ProfilePage() {
                   </p>
                 </div>
                 <Link
-                  href="/account/orders"
+                  href="/orders"
                   className="flex items-center gap-1.5 text-sm font-semibold text-genesis-700 hover:text-genesis-800 transition-colors"
                 >
                   View all
@@ -520,7 +565,7 @@ export default function ProfilePage() {
                   return (
                     <Link
                       key={order.id}
-                      href={`/account/orders`}
+                      href="/orders"
                       className="flex items-center justify-between px-6 py-4 hover:bg-genesis-cream/40 transition-colors group"
                     >
                       <div className="flex items-center gap-4">
@@ -559,37 +604,15 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* ═══════════════════════════════════════════════════════════════
-              RIGHT COLUMN — Sidebar (1/3 width)
-          ═══════════════════════════════════════════════════════════════ */}
+          {/* RIGHT COLUMN */}
           <div className="space-y-6">
-            {/* Stats Cards */}
+            {/* Stats */}
             <div className="grid grid-cols-2 gap-3">
               {[
-                {
-                  label: "Orders",
-                  value: MOCK_STATS.totalOrders,
-                  icon: <Package size={20} />,
-                  gradient: "from-genesis-700 to-genesis-800",
-                },
-                {
-                  label: "Wishlist",
-                  value: MOCK_STATS.wishlistItems,
-                  icon: <Heart size={20} />,
-                  gradient: "from-genesis-500 to-genesis-700",
-                },
-                {
-                  label: "In Cart",
-                  value: MOCK_STATS.cartItems,
-                  icon: <ShoppingCart size={20} />,
-                  gradient: "from-genesis-900 to-genesis-950",
-                },
-                {
-                  label: "Reviews",
-                  value: 12,
-                  icon: <Star size={20} />,
-                  gradient: "from-genesis-800 to-genesis-900",
-                },
+                { label: "Orders", value: MOCK_STATS.totalOrders, icon: <Package size={20} />, gradient: "from-genesis-700 to-genesis-800" },
+                { label: "Wishlist", value: MOCK_STATS.wishlistItems, icon: <Heart size={20} />, gradient: "from-genesis-500 to-genesis-700" },
+                { label: "In Cart", value: MOCK_STATS.cartItems, icon: <ShoppingCart size={20} />, gradient: "from-genesis-900 to-genesis-950" },
+                { label: "Reviews", value: 12, icon: <Star size={20} />, gradient: "from-genesis-800 to-genesis-900" },
               ].map((stat) => (
                 <div
                   key={stat.label}
@@ -605,7 +628,7 @@ export default function ProfilePage() {
               ))}
             </div>
 
-            {/* Quick Actions Card */}
+            {/* Quick Actions */}
             <div className="bg-white rounded-2xl border border-genesis-cream-dark shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-genesis-cream-dark">
                 <h3 className="text-sm font-bold text-genesis-ink">
@@ -614,41 +637,9 @@ export default function ProfilePage() {
               </div>
               <div className="p-2">
                 {[
-                  {
-                    label: "Track Orders",
-                    desc: "View delivery status",
-                    icon: <Truck size={18} />,
-                    href: "/account/orders",
-                    iconColor: "text-genesis-700 bg-green-50",
-                  },
-                  {
-                    label: "Payment Methods",
-                    desc: "Manage your cards",
-                    icon: <CreditCard size={18} />,
-                    href: "/account",
-                    iconColor: "text-blue-600 bg-blue-50",
-                  },
-                  {
-                    label: "Notifications",
-                    desc: "Alert preferences",
-                    icon: <Bell size={18} />,
-                    href: "/account",
-                    iconColor: "text-amber-600 bg-amber-50",
-                  },
-                  {
-                    label: "Rewards & Points",
-                    desc: "Earn & redeem",
-                    icon: <Gift size={18} />,
-                    href: "/account",
-                    iconColor: "text-purple-600 bg-purple-50",
-                  },
-                  {
-                    label: "Help & Support",
-                    desc: "Get assistance",
-                    icon: <HelpCircle size={18} />,
-                    href: "/contact",
-                    iconColor: "text-genesis-muted bg-gray-50",
-                  },
+                  { label: "Track Orders", desc: "View delivery status", icon: <Truck size={18} />, href: "/orders", iconColor: "text-genesis-700 bg-green-50" },
+                  { label: "Payment & Checkout", desc: "Review your cart", icon: <CreditCard size={18} />, href: "/cart", iconColor: "text-blue-600 bg-blue-50" },
+                  { label: "Help & Support", desc: "Get assistance", icon: <HelpCircle size={18} />, href: "/contact", iconColor: "text-genesis-muted bg-gray-50" },
                 ].map((action) => (
                   <Link
                     key={action.label}
@@ -677,7 +668,7 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Account Security Card */}
+            {/* Account & Security */}
             <div className="bg-white rounded-2xl border border-genesis-cream-dark shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-genesis-cream-dark">
                 <h3 className="text-sm font-bold text-genesis-ink">
@@ -686,7 +677,7 @@ export default function ProfilePage() {
               </div>
               <div className="p-2">
                 <Link
-                  href="/account"
+                  href="/settings"
                   className="flex items-center gap-3.5 px-3 py-3 rounded-xl hover:bg-genesis-cream/60 transition-all duration-200 group"
                 >
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center text-genesis-700 bg-green-50 group-hover:scale-110 transition-transform duration-200">

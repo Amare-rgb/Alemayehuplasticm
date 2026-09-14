@@ -19,10 +19,4 @@ export interface VerificationFile {
   mimeType?: string
 }
 
-export interface SellerProfile {
-  id: string
-  business: BusinessDetails
-  bank: BankDetails
-  documents: VerificationFile[]
-  createdAt: string
-}
+

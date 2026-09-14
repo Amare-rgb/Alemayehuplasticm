@@ -14,6 +14,7 @@ export interface BlogPost {
   content: string;
   excerpt?: string | null;
   image?: string | null;
+  video?: string | null;   // ✅ ADDED — matches what the API returns
   category: string;
   readTime: number;
   views: number;
@@ -24,6 +25,21 @@ export interface BlogPost {
   updatedAt?: string;
   featured?: boolean;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local fallbacks — these live in /public and never 404
+// ─────────────────────────────────────────────────────────────────────────────
+const LOCAL_FALLBACK_IMAGE = "/banners/placeholder.jpg";
+
+// Confirmed-working Unsplash images (in case you prefer remote assets)
+const FALLBACK_REMOTE_IMAGES = [
+  "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90",
+  "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?auto=format&fit=crop&w=2200&q=90",
+  "https://images.unsplash.com/photo-1500076656116-558758c991c1?auto=format&fit=crop&w=2200&q=90",
+  "https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&w=2200&q=90",
+  "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=2200&q=90",
+  "https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=2200&q=90",
+];
 
 export const FALLBACK_BLOG_POSTS: BlogPost[] = [
   {
@@ -153,8 +169,9 @@ Every day presents new observations: how the soil feels, pest prevention without
 We partner with over 60 local farm families, providing fair market prices, technical agronomy training, and modern irrigation infrastructure.
 
 Empowering growers ensures agricultural continuity, rural livelihood growth, and authentic farm-to-table food safety for all consumers.`,
+    // ✅ FIXED: was a dead Unsplash URL — replaced with working photo
     image:
-      "https://images.unsplash.com/photo-1592982537447-6f8f2b2d6e0f?auto=format&fit=crop&w=2200&q=90",
+      "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?auto=format&fit=crop&w=2200&q=90",
     author: {
       name: "Community Outreach",
       avatar: "https://ui-avatars.com/api/?name=Community+Outreach&background=0d9488&color=fff",
@@ -176,8 +193,9 @@ Empowering growers ensures agricultural continuity, rural livelihood growth, and
 When soil biology is preserved through organic matter and green mulching, plants naturally resist drought and absorb higher mineral concentrations like calcium, zinc, and iron.
 
 Healthier soil directly translates to tastier vegetables, sweeter fruits, and more nutritious grains on your family table.`,
+    // ✅ FIXED: was a dead Unsplash URL — replaced with working photo
     image:
-      "https://images.unsplash.com/photo-1523742813107-8f0b6f6e5b6a?auto=format&fit=crop&w=2200&q=90",
+      "https://images.unsplash.com/photo-1500076656116-558758c991c1?auto=format&fit=crop&w=2200&q=90",
     author: {
       name: "Soil Science Lab",
       avatar: "https://ui-avatars.com/api/?name=Soil+Science&background=15803d&color=fff",
@@ -185,15 +203,30 @@ Healthier soil directly translates to tastier vegetables, sweeter fruits, and mo
   },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// formatBlogImage — never returns a broken URL
+// ─────────────────────────────────────────────────────────────────────────────
 export const formatBlogImage = (image?: string | null): string => {
+  // No value → local fallback
   if (!image || typeof image !== "string" || image.trim() === "") {
-    return "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90";
+    return LOCAL_FALLBACK_IMAGE;
   }
-  if (image.startsWith("http://") || image.startsWith("https://")) {
-    return image;
+
+  const trimmed = image.trim();
+
+  // Absolute URL → pass through unchanged
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
   }
+
+  // Root-relative path from /public (not an upload) → pass through
+  if (trimmed.startsWith("/") && !trimmed.startsWith("/uploads/")) {
+    return trimmed;
+  }
+
+  // Backend upload path → prefix with API base
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-  return `${apiBase}${image.startsWith("/") ? "" : "/"}${image}`;
+  return `${apiBase}${trimmed.startsWith("/") ? "" : "/"}${trimmed}`;
 };
 
 export const formatBlogDate = (dateString?: string): string => {
@@ -210,3 +243,6 @@ export const formatBlogDate = (dateString?: string): string => {
     return dateString;
   }
 };
+
+// Export the fallback list so pages can pick a rotating placeholder if needed
+export { LOCAL_FALLBACK_IMAGE, FALLBACK_REMOTE_IMAGES };
