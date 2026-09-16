@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE "blog_posts" ADD COLUMN     "video" TEXT;
+ALTER TABLE [blog_posts] ADD [video] NVARCHAR(MAX);

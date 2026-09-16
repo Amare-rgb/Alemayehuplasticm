@@ -5,7 +5,7 @@
 
 */
 -- AlterTable
-ALTER TABLE "orders" ADD COLUMN     "orderNumber" SERIAL NOT NULL;
+ALTER TABLE [orders] ADD [orderNumber] INT IDENTITY(1,1) NOT NULL;
 
 -- CreateIndex
-CREATE UNIQUE INDEX "orders_orderNumber_key" ON "orders"("orderNumber");
+CREATE UNIQUE INDEX [orders_orderNumber_key] ON [orders]([orderNumber]);
