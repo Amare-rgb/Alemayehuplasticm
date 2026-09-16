@@ -1,3 +1,4 @@
 -- AlterTable
-ALTER TABLE "users" ADD COLUMN     "address" TEXT,
-ADD COLUMN     "bio" TEXT;
+ALTER TABLE [users] ADD 
+    [address] NVARCHAR(MAX),
+    [bio] NVARCHAR(MAX);
