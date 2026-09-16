@@ -14,6 +14,9 @@ import {
 import { useSettings } from "@/hooks/useSettings";
 import { useLanguage } from "@/context/LanguageContext";
 
+// ============================================================
+// Types
+// ============================================================
 interface CategoryData {
   id?: string;
   name: string;
@@ -39,7 +42,9 @@ interface ValueItem {
   description: string;
 }
 
-// Use the same mounted detection as Footer
+// ============================================================
+// Mounted detection (server-safe)
+// ============================================================
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
@@ -48,45 +53,56 @@ function useMounted() {
   return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
 }
 
+// ============================================================
+// Normalize an image path so the browser can always load it.
+//   - http(s) and data URLs pass through unchanged
+//   - "/uploads/..." keeps its leading slash (proxied by next.config.ts)
+//   - "uploads/..." gets a leading slash added
+// ============================================================
+function normalizeImageUrl(src?: string | null): string {
+  if (!src) return "";
+  const trimmed = src.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("data:")) return trimmed;
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+// ============================================================
+// ProductCard — renders the real admin-uploaded category image
+// ============================================================
 function ProductCard({ product }: { product: CategoryItem }) {
   const { t } = useLanguage();
-  const [imgSrc, setImgSrc] = useState(product.image);
-
-  // Category-specific fallback images
-  const fallbacks: Record<string, string> = {
-    vegetables: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-    fruits: "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
-    cereals: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-    grains: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-    dairy: "https://images.unsplash.com/photo-1628088062854-d1870b4553da?auto=format&fit=crop&w=1200&q=85",
-    meat: "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=1200&q=85",
-    poultry: "https://images.unsplash.com/photo-1587593810169-2efb9f32a2a4?auto=format&fit=crop&w=1200&q=85",
-    default: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-  };
-
-  const handleError = () => {
-    const key = product.slug?.toLowerCase() || product.category.toLowerCase();
-    const fallback = fallbacks[key] || fallbacks.default;
-    setImgSrc(fallback);
-  };
+  const imageUrl = normalizeImageUrl(product.image);
 
   return (
     <Link
-      href={`/shop?category=${encodeURIComponent(product.slug || product.category)}`}
+      href={`/shop?category=${encodeURIComponent(
+        product.slug || product.category
+      )}`}
       className="group relative block h-[260px] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl"
     >
-      {/* Background Image with Next.js Image */}
       <div className="relative h-full w-full">
-        <Image
-          src={imgSrc}
-          alt={product.title}
-          fill
-          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 260px"
-          className="object-cover transition-transform duration-300 ease-out group-hover:scale-[101%]"
-          onError={handleError}
-          priority={false}
-          loading="lazy"
-        />
+        {imageUrl ? (
+          <Image
+            src={imageUrl}
+            alt={product.title}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 260px"
+            className="object-cover transition-transform duration-300 ease-out group-hover:scale-[101%]"
+            priority={false}
+            loading="lazy"
+            // Bypass the Next.js optimizer for backend-served /uploads/*
+            // images so requests hit the /uploads rewrite directly.
+            unoptimized={!imageUrl.startsWith("http")}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-[#0b2419] text-4xl text-[#b9d873]/40">
+            🌱
+          </div>
+        )}
       </div>
 
       {/* Dark gradient overlay at bottom */}
@@ -98,15 +114,15 @@ function ProductCard({ product }: { product: CategoryItem }) {
           {product.number}
         </span>
 
-        <h3 className="font-serif-heading text-xl font-normal leading-tight text-white mb-1 sm:text-xl">
+        <h3 className="font-serif-heading mb-1 text-xl font-normal leading-tight text-white sm:text-xl">
           {product.title}
         </h3>
 
-        <p className="text-[11px] text-white/80 font-sans mb-3 leading-snug max-w-[480px]">
+        <p className="mb-3 max-w-[480px] font-sans text-[11px] leading-snug text-white/80">
           {product.description}
         </p>
 
-        <div className="inline-flex items-center gap-2 text-[11px] font-semibold text-white/90 group-hover:text-[var(--lime)] group-hover:translate-x-1 transition-all duration-300">
+        <div className="inline-flex items-center gap-2 text-[11px] font-semibold text-white/90 transition-all duration-300 group-hover:translate-x-1 group-hover:text-[var(--lime)]">
           <span>{t("home.view_selection", "View selection")}</span>
           <span className="text-sm font-bold">→</span>
         </div>
@@ -115,6 +131,9 @@ function ProductCard({ product }: { product: CategoryItem }) {
   );
 }
 
+// ============================================================
+// ProductCards — fetches categories from the backend, no mock data
+// ============================================================
 function ProductCards() {
   const { t } = useLanguage();
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -129,134 +148,43 @@ function ProductCards() {
         setLoading(true);
         const apiBaseUrl =
           process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-        
-        // ✅ Fetch categories from API
+
         const res = await fetch(`${apiBaseUrl}/api/categories/public`);
-        
-        if (res.ok) {
-          const data = await res.json();
-          const raw = Array.isArray(data)
-            ? data
-            : data?.categories || data?.data || [];
 
-          if (isMounted && raw.length > 0) {
-            // ✅ Get top-level categories (no parent)
-            const top = raw.filter((c: CategoryData) => !c.parentId);
-            const toMap = top.length > 0 ? top : raw;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-            // ✅ Category-specific fallback images
-            const categoryImages: Record<string, string> = {
-              vegetables: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-              fruits: "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
-              cereals: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-              grains: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-              dairy: "https://images.unsplash.com/photo-1628088062854-d1870b4553da?auto=format&fit=crop&w=1200&q=85",
-              meat: "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=1200&q=85",
-              poultry: "https://images.unsplash.com/photo-1587593810169-2efb9f32a2a4?auto=format&fit=crop&w=1200&q=85",
-              default: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-            };
+        const data = await res.json();
+        const raw: CategoryData[] = Array.isArray(data)
+          ? data
+          : data?.categories || data?.data || [];
 
-            const mapped: CategoryItem[] = toMap.map((cat: CategoryData, i: number) => {
-              // ✅ Determine the best image to use
-              let img = cat.image;
-              
-              // ✅ If category has an image from admin, use it
-              if (img) {
-                // If it's a relative path, prepend API URL
-                if (!img.startsWith("http")) {
-                  img = `${apiBaseUrl}${img}`;
-                }
-                console.log(`🖼️ Category "${cat.name}" image from admin:`, img);
-              } else {
-                // ✅ Use category-specific fallback based on name/slug
-                const catKey = (cat.slug || cat.name || "").toLowerCase();
-                let fallbackImg = categoryImages.default;
-                
-                for (const [key, value] of Object.entries(categoryImages)) {
-                  if (catKey.includes(key) || key.includes(catKey)) {
-                    fallbackImg = value;
-                    break;
-                  }
-                }
-                img = fallbackImg;
-                console.log(`🖼️ Category "${cat.name}" using fallback image`);
-              }
+        if (!isMounted) return;
 
-              return {
-                number: String(i + 1).padStart(2, "0"),
-                title: cat.name,
-                description:
-                  cat.description || t("home.cat_default_desc", "Fresh, quality produce from our farms."),
-                image: img,
-                category: cat.slug || cat.id || String(i),
-                slug: cat.slug || undefined,
-              };
-            });
+        // Only top-level categories (no parentId)
+        const top = raw.filter((c) => !c.parentId);
+        const toMap = top.length > 0 ? top : raw;
 
-            setCategories(mapped);
-          } else {
-            // ✅ If no categories from API, use fallback
-            setCategories([
-              {
-                number: "01",
-                title: t("home.cat_veg_title", "Vegetables"),
-                description: t("home.cat_veg_desc", "Crisp, seasonal and farm-fresh."),
-                image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-                category: "vegetables",
-                slug: "vegetables",
-              },
-              {
-                number: "02",
-                title: t("home.cat_fruit_title", "Fruits"),
-                description: t("home.cat_fruit_desc", "Picked for flavor and freshness."),
-                image: "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
-                category: "fruits",
-                slug: "fruits",
-              },
-              {
-                number: "03",
-                title: t("home.cat_cereal_title", "Cereals"),
-                description: t("home.cat_cereal_desc", "Reliable staples for every home."),
-                image: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-                category: "cereals",
-                slug: "cereals",
-              },
-            ]);
-          }
-        }
+        // Map to card items. No fallback images — use exactly what the admin set.
+        const mapped: CategoryItem[] = toMap.map((cat, i) => ({
+          number: String(i + 1).padStart(2, "0"),
+          title: cat.name,
+          description:
+            cat.description ||
+            t(
+              "home.cat_default_desc",
+              "Fresh, quality produce from our farms."
+            ),
+          image: cat.image || "",
+          category: cat.slug || cat.id || String(i),
+          slug: cat.slug || undefined,
+        }));
+
+        setCategories(mapped);
       } catch (err) {
         console.warn("Failed to fetch categories for home page:", err);
-        // ✅ Set fallback categories on error
-        setCategories([
-          {
-            number: "01",
-            title: t("home.cat_veg_title", "Vegetables"),
-            description: t("home.cat_veg_desc", "Crisp, seasonal and farm-fresh."),
-            image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85",
-            category: "vegetables",
-            slug: "vegetables",
-          },
-          {
-            number: "02",
-            title: t("home.cat_fruit_title", "Fruits"),
-            description: t("home.cat_fruit_desc", "Picked for flavor and freshness."),
-            image: "https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=85",
-            category: "fruits",
-            slug: "fruits",
-          },
-          {
-            number: "03",
-            title: t("home.cat_cereal_title", "Cereals"),
-            description: t("home.cat_cereal_desc", "Reliable staples for every home."),
-            image: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=1200&q=85",
-            category: "cereals",
-            slug: "cereals",
-          },
-        ]);
+        if (isMounted) setCategories([]);
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
@@ -277,12 +205,12 @@ function ProductCards() {
     }
   };
 
-  // Loading state
+  // Loading skeleton
   if (loading) {
     return (
       <section
         id="products"
-        className="scroll-mt-20 bg-[var(--cream)] py-[105px] px-4 sm:px-6 lg:px-10 w-full overflow-hidden"
+        className="w-full scroll-mt-20 overflow-hidden bg-[var(--cream)] px-4 py-[105px] sm:px-6 lg:px-10"
       >
         <div className="w-full">
           <div className="mb-[50px] flex items-end justify-between gap-14 max-md:flex-col max-md:items-start max-md:gap-5">
@@ -299,7 +227,7 @@ function ProductCards() {
           <div className="flex w-full gap-6 overflow-x-auto pb-6 pt-2">
             {[1, 2, 3].map((i) => (
               <div key={i} className="w-[260px] shrink-0 snap-start">
-                <div className="h-[260px] w-full rounded-[28px] bg-gray-200 animate-pulse" />
+                <div className="h-[260px] w-full animate-pulse rounded-[28px] bg-gray-200" />
               </div>
             ))}
           </div>
@@ -308,15 +236,13 @@ function ProductCards() {
     );
   }
 
-  // If no categories, show nothing
-  if (categories.length === 0) {
-    return null;
-  }
+  // Nothing to show — hide the section entirely
+  if (categories.length === 0) return null;
 
   return (
     <section
       id="products"
-      className="scroll-mt-20 bg-[var(--cream)] py-[105px] px-4 sm:px-6 lg:px-10 w-full overflow-hidden"
+      className="w-full scroll-mt-20 overflow-hidden bg-[var(--cream)] px-4 py-[105px] sm:px-6 lg:px-10"
     >
       <div className="w-full">
         <div className="mb-[50px] flex items-end justify-between gap-14 max-md:flex-col max-md:items-start max-md:gap-5">
@@ -330,7 +256,7 @@ function ProductCards() {
             </h2>
           </div>
 
-          <div className="flex flex-col items-start md:items-end gap-4">
+          <div className="flex flex-col items-start gap-4 md:items-end">
             <p className="max-w-[420px] text-[13px] leading-[1.8] text-[var(--muted)]">
               {t(
                 "home.products_subtitle",
@@ -338,13 +264,12 @@ function ProductCards() {
               )}
             </p>
 
-            {/* Horizontal Navigation scroll buttons */}
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => scroll("left")}
                 aria-label={t("home.products_scroll_left", "Scroll left")}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] transition-all hover:bg-[var(--lime)] hover:border-[var(--lime)] hover:text-[var(--green-950)] hover:scale-105 active:scale-95 shadow-sm"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] shadow-sm transition-all hover:scale-105 hover:border-[var(--lime)] hover:bg-[var(--lime)] hover:text-[var(--green-950)] active:scale-95"
               >
                 <ArrowLeft size={18} />
               </button>
@@ -352,7 +277,7 @@ function ProductCards() {
                 type="button"
                 onClick={() => scroll("right")}
                 aria-label={t("home.products_scroll_right", "Scroll right")}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] transition-all hover:bg-[var(--lime)] hover:border-[var(--lime)] hover:text-[var(--green-950)] hover:scale-105 active:scale-95 shadow-sm"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] shadow-sm transition-all hover:scale-105 hover:border-[var(--lime)] hover:bg-[var(--lime)] hover:text-[var(--green-950)] active:scale-95"
               >
                 <ArrowRight size={18} />
               </button>
@@ -360,10 +285,9 @@ function ProductCards() {
           </div>
         </div>
 
-        {/* Horizontal scrollable cards container */}
         <div
           ref={scrollContainerRef}
-          className="flex w-full gap-6 overflow-x-auto pb-6 pt-2 scroll-smooth scrollbar-none snap-x snap-mandatory"
+          className="scrollbar-none flex w-full snap-x snap-mandatory gap-6 overflow-x-auto scroll-smooth pb-6 pt-2"
         >
           {categories.map((product) => (
             <div
@@ -379,6 +303,9 @@ function ProductCards() {
   );
 }
 
+// ============================================================
+// Eyebrow
+// ============================================================
 function Eyebrow({
   children,
   light = false,
@@ -398,20 +325,25 @@ function Eyebrow({
   );
 }
 
+// ============================================================
+// HomePage
+// ============================================================
 export default function HomePage() {
   const [showBackTop, setShowBackTop] = useState(false);
   const mounted = useMounted();
   const { settings } = useSettings();
   const { t } = useLanguage();
 
-  // Use consistent fallback values that match between server and client
-  const DEFAULT_PHONE = '+251 900 000 000';
-  const DEFAULT_EMAIL = 'info@genesisagri.com';
+  const DEFAULT_PHONE = "+251 900 000 000";
+  const DEFAULT_EMAIL = "info@genesisagri.com";
 
-  // Only use settings values after client-side mount
-  const contactPhone = mounted ? (settings?.contactPhone || DEFAULT_PHONE) : DEFAULT_PHONE;
-  const contactEmail = mounted ? (settings?.contactEmail || DEFAULT_EMAIL) : DEFAULT_EMAIL;
-  const cleanPhone = contactPhone.replace(/\s/g, '');
+  const contactPhone = mounted
+    ? settings?.contactPhone || DEFAULT_PHONE
+    : DEFAULT_PHONE;
+  const contactEmail = mounted
+    ? settings?.contactEmail || DEFAULT_EMAIL
+    : DEFAULT_EMAIL;
+  const cleanPhone = contactPhone.replace(/\s/g, "");
 
   const values: ValueItem[] = [
     {
@@ -456,9 +388,7 @@ export default function HomePage() {
     const handleScroll = () => {
       setShowBackTop(window.scrollY > 500);
     };
-
     window.addEventListener("scroll", handleScroll);
-
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -486,7 +416,7 @@ export default function HomePage() {
 
         <div className="relative mx-auto flex w-[min(1180px,calc(100%-48px))] items-center justify-between gap-[70px] pt-[90px]">
           <div className="max-w-[720px] animate-fade-in-up">
-            <h1 className="font-serif-heading text-[clamp(48px,6vw,80px)] font-extrabold leading-[1.03] tracking-[-0.045em] mb-[10rem]">
+            <h1 className="mb-[10rem] font-serif-heading text-[clamp(48px,6vw,80px)] font-extrabold leading-[1.03] tracking-[-0.045em]">
               {t("home.hero_title_prefix", "Fresh from our")}{" "}
               <em className="font-semibold text-[var(--lime)]">
                 {t("home.hero_title_accent", "fields")}
@@ -514,7 +444,9 @@ export default function HomePage() {
 
             <div className="mt-[60px] flex items-center gap-6 max-sm:gap-3">
               <div className="grid gap-0.5">
-                <strong className="text-base">{t("home.hero_stat_fresh_val", "100%")}</strong>
+                <strong className="text-base">
+                  {t("home.hero_stat_fresh_val", "100%")}
+                </strong>
                 <span className="text-[9px] uppercase tracking-wider text-white/60">
                   {t("home.hero_stat_fresh_lbl", "Farm Fresh")}
                 </span>
@@ -523,7 +455,9 @@ export default function HomePage() {
               <div className="h-[30px] w-px bg-white/25" />
 
               <div className="grid gap-0.5">
-                <strong className="text-base">{t("home.hero_stat_direct_val", "Direct")}</strong>
+                <strong className="text-base">
+                  {t("home.hero_stat_direct_val", "Direct")}
+                </strong>
                 <span className="text-[9px] uppercase tracking-wider text-white/60">
                   {t("home.hero_stat_direct_lbl", "From Our Farms")}
                 </span>
@@ -532,7 +466,9 @@ export default function HomePage() {
               <div className="h-[30px] w-px bg-white/25" />
 
               <div className="grid gap-0.5">
-                <strong className="text-base">{t("home.hero_stat_fair_val", "Fair")}</strong>
+                <strong className="text-base">
+                  {t("home.hero_stat_fair_val", "Fair")}
+                </strong>
                 <span className="text-[9px] uppercase tracking-wider text-white/60">
                   {t("home.hero_stat_fair_lbl", "Everyday Prices")}
                 </span>
@@ -549,11 +485,15 @@ export default function HomePage() {
 
             <div className="flex items-center gap-4 px-5 py-7">
               <span className="text-[34px]">🌿</span>
-
               <div>
-                <strong className="text-sm">{t("home.hero_card_title", "Seasonal Produce")}</strong>
+                <strong className="text-sm">
+                  {t("home.hero_card_title", "Seasonal Produce")}
+                </strong>
                 <p className="mt-0.5 text-[10px] text-[var(--muted)]">
-                  {t("home.hero_card_subtitle", "Freshly picked, carefully selected.")}
+                  {t(
+                    "home.hero_card_subtitle",
+                    "Freshly picked, carefully selected."
+                  )}
                 </p>
               </div>
             </div>
@@ -616,12 +556,8 @@ export default function HomePage() {
       {/* =========================================================
           TANA FARM
       ========================================================= */}
-      <section
-        id="tana-farm"
-        className="scroll-mt-20 bg-white py-[105px]"
-      >
+      <section id="tana-farm" className="scroll-mt-20 bg-white py-[105px]">
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[.95fr_1.05fr] items-center gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
-          {/* Image now fills the container without being cut off */}
           <div className="relative h-[500px] w-full max-lg:h-[400px]">
             <div className="relative h-full w-full overflow-hidden rounded-3xl bg-[#f6f3e9]">
               <Image
@@ -632,19 +568,17 @@ export default function HomePage() {
                 className="object-contain"
                 priority={false}
               />
-              <span className="absolute right-5 top-5 bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] rounded-md shadow-md z-10">
+              <span className="absolute right-5 top-5 z-10 rounded-md bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] shadow-md">
                 {t("home.tana_badge", "A SISTER COMPANY")}
               </span>
             </div>
 
-            <div className="absolute bottom-5 left-0 flex w-[260px] items-center gap-3 bg-[var(--lime)] p-5 shadow-[0_20px_45px_rgba(18,53,35,.15)] rounded-r-xl max-sm:bottom-0 max-sm:w-[215px] z-10">
+            <div className="absolute bottom-5 left-0 z-10 flex w-[260px] items-center gap-3 rounded-r-xl bg-[var(--lime)] p-5 shadow-[0_20px_45px_rgba(18,53,35,.15)] max-sm:bottom-0 max-sm:w-[215px]">
               <span className="text-[35px]">🌱</span>
-
               <div className="grid">
                 <strong className="font-serif-heading text-[21px]">
                   {t("home.tana_title", "Tana Farm")}
                 </strong>
-
                 <small className="text-[9px] uppercase tracking-wider">
                   {t("home.tana_motto", "Pure. Fresh. Local.")}
                 </small>
@@ -652,7 +586,6 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Content */}
           <div>
             <Eyebrow>{t("home.tana_eyebrow", "MEET TANA FARM")}</Eyebrow>
 
@@ -666,8 +599,13 @@ export default function HomePage() {
 
             <p className="mt-6 text-[18px] leading-[1.65] text-[var(--green-800)]">
               {t("home.tana_lead_1", "Our sister company,")}{" "}
-              <strong className="font-semibold">{t("home.tana_title", "Tana Farm")}</strong>
-              {t("home.tana_lead_2", ", produces organic products straight from its own land.")}
+              <strong className="font-semibold">
+                {t("home.tana_title", "Tana Farm")}
+              </strong>
+              {t(
+                "home.tana_lead_2",
+                ", produces organic products straight from its own land."
+              )}
             </p>
 
             <p className="mt-4 max-w-[550px] text-sm leading-[1.85] text-[var(--muted)]">
@@ -679,14 +617,30 @@ export default function HomePage() {
 
             <div className="mt-8 grid grid-cols-4 gap-2 max-sm:grid-cols-2">
               {[
-                ["🌱", t("home.tana_f1_title", "Organic"), t("home.tana_f1_sub", "Naturally grown")],
-                ["🌾", t("home.tana_f2_title", "Fresh"), t("home.tana_f2_sub", "From the land")],
-                ["🚜", t("home.tana_f3_title", "Local"), t("home.tana_f3_sub", "Farm produced")],
-                ["🥬", t("home.tana_f4_title", "Healthy"), t("home.tana_f4_sub", "Quality focused")],
+                [
+                  "🌱",
+                  t("home.tana_f1_title", "Organic"),
+                  t("home.tana_f1_sub", "Naturally grown"),
+                ],
+                [
+                  "🌾",
+                  t("home.tana_f2_title", "Fresh"),
+                  t("home.tana_f2_sub", "From the land"),
+                ],
+                [
+                  "🚜",
+                  t("home.tana_f3_title", "Local"),
+                  t("home.tana_f3_sub", "Farm produced"),
+                ],
+                [
+                  "🥬",
+                  t("home.tana_f4_title", "Healthy"),
+                  t("home.tana_f4_sub", "Quality focused"),
+                ],
               ].map(([icon, title, subtitle]) => (
                 <div
                   key={title}
-                  className="grid gap-0.5 bg-[var(--cream)] p-4 text-center rounded-lg transition-all hover:scale-105 hover:shadow-md"
+                  className="grid gap-0.5 rounded-lg bg-[var(--cream)] p-4 text-center transition-all hover:scale-105 hover:shadow-md"
                 >
                   <span className="text-[25px]">{icon}</span>
                   <strong className="text-[11px]">{title}</strong>
@@ -699,7 +653,7 @@ export default function HomePage() {
 
             <Link
               href="#contact"
-              className="mt-6 inline-flex items-center gap-6 border border-[var(--green-800)] px-[22px] py-4 text-xs font-bold text-[var(--green-800)] transition hover:bg-[var(--green-800)] hover:text-white rounded-lg"
+              className="mt-6 inline-flex items-center gap-6 rounded-lg border border-[var(--green-800)] px-[22px] py-4 text-xs font-bold text-[var(--green-800)] transition hover:bg-[var(--green-800)] hover:text-white"
             >
               {t("home.tana_btn", "Connect with Tana Farm")}
               <ArrowRight size={17} />
@@ -747,24 +701,20 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* Values Cards */}
           <div className="mt-16 grid grid-cols-4 gap-6 max-lg:grid-cols-2 max-sm:grid-cols-1">
             {values.map((value, index) => (
               <div
                 key={value.number}
-                className="group relative min-h-[280px] bg-white/95 backdrop-blur-sm p-8 rounded-2xl shadow-lg transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 hover:bg-white cursor-default"
-                style={{
-                  transitionDelay: `${index * 0.1}s`,
-                }}
+                className="group relative min-h-[280px] rounded-2xl bg-white/95 p-8 shadow-lg backdrop-blur-sm transition-all duration-500 hover:-translate-y-2 hover:bg-white hover:shadow-2xl"
+                style={{ transitionDelay: `${index * 0.1}s` }}
               >
-                {/* Decorative accent line */}
-                <div className="absolute top-0 left-8 right-8 h-1 bg-[var(--lime)] rounded-full transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left" />
+                <div className="absolute left-8 right-8 top-0 h-1 origin-left scale-x-0 rounded-full bg-[var(--lime)] transition-transform duration-500 group-hover:scale-x-100" />
 
-                <span className="text-[9px] tracking-wider text-[var(--green-700)]/40 font-mono">
+                <span className="font-mono text-[9px] tracking-wider text-[var(--green-700)]/40">
                   {value.number}
                 </span>
 
-                <span className="my-4 block text-[28px] transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                <span className="my-4 block text-[28px] transition-transform duration-300 group-hover:rotate-3 group-hover:scale-110">
                   {value.icon}
                 </span>
 
@@ -776,8 +726,7 @@ export default function HomePage() {
                   {value.description}
                 </p>
 
-                {/* Hover glow effect */}
-                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[var(--lime)]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+                <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-[var(--lime)]/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
               </div>
             ))}
           </div>
@@ -814,7 +763,7 @@ export default function HomePage() {
           <div className="mt-7 flex justify-center gap-6 max-sm:flex-col max-sm:items-center">
             <Link
               href={`tel:${cleanPhone}`}
-              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 bg-white px-5 text-xs font-bold text-[var(--green-900)] transition hover:-translate-y-1 rounded-lg"
+              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 rounded-lg bg-white px-5 text-xs font-bold text-[var(--green-900)] transition hover:-translate-y-1"
             >
               {t("home.cta_btn_call", "Call Us")}
               <ArrowRight size={17} />
@@ -822,7 +771,7 @@ export default function HomePage() {
 
             <Link
               href={`mailto:${contactEmail}`}
-              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 border border-white/35 px-5 text-xs font-bold text-white transition hover:bg-white/10 rounded-lg"
+              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 rounded-lg border border-white/35 px-5 text-xs font-bold text-white transition hover:bg-white/10"
             >
               {t("home.cta_btn_email", "Send an Email")}
               <ArrowUpRight size={16} />

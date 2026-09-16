@@ -176,8 +176,6 @@ export default function AdminArticlesPage() {
             <RefreshCw className="w-4 h-4" />
             <span>Refresh</span>
           </button>
-          {/* REMOVED Write Note BUTTON */}
-          {/* Write Note button removed - only Add Article remains */}
           <Link
             href="/admin/add-article"
             className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -210,7 +208,6 @@ export default function AdminArticlesPage() {
         </div>
       )}
 
-      {/* Search */}
       <div className="mb-4">
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -324,8 +321,9 @@ export default function AdminArticlesPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </Link>
+                        {/* ✅ FIXED: Changed from /admin/articles/writer?id=${note.id} to /admin/articles/edit/${note.id} */}
                         <Link
-                          href={`/admin/articles/writer?id=${note.id}`}
+                          href={`/admin/articles/edit/${note.id}`}
                           className="text-green-600 hover:text-green-800 transition-colors"
                           title="Edit Note"
                         >
@@ -346,7 +344,6 @@ export default function AdminArticlesPage() {
             </table>
           </div>
           
-          {/* Footer with total count */}
           <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
             <p className="text-xs text-gray-500">
               Total: {filteredNotes.length} note{filteredNotes.length !== 1 ? 's' : ''}

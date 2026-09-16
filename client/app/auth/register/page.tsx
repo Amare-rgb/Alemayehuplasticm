@@ -5,14 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 
-// API URL - Make sure this matches your backend
+// API URL — must match your backend
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
+  headers: { "Content-Type": "application/json" },
 });
 
 function LeafMark() {
@@ -115,19 +113,21 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      // ✅ FIXED: Send phone field to backend
       const response = await api.post("/api/auth/register", {
         name: form.name,
         email: form.email,
-        phone: form.phone, // ✅ Send phone number
+        phone: form.phone,
         password: form.password,
       });
 
       console.log("Registration response:", response.data);
 
       if (response.data.success) {
-        setSuccess("Account created successfully! Redirecting to login...");
-        
+        // ✅ Welcome-email flow — user is created immediately, no verification gate
+        setSuccess(
+          "Account created successfully! Check your inbox for a welcome email. Redirecting to sign in..."
+        );
+
         // Clear form
         setForm({
           name: "",
@@ -137,20 +137,20 @@ export default function RegisterPage() {
           confirmPassword: "",
         });
 
-        // Redirect to login after 2 seconds
+        // Redirect to sign in after 2.5 seconds
         setTimeout(() => {
           router.push("/auth/signin");
-        }, 2000);
+        }, 2500);
       } else {
         setError(response.data.error || "Registration failed");
       }
     } catch (err) {
       console.error("Registration error:", err);
-      
+
       if (axios.isAxiosError(err)) {
-        const errorMsg = 
-          err.response?.data?.error || 
-          err.response?.data?.message || 
+        const errorMsg =
+          err.response?.data?.error ||
+          err.response?.data?.message ||
           "Registration failed. Please try again.";
         setError(errorMsg);
       } else {
@@ -161,7 +161,6 @@ export default function RegisterPage() {
     }
   };
 
-  // ... rest of the component remains the same
   return (
     <main className="relative min-h-screen overflow-hidden bg-[var(--cream)]">
       {/* Background decoration */}
@@ -212,7 +211,9 @@ export default function RegisterPage() {
                 <h1 className="max-w-md font-serif-heading text-5xl font-medium leading-[1.02] tracking-[-0.04em] text-[#f6f3e9]">
                   Better food starts
                   <br />
-                  <span className="text-[#b9d873]">with better connections.</span>
+                  <span className="text-[#b9d873]">
+                    with better connections.
+                  </span>
                 </h1>
 
                 <p className="mt-6 max-w-md text-sm leading-7 text-[#f6f3e9]/70">

@@ -16,7 +16,9 @@ import {
   Eye,
 } from 'lucide-react';
 
-// Define types
+// ============================================================
+// Types
+// ============================================================
 interface User {
   id: string;
   name: string;
@@ -32,7 +34,8 @@ interface OrderItem {
 }
 
 interface Order {
-  id: string;
+  id: string;              // internal cuid — no longer used for routing
+  orderNumber: number;     // ✅ sequential display number (1, 2, 3, …)
   user: {
     name: string;
     email: string;
@@ -40,6 +43,7 @@ interface Order {
   items: OrderItem[];
   total: number;
   status: string;
+  paymentStatus?: string;
   createdAt: string;
   paymentMethod: string;
 }
@@ -57,8 +61,7 @@ interface StatsData {
     orders: number;
     customers: number;
     pendingOrders: number;
-    // ✅ Updated from deliveredOrders to match backend
-    completedOrders: number; 
+    completedOrders: number;
   };
   recentOrders: Order[];
   weeklySales: WeeklySale[];
@@ -70,7 +73,9 @@ interface StatsCardProps {
   subtitle?: string;
 }
 
-// Create axios instance
+// ============================================================
+// Axios instance
+// ============================================================
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
   headers: {
@@ -78,18 +83,17 @@ const api = axios.create({
   },
 });
 
-// Add token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('authToken') || 
-                sessionStorage.getItem('authToken') ||
-                localStorage.getItem('token');
+  const token =
+    localStorage.getItem('authToken') ||
+    sessionStorage.getItem('authToken') ||
+    localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Add response interceptor for better error handling
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -106,25 +110,26 @@ api.interceptors.response.use(
   }
 );
 
-// Stats Card Component
-const StatsCard: React.FC<StatsCardProps> = ({
-  title,
-  value,
-  subtitle,
-}) => {
+// ============================================================
+// Stats Card
+// ============================================================
+const StatsCard: React.FC<StatsCardProps> = ({ title, value, subtitle }) => {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-lg transition-all duration-200">
       <div className="flex-1">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{title}</p>
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+          {title}
+        </p>
         <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-        {subtitle && (
-          <p className="text-xs text-gray-500 mt-1">{subtitle}</p>
-        )}
+        {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
       </div>
     </div>
   );
 };
 
+// ============================================================
+// Main component
+// ============================================================
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<StatsData | null>(null);
@@ -142,24 +147,18 @@ export default function DashboardPage() {
   const hasInitializedRef = useRef(false);
 
   const getAuthenticatedUser = useCallback((): User | null => {
-    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-    const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
-    
-    if (!token) {
-      return null;
-    }
+    const token =
+      localStorage.getItem('authToken') ||
+      sessionStorage.getItem('authToken');
+    const userData =
+      localStorage.getItem('user') || sessionStorage.getItem('user');
 
-    if (!userData) {
-      return null;
-    }
+    if (!token) return null;
+    if (!userData) return null;
 
     try {
       const parsedUser = JSON.parse(userData) as User;
-      
-      if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
-        return null;
-      }
-      
+      if (parsedUser.role?.toUpperCase() !== 'ADMIN') return null;
       return parsedUser;
     } catch (e) {
       console.error('Error parsing user data:', e);
@@ -170,16 +169,18 @@ export default function DashboardPage() {
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
-      
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+
+      const token =
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('authToken');
       if (!token) {
         throw new Error('No authentication token found');
       }
-      
+
       const response = await api.get('/api/admin/dashboard');
-      
+
       if (!isMountedRef.current) return;
-      
+
       if (response.data && response.data.stats) {
         setData(response.data);
         setError(null);
@@ -188,23 +189,28 @@ export default function DashboardPage() {
       }
     } catch (err: unknown) {
       if (!isMountedRef.current) return;
-      
+
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{ error: string }>;
-        if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
+        if (
+          axiosError.response?.status === 401 ||
+          axiosError.response?.status === 403
+        ) {
           localStorage.removeItem('authToken');
           sessionStorage.removeItem('authToken');
           window.location.replace('/auth/signin');
           return;
         }
-        setError(axiosError.response?.data?.error || 'Failed to fetch dashboard data');
+        setError(
+          axiosError.response?.data?.error || 'Failed to fetch dashboard data'
+        );
       } else {
-        setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+        setError(
+          err instanceof Error ? err.message : 'An unexpected error occurred'
+        );
       }
     } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
+      if (isMountedRef.current) setLoading(false);
     }
   }, []);
 
@@ -213,7 +219,6 @@ export default function DashboardPage() {
     hasInitializedRef.current = true;
 
     const authenticatedUser = getAuthenticatedUser();
-    
     if (!authenticatedUser) {
       window.location.replace('/auth/signin');
       return;
@@ -223,26 +228,27 @@ export default function DashboardPage() {
       setUser(authenticatedUser);
       fetchDashboardData();
     }, 0);
-    
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
-      COMPLETED: 'bg-green-100 text-green-700', // ✅ Added COMPLETED
+      COMPLETED: 'bg-green-100 text-green-700',
       PENDING: 'bg-yellow-100 text-yellow-700',
       SHIPPED: 'bg-blue-100 text-blue-700',
       CANCELLED: 'bg-red-100 text-red-700',
+      REJECTED: 'bg-gray-100 text-gray-700',
     };
     return colors[status] || 'bg-gray-100 text-gray-700';
   };
 
   const getStatusIcon = (status: string) => {
     const icons: Record<string, React.ReactNode> = {
-      COMPLETED: <CheckCircle className="w-4 h-4" />, // ✅ Added COMPLETED
+      COMPLETED: <CheckCircle className="w-4 h-4" />,
       PENDING: <Clock className="w-4 h-4" />,
       SHIPPED: <Activity className="w-4 h-4" />,
       CANCELLED: <XCircle className="w-4 h-4" />,
+      REJECTED: <XCircle className="w-4 h-4" />,
     };
     return icons[status] || null;
   };
@@ -309,17 +315,15 @@ export default function DashboardPage() {
 
   const { stats, recentOrders, weeklySales } = data;
 
-  // Calculate Shipped count (Total - Pending - Completed - Cancelled)
-  // Since we no longer have Processing/Delivered, we can just show Completed for green, Pending for yellow.
-  // The rest of the orders are either Shipped or Cancelled.
-
   return (
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
-          <p className="text-xs text-gray-500">Welcome back, {user?.name || 'Admin'}!</p>
+          <p className="text-xs text-gray-500">
+            Welcome back, {user?.name || 'Admin'}!
+          </p>
         </div>
         <div className="flex items-center space-x-3">
           <button
@@ -341,25 +345,13 @@ export default function DashboardPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatsCard
-          title="Total Revenue"
-          value={formatCurrency(stats.revenue)}
-        />
-        <StatsCard
-          title="Total Products"
-          value={stats.products || 0}
-        />
-        <StatsCard
-          title="Total Orders"
-          value={stats.orders || 0}
-        />
-        <StatsCard
-          title="Total Customers"
-          value={stats.customers || 0}
-        />
+        <StatsCard title="Total Revenue" value={formatCurrency(stats.revenue)} />
+        <StatsCard title="Total Products" value={stats.products || 0} />
+        <StatsCard title="Total Orders" value={stats.orders || 0} />
+        <StatsCard title="Total Customers" value={stats.customers || 0} />
       </div>
 
-      {/* Order Status Summary */}
+      {/* Order Status Summary + Weekly Sales */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
@@ -372,14 +364,18 @@ export default function DashboardPage() {
                 <div className="w-3 h-3 rounded-full bg-green-500"></div>
                 <span className="text-sm text-gray-600">Completed</span>
               </div>
-              <span className="text-sm font-medium">{stats.completedOrders || 0}</span>
+              <span className="text-sm font-medium">
+                {stats.completedOrders || 0}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                 <span className="text-sm text-gray-600">Pending</span>
               </div>
-              <span className="text-sm font-medium">{stats.pendingOrders || 0}</span>
+              <span className="text-sm font-medium">
+                {stats.pendingOrders || 0}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -387,13 +383,17 @@ export default function DashboardPage() {
                 <span className="text-sm text-gray-600">Shipped & Others</span>
               </div>
               <span className="text-sm font-medium">
-                {Math.max((stats.orders || 0) - (stats.completedOrders || 0) - (stats.pendingOrders || 0), 0)}
+                {Math.max(
+                  (stats.orders || 0) -
+                    (stats.completedOrders || 0) -
+                    (stats.pendingOrders || 0),
+                  0
+                )}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Weekly Sales Chart */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-gray-900 text-sm">Weekly Sales</h3>
@@ -402,7 +402,9 @@ export default function DashboardPage() {
           <div className="h-28 flex items-end space-x-2">
             {weeklySales && weeklySales.length > 0 ? (
               weeklySales.map((day, index) => {
-                const maxRevenue = Math.max(...weeklySales.map((d) => d.revenue || 0));
+                const maxRevenue = Math.max(
+                  ...weeklySales.map((d) => d.revenue || 0)
+                );
                 const heightPercentage =
                   maxRevenue > 0 ? (day.revenue / maxRevenue) * 100 : 0;
                 const dayLabel = new Date(day.date).toLocaleDateString('en-US', {
@@ -439,7 +441,9 @@ export default function DashboardPage() {
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-gray-900 text-sm">Recent Orders</h3>
-            <p className="text-xs text-gray-500">Latest transactions from your store</p>
+            <p className="text-xs text-gray-500">
+              Latest transactions from your store
+            </p>
           </div>
           <Link
             href="/admin/orders"
@@ -455,7 +459,7 @@ export default function DashboardPage() {
               <thead>
                 <tr className="bg-gray-50">
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Order ID
+                    Order #
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Customer
@@ -479,15 +483,21 @@ export default function DashboardPage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {recentOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={order.id}
+                    className="hover:bg-gray-50 transition-colors"
+                  >
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      #{order.id.slice(0, 8)}
+                      {/* ✅ Sequential order number instead of cuid */}
+                      #{order.orderNumber}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
                       {order.user?.name || order.user?.email || 'Unknown'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
-                      {order.items?.map((item) => item.product?.name).join(', ') || 'N/A'}
+                      {order.items
+                        ?.map((item) => item.product?.name)
+                        .join(', ') || 'N/A'}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
                       {formatCurrency(order.total)}
@@ -499,15 +509,18 @@ export default function DashboardPage() {
                         )}`}
                       >
                         {getStatusIcon(order.status)}
-                        <span className="capitalize">{order.status?.toLowerCase() || 'unknown'}</span>
+                        <span className="capitalize">
+                          {order.status?.toLowerCase() || 'unknown'}
+                        </span>
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500">
                       {formatDate(order.createdAt)}
                     </td>
                     <td className="px-4 py-3">
+                      {/* ✅ Points to the list page — no 404 */}
                       <Link
-                        href={`/admin/orders/${order.id}`}
+                        href="/admin/orders"
                         className="text-sm text-green-600 hover:text-green-700 font-medium flex items-center space-x-1"
                       >
                         <Eye className="w-4 h-4" />

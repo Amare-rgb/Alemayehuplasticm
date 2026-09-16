@@ -27,7 +27,7 @@ const usersRoutes = require('./routes/users.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const profileRoutes = require('./routes/profile.routes');
 const articlesRoutes = require('./routes/articles.routes');
-const chatbotRoutes = require('./routes/chatbot.routes'); // ✅ ADD THIS LINE
+const chatbotRoutes = require('./routes/chatbot.routes');
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -65,12 +65,13 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
 
-// JSON parsing for all routes
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// ✅ FIX: Increase JSON body limit to accept base64 payment proofs (images/PDFs)
+// The default 100kb limit caused: PayloadTooLargeError: request entity too large
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ============== STATIC FILES ==============
-// FIX: Serve static files from uploads directory with proper path
+// Serve static files from uploads directory with proper path
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
   setHeaders: (res, filePath) => {
     // Cache control for images - allow caching but revalidate
@@ -97,22 +98,22 @@ async function connectDatabase() {
   try {
     await prisma.$connect();
     console.log('✅ Database connected successfully');
-    
+
     // Test the connection
     const userCount = await prisma.user.count();
     console.log(`📊 Database contains ${userCount} users`);
-    
+
     // Check if admin exists
     const adminUser = await prisma.user.findFirst({
       where: { role: 'ADMIN' }
     });
-    
+
     if (adminUser) {
       console.log('👤 Admin user exists:', adminUser.email);
     } else {
       console.log('⚠️ No admin user found. Please create one.');
     }
-    
+
     return true;
   } catch (error) {
     console.error('❌ Database connection failed:', error.message);
@@ -136,7 +137,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/admin/settings', settingsRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/articles', articlesRoutes);
-app.use('/api/chatbot', chatbotRoutes); // ✅ ADD THIS LINE
+app.use('/api/chatbot', chatbotRoutes);
 
 // Health check with database status
 app.get('/api/health', async (req, res) => {
@@ -144,7 +145,7 @@ app.get('/api/health', async (req, res) => {
     // Check database connection
     await prisma.$queryRaw`SELECT 1`;
     const userCount = await prisma.user.count();
-    
+
     res.json({
       status: 'OK',
       timestamp: new Date().toISOString(),
@@ -184,7 +185,7 @@ app.get('/', (req, res) => {
       blog: '/api/blog',
       cart: '/api/cart',
       categories: '/api/categories',
-      chatbot: '/api/chatbot', // ✅ ADD THIS LINE
+      chatbot: '/api/chatbot',
       checkout: '/api/checkout',
       orders: '/api/orders',
       products: '/api/products',
@@ -211,6 +212,15 @@ app.use((req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('❌ Global error handler:', err);
+
+  // ✅ Friendly response for oversized payloads
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({
+      success: false,
+      error: 'Payment proof file is too large. Please upload a file under 10 MB.',
+    });
+  }
+
   res.status(500).json({
     success: false,
     error: 'Internal server error',
@@ -222,11 +232,11 @@ app.use((err, req, res, next) => {
 async function startServer() {
   // Connect to database first
   const dbConnected = await connectDatabase();
-  
+
   if (!dbConnected) {
     console.log('⚠️ Server starting without database connection. Some features may not work.');
   }
-  
+
   // Start listening
   app.listen(PORT, () => {
     console.log('\n🌱 Genesis Agri Server running on http://localhost:' + PORT);
@@ -245,7 +255,7 @@ async function startServer() {
     console.log('   /api/blog         - Blog routes');
     console.log('   /api/cart         - Cart routes');
     console.log('   /api/categories   - Category routes');
-    console.log('   /api/chatbot      - Chatbot routes'); // ✅ ADD THIS LINE
+    console.log('   /api/chatbot      - Chatbot routes');
     console.log('   /api/checkout     - Checkout routes');
     console.log('   /api/orders       - Order routes');
     console.log('   /api/products     - Product routes');

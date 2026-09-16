@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
   },
 
   images: {
-    // ✅ Correct — allows images fetched from private/local IPs in dev
+    // ✅ Allows images fetched from private/local IPs in dev
     dangerouslyAllowLocalIP: true,
 
     remotePatterns: [
@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
         pathname: "/uploads/**",
       },
 
-      // ── Local backend — any path (keep if you also serve other assets)
+      // ── Local backend — any path ────────────────────────────────────
       {
         protocol: "http",
         hostname: "localhost",
@@ -60,15 +60,30 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: "https",
-        hostname: "lh3.googleusercontent.com", // Google avatars
+        hostname: "lh3.googleusercontent.com",
         pathname: "/**",
       },
       {
         protocol: "https",
-        hostname: "avatars.githubusercontent.com", // GitHub avatars
+        hostname: "avatars.githubusercontent.com",
         pathname: "/**",
       },
     ],
+  },
+
+  // ✅ NEW: Proxy /uploads/* from Next.js (port 3000) to the Express
+  //    backend (port 5000). Without this, the browser's request for
+  //    /uploads/products/xxx.jpg hits the Next.js server, which has no
+  //    such file and returns 404 — producing
+  //    "The requested resource isn't a valid image ... received null".
+  async rewrites() {
+    const backend = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+    return [
+      {
+        source: "/uploads/:path*",
+        destination: `${backend}/uploads/:path*`,
+      },
+    ];
   },
 };
 
