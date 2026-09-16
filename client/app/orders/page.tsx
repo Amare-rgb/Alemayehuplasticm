@@ -1,8 +1,16 @@
+// app/orders/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, {
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Package,
   ChevronDown,
@@ -14,216 +22,114 @@ import {
   Truck,
   ShoppingBag,
   Calendar,
-  Filter,
-  Search,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/app/providers";
+import { ordersApi } from "@/lib/api";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ============================================================
+// Types
+// ============================================================
+type OrderStatus =
+  | "PENDING"
+  | "SHIPPED"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "REJECTED";
+
 interface OrderItem {
   id: string;
-  name: string;
-  image: string;
+  productId: string;
   quantity: number;
   price: number;
-  unit: string;
+  product: {
+    id: string;
+    name: string;
+    images: string[];
+    slug: string;
+    price: number;
+  };
 }
 
 interface Order {
   id: string;
+  orderNumber: number;
+  total: number;
+  status: OrderStatus;
+  paymentMethod?: string;
+  notes?: string;
   createdAt: string;
-  status: "Delivered" | "In Transit" | "Processing" | "Cancelled";
-  paymentMethod: string;
+  updatedAt: string;
   items: OrderItem[];
 }
 
-// ─── Status badge config ─────────────────────────────────────────────────────
+// ============================================================
+// Image URL normalizer
+// ============================================================
+function normalizeImageUrl(src?: string | null): string {
+  if (!src) return "/placeholder-image.png";
+  if (src.startsWith("http://") || src.startsWith("https://")) return src;
+  if (src.startsWith("data:")) return src;
+  return src.startsWith("/") ? src : `/${src}`;
+}
+
+// ============================================================
+// Status config
+// ============================================================
+type FilterType = "All" | OrderStatus;
+
 const STATUS_CONFIG: Record<
-  string,
-  { color: string; bg: string; border: string; icon: React.ReactNode; label: string }
+  OrderStatus,
+  {
+    color: string;
+    bg: string;
+    border: string;
+    icon: React.ReactNode;
+    label: string;
+  }
 > = {
-  Delivered: {
+  PENDING: {
+    color: "text-yellow-700",
+    bg: "bg-yellow-50",
+    border: "border-yellow-200",
+    icon: <Clock size={13} />,
+    label: "Pending",
+  },
+  SHIPPED: {
+    color: "text-purple-700",
+    bg: "bg-purple-50",
+    border: "border-purple-200",
+    icon: <Truck size={13} />,
+    label: "Shipped",
+  },
+  COMPLETED: {
     color: "text-emerald-700",
     bg: "bg-emerald-50",
     border: "border-emerald-200",
     icon: <Check size={13} strokeWidth={3} />,
-    label: "Delivered",
+    label: "Completed",
   },
-  "In Transit": {
-    color: "text-amber-700",
-    bg: "bg-amber-50",
-    border: "border-amber-200",
-    icon: <Truck size={13} />,
-    label: "In Transit",
-  },
-  Processing: {
-    color: "text-blue-700",
-    bg: "bg-blue-50",
-    border: "border-blue-200",
-    icon: <Clock size={13} />,
-    label: "Processing",
-  },
-  Cancelled: {
+  CANCELLED: {
     color: "text-red-600",
     bg: "bg-red-50",
     border: "border-red-200",
     icon: <X size={13} strokeWidth={3} />,
     label: "Cancelled",
   },
+  REJECTED: {
+    color: "text-gray-600",
+    bg: "bg-gray-50",
+    border: "border-gray-200",
+    icon: <X size={13} strokeWidth={3} />,
+    label: "Rejected",
+  },
 };
 
-// ─── Mock order data ─────────────────────────────────────────────────────────
-const MOCK_ORDERS: Order[] = [
-  {
-    id: "GEN-2026-0847",
-    createdAt: "2026-08-25T14:30:00",
-    status: "Delivered",
-    paymentMethod: "Telebirr",
-    items: [
-      {
-        id: "i1",
-        name: "Organic Cherry Tomatoes",
-        image: "https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=200&h=200&fit=crop",
-        quantity: 2,
-        price: 450,
-        unit: "kg",
-      },
-      {
-        id: "i2",
-        name: "Fresh Avocados",
-        image: "https://images.unsplash.com/photo-1523049673857-eb18f1d80f67?w=200&h=200&fit=crop",
-        quantity: 5,
-        price: 120,
-        unit: "pcs",
-      },
-      {
-        id: "i3",
-        name: "Ethiopian Honey (Raw)",
-        image: "https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=200&h=200&fit=crop",
-        quantity: 1,
-        price: 850,
-        unit: "jar",
-      },
-    ],
-  },
-  {
-    id: "GEN-2026-0831",
-    createdAt: "2026-08-18T09:15:00",
-    status: "In Transit",
-    paymentMethod: "Bank Transfer",
-    items: [
-      {
-        id: "i4",
-        name: "Teff Flour (Organic)",
-        image: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=200&h=200&fit=crop",
-        quantity: 3,
-        price: 380,
-        unit: "kg",
-      },
-      {
-        id: "i5",
-        name: "Fresh Green Coffee Beans",
-        image: "https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=200&h=200&fit=crop",
-        quantity: 2,
-        price: 520,
-        unit: "kg",
-      },
-    ],
-  },
-  {
-    id: "GEN-2026-0819",
-    createdAt: "2026-08-10T16:45:00",
-    status: "Processing",
-    paymentMethod: "Chapa",
-    items: [
-      {
-        id: "i6",
-        name: "Organic Moringa Powder",
-        image: "https://images.unsplash.com/photo-1515023115894-bacee40cce4e?w=200&h=200&fit=crop",
-        quantity: 1,
-        price: 650,
-        unit: "pack",
-      },
-      {
-        id: "i7",
-        name: "Fresh Mango (Alphonso)",
-        image: "https://images.unsplash.com/photo-1553279768-865429fa0078?w=200&h=200&fit=crop",
-        quantity: 4,
-        price: 180,
-        unit: "pcs",
-      },
-      {
-        id: "i8",
-        name: "Berbere Spice Blend",
-        image: "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=200&h=200&fit=crop",
-        quantity: 2,
-        price: 290,
-        unit: "pack",
-      },
-      {
-        id: "i9",
-        name: "Organic Sesame Seeds",
-        image: "https://images.unsplash.com/photo-1508061253366-f7da158b6d46?w=200&h=200&fit=crop",
-        quantity: 1,
-        price: 340,
-        unit: "kg",
-      },
-      {
-        id: "i10",
-        name: "Fresh Rosemary Bundle",
-        image: "https://images.unsplash.com/photo-1515586838455-8f8f940d6853?w=200&h=200&fit=crop",
-        quantity: 3,
-        price: 95,
-        unit: "bunch",
-      },
-    ],
-  },
-  {
-    id: "GEN-2026-0790",
-    createdAt: "2026-07-28T11:20:00",
-    status: "Cancelled",
-    paymentMethod: "Telebirr",
-    items: [
-      {
-        id: "i11",
-        name: "Red Onions (Premium)",
-        image: "https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=200&h=200&fit=crop",
-        quantity: 5,
-        price: 85,
-        unit: "kg",
-      },
-    ],
-  },
-  {
-    id: "GEN-2026-0752",
-    createdAt: "2026-07-15T08:00:00",
-    status: "Delivered",
-    paymentMethod: "Bank Transfer",
-    items: [
-      {
-        id: "i12",
-        name: "Ethiopian Lentils (Misir)",
-        image: "https://images.unsplash.com/photo-1600369672770-985fd30004eb?w=200&h=200&fit=crop",
-        quantity: 3,
-        price: 220,
-        unit: "kg",
-      },
-      {
-        id: "i13",
-        name: "Organic Enset (Kocho)",
-        image: "https://images.unsplash.com/photo-1590779033100-9f60a05a013d?w=200&h=200&fit=crop",
-        quantity: 2,
-        price: 450,
-        unit: "kg",
-      },
-    ],
-  },
-];
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ============================================================
+// Helpers
+// ============================================================
 function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", {
+  return new Date(dateStr).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -231,8 +137,7 @@ function formatDate(dateStr: string) {
 }
 
 function formatTime(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleTimeString("en-US", {
+  return new Date(dateStr).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -243,117 +148,212 @@ function getOrderTotal(items: OrderItem[]) {
   return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 }
 
-type FilterType = "All" | "Delivered" | "In Transit" | "Processing" | "Cancelled";
+// ============================================================
+// Loading fallback (used by the Suspense boundary)
+// ============================================================
+function OrdersPageFallback() {
+  return (
+    <div className="min-h-screen bg-[var(--cream)] flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-12 h-12 border-4 border-[#123523] border-t-[#b9d873] rounded-full animate-spin" />
+        <p className="text-[#69736b] font-sans text-sm">
+          Loading your orders...
+        </p>
+      </div>
+    </div>
+  );
+}
 
-// ─── Component ───────────────────────────────────────────────────────────────
-export default function OrdersPage() {
+// ============================================================
+// Inner component — uses useSearchParams
+// ============================================================
+function OrdersPageContent() {
   const { user, status } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const highlightId = searchParams?.get("highlight") ?? null;
 
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterType>("All");
-  const [expandedOrder, setExpandedOrder] = useState<string | null>(
-    MOCK_ORDERS[0]?.id || null
-  );
+  const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Redirect if not authenticated
+  const isMountedRef = useRef(true);
+  const hasFetchedInitialRef = useRef(false);
+
+  // ── Mount / unmount tracking ──
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // ── Redirect unauthenticated users ──
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.push("/auth/login");
+      router.replace("/auth/signin");
     }
   }, [status, router]);
 
-  // Loading state
-  if (status === "loading") {
-    return (
-      <div className="min-h-screen bg-genesis-cream flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-genesis-700 border-t-genesis-lime rounded-full animate-spin" />
-          <p className="text-genesis-muted font-sans text-sm">
-            Loading your orders...
-          </p>
-        </div>
-      </div>
-    );
+  // ── Fetch function ──
+  const fetchOrders = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      try {
+        if (!silent) setRefreshing(true);
+        setError(null);
+
+        const response = await ordersApi.getOrders({ limit: 100 });
+
+        if (!isMountedRef.current) return;
+
+        const list = (response?.orders ?? []) as Order[];
+        // Newest first
+        list.sort((a, b) => b.orderNumber - a.orderNumber);
+        setOrders(list);
+
+        // Auto-expand highlighted order, else the newest
+        if (highlightId && list.some((o) => o.id === highlightId)) {
+          setExpandedOrder(highlightId);
+        } else if (list.length > 0) {
+          setExpandedOrder((prev) => prev ?? list[0].id);
+        }
+      } catch (err) {
+        console.error("Failed to load orders:", err);
+        if (!isMountedRef.current) return;
+        setError("Failed to load your orders. Please try again.");
+      } finally {
+        if (isMountedRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [highlightId]
+  );
+
+  // ── Initial fetch when authenticated ──
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    if (hasFetchedInitialRef.current) return;
+    hasFetchedInitialRef.current = true;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (cancelled) return;
+        await fetchOrders();
+      } catch {
+        /* handled inside fetchOrders */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  // ── Loading state ──
+  if (status === "loading" || (loading && status === "authenticated")) {
+    return <OrdersPageFallback />;
   }
 
   if (!user) return null;
 
+  // ── Derived data ──
   const filteredOrders =
     activeFilter === "All"
-      ? MOCK_ORDERS
-      : MOCK_ORDERS.filter((o) => o.status === activeFilter);
+      ? orders
+      : orders.filter((o) => o.status === activeFilter);
 
   const filterCounts: Record<FilterType, number> = {
-    All: MOCK_ORDERS.length,
-    Delivered: MOCK_ORDERS.filter((o) => o.status === "Delivered").length,
-    "In Transit": MOCK_ORDERS.filter((o) => o.status === "In Transit").length,
-    Processing: MOCK_ORDERS.filter((o) => o.status === "Processing").length,
-    Cancelled: MOCK_ORDERS.filter((o) => o.status === "Cancelled").length,
+    All: orders.length,
+    PENDING: orders.filter((o) => o.status === "PENDING").length,
+    SHIPPED: orders.filter((o) => o.status === "SHIPPED").length,
+    COMPLETED: orders.filter((o) => o.status === "COMPLETED").length,
+    CANCELLED: orders.filter((o) => o.status === "CANCELLED").length,
+    REJECTED: orders.filter((o) => o.status === "REJECTED").length,
   };
 
+  const filterTabs: FilterType[] = [
+    "All",
+    "PENDING",
+    "SHIPPED",
+    "COMPLETED",
+    "CANCELLED",
+  ];
+
   return (
-    <div className="min-h-screen bg-genesis-cream">
-      {/* ═══════════════════════════════════════════════════════════════════════
+    <div className="min-h-screen bg-[var(--cream)]">
+      {/* ═══════════════════════════════════════════════════════
           PAGE HEADER
-      ═══════════════════════════════════════════════════════════════════════ */}
-      <div className="bg-gradient-to-br from-genesis-950 via-genesis-900 to-genesis-800 relative overflow-hidden">
-        {/* Decorative elements */}
-        <div className="absolute -top-20 -right-20 w-64 h-64 bg-genesis-lime/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-genesis-500/8 rounded-full blur-3xl" />
-        <div
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23b9d873' fill-opacity='1'%3E%3Cpath d='M20 20h-4v-4h4v4zm0-10h-4V6h4v4z'/%3E%3C/g%3E%3C/svg%3E")`,
-          }}
-        />
+      ═══════════════════════════════════════════════════════ */}
+      <div className="bg-gradient-to-br from-[#0b2419] via-[#123523] to-[#19472d] relative overflow-hidden">
+        <div className="absolute -top-20 -right-20 w-64 h-64 bg-[#b9d873]/5 rounded-full blur-3xl" />
+        <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-[#28633e]/10 rounded-full blur-3xl" />
 
         <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-10 sm:pt-28 sm:pb-12">
-          {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-sm text-white/50 mb-6">
             <Link
               href="/profile"
-              className="hover:text-genesis-lime transition-colors flex items-center gap-1"
+              className="hover:text-[#b9d873] transition-colors flex items-center gap-1"
             >
               <ArrowLeft size={14} />
               My Profile
             </Link>
             <ChevronRight size={14} />
-            <span className="text-genesis-lime/80">Orders</span>
+            <span className="text-[#b9d873]/80">Orders</span>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-white font-serif tracking-tight">
+              <h1 className="text-3xl sm:text-4xl font-bold text-white font-serif-heading tracking-tight">
                 My Orders
               </h1>
-              <p className="text-genesis-lime/60 text-sm mt-2">
-                {MOCK_ORDERS.length} order{MOCK_ORDERS.length !== 1 ? "s" : ""}{" "}
-                placed
+              <p className="text-[#b9d873]/60 text-sm mt-2">
+                {orders.length} order{orders.length !== 1 ? "s" : ""} placed
               </p>
             </div>
-            <Link
-              href="/shop"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-genesis-lime/15 text-genesis-lime border border-genesis-lime/20 hover:bg-genesis-lime/25 transition-all duration-200 self-start sm:self-auto"
-            >
-              <ShoppingBag size={16} />
-              Continue Shopping
-            </Link>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <button
+                onClick={() => fetchOrders()}
+                disabled={refreshing}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white/80 bg-white/5 border border-white/10 hover:bg-white/10 transition-all disabled:opacity-50"
+              >
+                <RefreshCw
+                  size={14}
+                  className={refreshing ? "animate-spin" : ""}
+                />
+                Refresh
+              </button>
+              <Link
+                href="/shop"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-[#b9d873]/15 text-[#b9d873] border border-[#b9d873]/20 hover:bg-[#b9d873]/25 transition-all duration-200"
+              >
+                <ShoppingBag size={16} />
+                Continue Shopping
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════════════
+      {/* ═══════════════════════════════════════════════════════
           FILTER TABS
-      ═══════════════════════════════════════════════════════════════════════ */}
-      <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-genesis-cream-dark shadow-sm">
+      ═══════════════════════════════════════════════════════ */}
+      <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-[rgba(20,33,25,.09)] shadow-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-1 overflow-x-auto py-3 scrollbar-hide -mx-1">
-            {(
-              ["All", "Processing", "In Transit", "Delivered", "Cancelled"] as FilterType[]
-            ).map((filter) => {
+            {filterTabs.map((filter) => {
               const isActive = activeFilter === filter;
               const statusConf =
-                filter !== "All" ? STATUS_CONFIG[filter] : null;
+                filter !== "All" ? STATUS_CONFIG[filter as OrderStatus] : null;
 
               return (
                 <button
@@ -361,26 +361,30 @@ export default function OrdersPage() {
                   onClick={() => setActiveFilter(filter)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-200 ${
                     isActive
-                      ? "bg-genesis-900 text-genesis-lime shadow-md"
-                      : "text-genesis-muted hover:bg-genesis-cream hover:text-genesis-ink"
+                      ? "bg-[#123523] text-[#b9d873] shadow-md"
+                      : "text-[#69736b] hover:bg-[var(--cream)] hover:text-[#123523]"
                   }`}
                 >
                   {statusConf && (
-                    <span className={isActive ? "text-genesis-lime" : statusConf.color}>
+                    <span
+                      className={isActive ? "text-[#b9d873]" : statusConf.color}
+                    >
                       {statusConf.icon}
                     </span>
                   )}
                   {filter === "All" && (
-                    <span className={isActive ? "text-genesis-lime" : "text-genesis-muted"}>
+                    <span
+                      className={isActive ? "text-[#b9d873]" : "text-[#69736b]"}
+                    >
                       <Package size={14} />
                     </span>
                   )}
-                  {filter}
+                  {filter === "All" ? "All" : statusConf?.label}
                   <span
                     className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold min-w-[20px] text-center ${
                       isActive
-                        ? "bg-genesis-lime/20 text-genesis-lime"
-                        : "bg-genesis-cream text-genesis-muted"
+                        ? "bg-[#b9d873]/20 text-[#b9d873]"
+                        : "bg-[var(--cream)] text-[#69736b]"
                     }`}
                   >
                     {filterCounts[filter]}
@@ -392,36 +396,52 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════════════
+      {/* ═══════════════════════════════════════════════════════
           ORDER LIST
-      ═══════════════════════════════════════════════════════════════════════ */}
+      ═══════════════════════════════════════════════════════ */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {error && (
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => fetchOrders()}
+              className="text-xs font-bold text-red-700 hover:text-red-900 underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {filteredOrders.length === 0 ? (
-          /* ─── Empty state ───────────────────────────────────────────── */
-          <div className="bg-white rounded-2xl border border-genesis-cream-dark shadow-sm p-10 sm:p-16 text-center">
-            <div className="w-20 h-20 mx-auto rounded-2xl bg-genesis-cream flex items-center justify-center mb-5">
-              <Package size={36} className="text-genesis-muted/50" />
+          <div className="bg-white rounded-2xl border border-[rgba(20,33,25,.09)] shadow-sm p-10 sm:p-16 text-center">
+            <div className="w-20 h-20 mx-auto rounded-2xl bg-[var(--cream)] flex items-center justify-center mb-5">
+              <Package size={36} className="text-[#69736b]/50" />
             </div>
-            <h3 className="text-xl font-bold text-genesis-ink font-serif mb-2">
-              No {activeFilter !== "All" ? activeFilter.toLowerCase() : ""}{" "}
+            <h3 className="text-xl font-bold text-[#123523] font-serif-heading mb-2">
+              No{" "}
+              {activeFilter !== "All"
+                ? STATUS_CONFIG[activeFilter as OrderStatus].label.toLowerCase()
+                : ""}{" "}
               orders found
             </h3>
-            <p className="text-sm text-genesis-muted max-w-sm mx-auto mb-6">
+            <p className="text-sm text-[#69736b] max-w-sm mx-auto mb-6">
               {activeFilter === "All"
                 ? "You haven't placed any orders yet. Start browsing our fresh produce!"
-                : `You don't have any orders with "${activeFilter}" status.`}
+                : `You don't have any orders with "${
+                    STATUS_CONFIG[activeFilter as OrderStatus].label
+                  }" status.`}
             </p>
             {activeFilter !== "All" ? (
               <button
                 onClick={() => setActiveFilter("All")}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-genesis-700 bg-green-50 hover:bg-green-100 border border-green-200 transition-all"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-[#28633e] bg-green-50 hover:bg-green-100 border border-green-200 transition-all"
               >
                 View all orders
               </button>
             ) : (
               <Link
                 href="/shop"
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-white bg-genesis-700 hover:bg-genesis-800 shadow-md shadow-genesis-700/20 transition-all"
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-white bg-[#123523] hover:bg-[#19472d] shadow-md transition-all"
               >
                 <ShoppingBag size={16} />
                 Start Shopping
@@ -429,33 +449,30 @@ export default function OrdersPage() {
             )}
           </div>
         ) : (
-          /* ─── Order cards ───────────────────────────────────────────── */
           <div className="space-y-4">
             {filteredOrders.map((order) => {
               const isExpanded = expandedOrder === order.id;
               const statusConf = STATUS_CONFIG[order.status];
               const orderTotal = getOrderTotal(order.items);
-              const totalItems = order.items.reduce(
-                (s, i) => s + i.quantity,
-                0
-              );
+              const totalItems = order.items.reduce((s, i) => s + i.quantity, 0);
+              const isHighlighted = order.id === highlightId;
 
               return (
                 <div
                   key={order.id}
-                  className="bg-white rounded-2xl border border-genesis-cream-dark shadow-sm overflow-hidden transition-all duration-300 hover:shadow-md"
+                  className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all duration-300 hover:shadow-md ${
+                    isHighlighted
+                      ? "border-[#b9d873] ring-2 ring-[#b9d873]/30"
+                      : "border-[rgba(20,33,25,.09)]"
+                  }`}
                 >
-                  {/* ── Order header (always visible) ──────────────── */}
+                  {/* Order header */}
                   <button
-                    onClick={() =>
-                      setExpandedOrder(isExpanded ? null : order.id)
-                    }
+                    onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
                     className="w-full text-left px-5 py-4 sm:px-6 sm:py-5 flex items-center justify-between gap-4 group"
                     aria-expanded={isExpanded}
-                    aria-label={`Order ${order.id}, ${order.status}`}
                   >
                     <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                      {/* Order icon */}
                       <div
                         className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${statusConf.bg} ${statusConf.border} border`}
                       >
@@ -464,11 +481,10 @@ export default function OrdersPage() {
                         </span>
                       </div>
 
-                      {/* Order info */}
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm sm:text-base font-bold text-genesis-ink">
-                            {order.id}
+                          <h3 className="text-sm sm:text-base font-bold text-[#123523]">
+                            Order #{order.orderNumber}
                           </h3>
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${statusConf.bg} ${statusConf.border} ${statusConf.color}`}
@@ -477,7 +493,7 @@ export default function OrdersPage() {
                             {statusConf.label}
                           </span>
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-genesis-muted">
+                        <div className="flex items-center gap-3 mt-1 text-xs text-[#69736b]">
                           <span className="flex items-center gap-1">
                             <Calendar size={12} />
                             {formatDate(order.createdAt)}
@@ -486,7 +502,7 @@ export default function OrdersPage() {
                             <Clock size={12} />
                             {formatTime(order.createdAt)}
                           </span>
-                          <span className="text-genesis-muted/50">·</span>
+                          <span className="text-[#69736b]/50">·</span>
                           <span>
                             {totalItems} item{totalItems > 1 ? "s" : ""}
                           </span>
@@ -494,30 +510,26 @@ export default function OrdersPage() {
                       </div>
                     </div>
 
-                    {/* Right side — total + chevron */}
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <div className="text-right hidden sm:block">
-                        <p className="text-sm font-bold text-genesis-ink">
+                        <p className="text-sm font-bold text-[#123523]">
                           ETB {orderTotal.toLocaleString()}
                         </p>
-                        <p className="text-[11px] text-genesis-muted">
-                          {order.paymentMethod}
+                        <p className="text-[11px] text-[#69736b]">
+                          {order.paymentMethod || "Not specified"}
                         </p>
                       </div>
                       <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center bg-genesis-cream/60 group-hover:bg-genesis-cream transition-all duration-300 ${
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--cream)]/60 group-hover:bg-[var(--cream)] transition-all duration-300 ${
                           isExpanded ? "rotate-180" : ""
                         }`}
                       >
-                        <ChevronDown
-                          size={16}
-                          className="text-genesis-muted"
-                        />
+                        <ChevronDown size={16} className="text-[#69736b]" />
                       </div>
                     </div>
                   </button>
 
-                  {/* ── Expanded content: item list ────────────────── */}
+                  {/* Expanded content */}
                   <div
                     className={`transition-all duration-300 ease-in-out overflow-hidden ${
                       isExpanded
@@ -525,38 +537,39 @@ export default function OrdersPage() {
                         : "max-h-0 opacity-0"
                     }`}
                   >
-                    <div className="border-t border-genesis-cream-dark">
-                      {/* Items */}
-                      <div className="divide-y divide-genesis-cream-dark/60">
+                    <div className="border-t border-[rgba(20,33,25,.09)]">
+                      <div className="divide-y divide-[rgba(20,33,25,.06)]">
                         {order.items.map((item) => (
                           <div
                             key={item.id}
-                            className="flex items-center gap-3 sm:gap-4 px-5 py-3.5 sm:px-6 sm:py-4 hover:bg-genesis-cream/30 transition-colors"
+                            className="flex items-center gap-3 sm:gap-4 px-5 py-3.5 sm:px-6 sm:py-4 hover:bg-[var(--cream)]/30 transition-colors"
                           >
-                            {/* Product image */}
-                            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-genesis-cream flex-shrink-0 border border-genesis-cream-dark">
-                              <img
-                                src={item.image}
-                                alt={item.name}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
+                            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-[var(--cream)] flex-shrink-0 border border-[rgba(20,33,25,.09)] relative">
+                              <Image
+                                src={normalizeImageUrl(item.product.images?.[0])}
+                                alt={item.product.name}
+                                fill
+                                sizes="64px"
+                                className="object-cover"
+                                unoptimized
+                                onError={(e) => {
+                                  const target = e.currentTarget as HTMLImageElement;
+                                  target.src = "/placeholder-image.png";
+                                }}
                               />
                             </div>
 
-                            {/* Product info */}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-genesis-ink truncate">
-                                {item.name}
+                              <p className="text-sm font-semibold text-[#123523] truncate">
+                                {item.product.name}
                               </p>
-                              <p className="text-xs text-genesis-muted mt-0.5">
-                                Qty: {item.quantity} {item.unit}
-                                {item.quantity > 1 ? "s" : ""} × ETB{" "}
+                              <p className="text-xs text-[#69736b] mt-0.5">
+                                Qty: {item.quantity} × ETB{" "}
                                 {item.price.toLocaleString()}
                               </p>
                             </div>
 
-                            {/* Item total */}
-                            <p className="text-sm font-bold text-genesis-ink flex-shrink-0">
+                            <p className="text-sm font-bold text-[#123523] flex-shrink-0">
                               ETB{" "}
                               {(item.price * item.quantity).toLocaleString()}
                             </p>
@@ -564,30 +577,28 @@ export default function OrdersPage() {
                         ))}
                       </div>
 
-                      {/* Order summary footer */}
-                      <div className="bg-genesis-cream/40 px-5 py-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-4 text-xs text-genesis-muted">
+                      {/* Footer summary */}
+                      <div className="bg-[var(--cream)]/40 px-5 py-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-4 text-xs text-[#69736b]">
                           <span className="flex items-center gap-1.5">
                             <Calendar size={13} />
                             Ordered {formatDate(order.createdAt)} at{" "}
                             {formatTime(order.createdAt)}
                           </span>
-                          <span className="hidden sm:inline text-genesis-muted/40">
+                          <span className="hidden sm:inline text-[#69736b]/40">
                             |
                           </span>
                           <span className="hidden sm:flex items-center gap-1.5">
-                            Paid via {order.paymentMethod}
+                            Paid via {order.paymentMethod || "N/A"}
                           </span>
                         </div>
                         <div className="flex items-center justify-between sm:justify-end gap-4">
-                          <span className="text-xs text-genesis-muted sm:hidden">
-                            Paid via {order.paymentMethod}
+                          <span className="text-xs text-[#69736b] sm:hidden">
+                            Paid via {order.paymentMethod || "N/A"}
                           </span>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-genesis-muted">
-                              Total:
-                            </span>
-                            <span className="text-lg font-bold text-genesis-ink">
+                            <span className="text-xs text-[#69736b]">Total:</span>
+                            <span className="text-lg font-bold text-[#123523]">
                               ETB {orderTotal.toLocaleString()}
                             </span>
                           </div>
@@ -601,23 +612,23 @@ export default function OrdersPage() {
           </div>
         )}
 
-        {/* ─── Bottom CTA ─────────────────────────────────────────────── */}
+        {/* Bottom CTA */}
         {filteredOrders.length > 0 && (
           <div className="mt-8 text-center">
-            <p className="text-sm text-genesis-muted mb-4">
-              Showing {filteredOrders.length} of {MOCK_ORDERS.length} orders
+            <p className="text-sm text-[#69736b] mb-4">
+              Showing {filteredOrders.length} of {orders.length} orders
             </p>
             <div className="flex items-center justify-center gap-3">
               <Link
                 href="/profile"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-genesis-muted bg-white border border-genesis-cream-dark hover:bg-genesis-cream transition-all duration-200"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-[#69736b] bg-white border border-[rgba(20,33,25,.09)] hover:bg-[var(--cream)] transition-all duration-200"
               >
                 <ArrowLeft size={15} />
                 Back to Profile
               </Link>
               <Link
                 href="/shop"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-genesis-700 hover:bg-genesis-800 shadow-md shadow-genesis-700/20 transition-all duration-200"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-[#123523] hover:bg-[#19472d] shadow-md transition-all duration-200"
               >
                 <ShoppingBag size={15} />
                 Shop More
@@ -627,5 +638,17 @@ export default function OrdersPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// Default export — wraps the content in a Suspense boundary
+// so `useSearchParams` doesn't break the production build
+// ============================================================
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<OrdersPageFallback />}>
+      <OrdersPageContent />
+    </Suspense>
   );
 }

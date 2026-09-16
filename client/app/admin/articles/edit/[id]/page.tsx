@@ -49,16 +49,12 @@ export default function EditArticlePage() {
         return;
       }
 
-      console.log('🔍 Fetching article for edit with ID:', id);
-
       const response = await fetch(`http://localhost:5000/api/articles/${id}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       });
-      
-      console.log('📡 Edit response status:', response.status);
 
       if (!response.ok) {
         if (response.status === 404) {
@@ -69,8 +65,6 @@ export default function EditArticlePage() {
       
       const data = await response.json();
       const article = data.data;
-      
-      console.log('✅ Article loaded for edit:', article);
       
       setFormData({
         title: article.title || '',
@@ -83,7 +77,6 @@ export default function EditArticlePage() {
       
       setExistingPdfUrl(article.pdfUrl || null);
     } catch (err) {
-      console.error('❌ Fetch error:', err);
       setError(err instanceof Error ? err.message : 'Failed to load article');
     } finally {
       setLoading(false);
@@ -210,8 +203,6 @@ export default function EditArticlePage() {
         formDataToSend.append('pdfFile', formData.pdfFile);
       }
 
-      console.log('📤 Updating article with ID:', id);
-
       const response = await fetch(`http://localhost:5000/api/articles/${id}`, {
         method: 'PUT',
         headers: {
@@ -226,8 +217,6 @@ export default function EditArticlePage() {
         throw new Error(result.error || result.details || 'Failed to update article');
       }
 
-      console.log('✅ Article updated successfully');
-
       setSubmitStatus({
         type: 'success',
         message: 'Article updated successfully!',
@@ -238,7 +227,6 @@ export default function EditArticlePage() {
       }, 1500);
 
     } catch (error) {
-      console.error('❌ Update error:', error);
       setSubmitStatus({
         type: 'error',
         message: error instanceof Error ? error.message : 'Failed to update article.',

@@ -61,8 +61,8 @@ model User {
   role      Role     @default(USER)
   avatar    String?
   phone     String?
-  address   String?     // ✅ ADDED
-  bio       String?     // ✅ ADDED
+  address   String?
+  bio       String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -240,14 +240,27 @@ model CartItem {
   @@map("cart_items")
 }
 
+// ============================================
+// ORDER MODEL
+// ✅ `id` stays a cuid (primary key, internal use)
+// ✅ `orderNumber` is a SEQUENTIAL INTEGER (1, 2, 3, …) for display
+// ============================================
 model Order {
   id              String        @id @default(cuid())
+  orderNumber     Int           @unique @default(autoincrement())
+
   userId          String
   total           Decimal       @db.Decimal(10, 2)
   status          OrderStatus   @default(PENDING)
   paymentStatus   PaymentStatus @default(PENDING)
   addressId       String
+
+  // Payment info persisted from checkout
+  paymentMethod   String?
   paymentRef      String?
+  paymentProof    String?       @db.Text
+
+  // Existing
   stripeSessionId String?
   notes           String?
   createdAt       DateTime      @default(now())
@@ -257,9 +270,16 @@ model Order {
   address Address     @relation(fields: [addressId], references: [id])
   items   OrderItem[]
 
+  @@index([userId])
+  @@index([status])
+  @@index([paymentStatus])
   @@map("orders")
 }
 
+// ============================================
+// ORDER ITEM MODEL
+// ✅ orderId stays a String (matches Order.id)
+// ============================================
 model OrderItem {
   id        String  @id @default(cuid())
   orderId   String
@@ -383,8 +403,6 @@ model Settings {
   marketingEmails      Boolean  @default(false)
   themeColor           String   @default("#22c55e")
   darkMode             Boolean  @default(false)
-
-
 
   contactEmail         String?  @default("support@genesisagri.com")
   contactPhone         String?  @default("+1 (555) 123-4567")

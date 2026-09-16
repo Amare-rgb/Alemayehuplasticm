@@ -29,8 +29,48 @@ import {
   Wallet,
   Building,
   ThumbsUp,
+  Smartphone,
+  FileText,
+  Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+// ============================================================
+// Image URL normalizer
+// ============================================================
+function normalizeImageUrl(src?: string | null): string {
+  if (!src) return '/placeholder-image.png';
+  if (src.startsWith('http://') || src.startsWith('https://')) return src;
+  if (src.startsWith('data:')) return src;
+  return src.startsWith('/') ? src : `/${src}`;
+}
+
+// ============================================================
+// Base64 data URL → Blob URL
+// ============================================================
+function dataUrlToBlobUrl(dataUrl: string): string | null {
+  try {
+    const comma = dataUrl.indexOf(',');
+    if (comma === -1) return null;
+
+    const header = dataUrl.slice(0, comma);
+    const base64 = dataUrl.slice(comma + 1);
+    if (!base64) return null;
+
+    const mimeMatch = header.match(/data:([^;]+)/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    const blob = new Blob([bytes], { type: mime });
+    return URL.createObjectURL(blob);
+  } catch (err) {
+    console.error('Failed to convert data URL to Blob URL:', err);
+    return null;
+  }
+}
 
 // Types
 interface Address {
@@ -70,12 +110,15 @@ interface User {
 
 interface Order {
   id: string;
+  orderNumber: number;
   userId: string;
   addressId: string;
   total: number;
-  status: 'PENDING' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED'; // ✅ PROCESSING removed
+  status: 'PENDING' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   paymentMethod?: string;
+  paymentRef?: string;
+  paymentProof?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -99,7 +142,6 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
       setIsVisible(false);
       setTimeout(onClose, 300);
     }, 5000);
-
     return () => clearTimeout(timer);
   }, [onClose]);
 
@@ -130,8 +172,14 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   };
 
   return (
-    <div className={`fixed top-4 right-4 z-50 transition-all duration-300 ${isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'}`}>
-      <div className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${getColors()}`}>
+    <div
+      className={`fixed top-4 right-4 z-50 transition-all duration-300 ${
+        isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'
+      }`}
+    >
+      <div
+        className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${getColors()}`}
+      >
         {getIcon()}
         <p className="text-sm font-medium flex-1">{message}</p>
         <button
@@ -148,7 +196,92 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
+// ============================================================
+// Shared helpers
+// ============================================================
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'ETB',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount || 0);
+
+const formatDate = (dateString: string) => {
+  if (!dateString) return 'N/A';
+  return new Date(dateString).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+};
+
+const getStatusColor = (status: string) => {
+  const colors: Record<string, string> = {
+    PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    SHIPPED: 'bg-purple-100 text-purple-700 border-purple-200',
+    COMPLETED: 'bg-green-100 text-green-700 border-green-200',
+    CANCELLED: 'bg-red-100 text-red-700 border-red-200',
+    REJECTED: 'bg-gray-100 text-gray-700 border-gray-200',
+  };
+  return colors[status] || 'bg-gray-100 text-gray-700 border-gray-200';
+};
+
+const getPaymentStatusColor = (status: string) => {
+  const colors: Record<string, string> = {
+    PENDING: 'bg-yellow-100 text-yellow-700',
+    PAID: 'bg-green-100 text-green-700',
+    FAILED: 'bg-red-100 text-red-700',
+    REFUNDED: 'bg-gray-100 text-gray-700',
+  };
+  return colors[status] || 'bg-gray-100 text-gray-700';
+};
+
+const getStatusLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    PENDING: 'Pending',
+    SHIPPED: 'Shipped',
+    COMPLETED: 'Completed',
+    CANCELLED: 'Cancelled',
+    REJECTED: 'Rejected',
+  };
+  return labels[status] || status;
+};
+
+const getPaymentMethodLabel = (method?: string) => {
+  if (!method) return 'Not specified';
+  const lower = method.toLowerCase();
+  if (lower.includes('telebirr')) return 'Telebirr Mobile Money';
+  if (lower.includes('bank')) return 'Commercial Bank Transfer';
+  if (lower.includes('cash')) return 'Cash on Delivery';
+  return method;
+};
+
+const getPaymentMethodIcon = (method?: string) => {
+  if (!method) return <CreditCard className="w-4 h-4" />;
+  const lower = method.toLowerCase();
+  if (lower.includes('telebirr')) return <Smartphone className="w-4 h-4" />;
+  if (lower.includes('bank')) return <Building className="w-4 h-4" />;
+  if (lower.includes('cash')) return <Banknote className="w-4 h-4" />;
+  if (lower.includes('card')) return <CreditCard className="w-4 h-4" />;
+  if (lower.includes('paypal') || lower.includes('wallet'))
+    return <Wallet className="w-4 h-4" />;
+  return <CreditCard className="w-4 h-4" />;
+};
+
+const getProofType = (proof?: string): 'image' | 'pdf' | 'unknown' => {
+  if (!proof) return 'unknown';
+  if (proof.startsWith('data:image/')) return 'image';
+  if (proof.startsWith('data:application/pdf')) return 'pdf';
+  return 'unknown';
+};
+
+// ============================================================
 // Order Detail Modal
+// ============================================================
 interface OrderDetailModalProps {
   order: Order | null;
   isOpen: boolean;
@@ -156,94 +289,94 @@ interface OrderDetailModalProps {
   onStatusUpdate: () => void;
 }
 
-const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onClose, onStatusUpdate }) => {
+const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
+  order,
+  isOpen,
+  onClose,
+  onStatusUpdate,
+}) => {
   const [approving, setApproving] = useState(false);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error' | 'info' | 'warning';
+    message: string;
+  } | null>(null);
 
-  const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
+  const showNotification = (
+    type: 'success' | 'error' | 'info' | 'warning',
+    message: string
+  ) => {
     setNotification({ type, message });
-    if (type === 'info') {
-      toast(message, { icon: 'ℹ️' });
-    } else if (type === 'warning') {
-      toast.error(message, { icon: '⚠️' });
-    } else if (type === 'success') {
-      toast.success(message);
-    } else if (type === 'error') {
-      toast.error(message);
+    if (type === 'info') toast(message, { icon: 'ℹ️' });
+    else if (type === 'warning') toast.error(message, { icon: '⚠️' });
+    else if (type === 'success') toast.success(message);
+    else if (type === 'error') toast.error(message);
+  };
+
+  const clearNotification = () => setNotification(null);
+
+  const handleDownloadProof = (proof: string, orderNumber: number) => {
+    try {
+      const isPdf = proof.startsWith('data:application/pdf');
+      const ext = isPdf ? 'pdf' : 'png';
+      const fileName = `payment-proof-${orderNumber}.${ext}`;
+
+      if (proof.startsWith('http://') || proof.startsWith('https://')) {
+        const a = document.createElement('a');
+        a.href = proof;
+        a.download = fileName;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+
+      const blobUrl = dataUrlToBlobUrl(proof);
+      if (!blobUrl) {
+        showNotification('error', 'Failed to prepare the file for download');
+        return;
+      }
+
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+    } catch (err) {
+      console.error('Download failed:', err);
+      showNotification('error', 'Failed to download proof');
     }
   };
 
-  const clearNotification = () => {
-    setNotification(null);
+  const handleOpenProof = (proof: string) => {
+    try {
+      if (proof.startsWith('http://') || proof.startsWith('https://')) {
+        window.open(proof, '_blank', 'noopener,noreferrer');
+        return;
+      }
+
+      const blobUrl = dataUrlToBlobUrl(proof);
+      if (!blobUrl) {
+        showNotification('error', 'Failed to open the file');
+        return;
+      }
+
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+    } catch (err) {
+      console.error('Open failed:', err);
+      showNotification('error', 'Failed to open the file');
+    }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'ETB',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount || 0);
-  };
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
-  };
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-      SHIPPED: 'bg-purple-100 text-purple-700 border-purple-200',
-      COMPLETED: 'bg-green-100 text-green-700 border-green-200',
-      CANCELLED: 'bg-red-100 text-red-700 border-red-200',
-      REJECTED: 'bg-gray-100 text-gray-700 border-gray-200',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-700 border-gray-200';
-  };
-
-  const getPaymentStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING: 'bg-yellow-100 text-yellow-700',
-      PAID: 'bg-green-100 text-green-700',
-      FAILED: 'bg-red-100 text-red-700',
-      REFUNDED: 'bg-gray-100 text-gray-700',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-700';
-  };
-
-  const getPaymentMethodIcon = (method?: string) => {
-    if (!method) return <CreditCard className="w-4 h-4" />;
-    const lower = method.toLowerCase();
-    if (lower.includes('card') || lower.includes('credit')) return <CreditCard className="w-4 h-4" />;
-    if (lower.includes('paypal')) return <Wallet className="w-4 h-4" />;
-    if (lower.includes('bank') || lower.includes('transfer')) return <Building className="w-4 h-4" />;
-    if (lower.includes('cash')) return <Banknote className="w-4 h-4" />;
-    return <CreditCard className="w-4 h-4" />;
-  };
-
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      PENDING: 'Pending',
-      SHIPPED: 'Shipped',
-      COMPLETED: 'Completed',
-      CANCELLED: 'Cancelled',
-      REJECTED: 'Rejected',
-    };
-    return labels[status] || status;
-  };
-
-  // ✅ Approve Order function - sets status to COMPLETED directly
   const handleApproveOrder = async () => {
     if (!order) return;
-    
+
     if (order.status !== 'PENDING') {
       showNotification('warning', 'Only pending orders can be approved');
       return;
@@ -251,17 +384,22 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
 
     setApproving(true);
     try {
+      // ✅ Send BOTH status AND paymentStatus so the two badges stay in sync.
+      //    The backend also auto-sets paymentStatus to PAID for COMPLETED
+      //    orders, but sending it explicitly makes the intent unambiguous.
       const response = await ordersApi.updateOrder({
         orderId: order.id,
-        status: 'COMPLETED', // ✅ Directly to COMPLETED
+        status: 'COMPLETED',
+        paymentStatus: 'PAID',
       });
 
       if (response.success) {
-        showNotification('success', `Order #${order.id.slice(0, 8)} approved successfully!`);
+        showNotification(
+          'success',
+          `Order #${order.orderNumber} approved successfully!`
+        );
         onStatusUpdate();
-        setTimeout(() => {
-          onClose();
-        }, 1500);
+        setTimeout(() => onClose(), 1500);
       } else {
         showNotification('error', response.message || 'Failed to approve order');
       }
@@ -276,23 +414,40 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
   if (!isOpen || !order) return null;
 
   const canApprove = order.status === 'PENDING';
+  const proofType = getProofType(order.paymentProof);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
       {notification && (
         <div className="fixed top-4 right-4 z-50">
-          <div className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${
-            notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
-            notification.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
-            notification.type === 'warning' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
-            'bg-blue-50 border-blue-200 text-blue-800'
-          }`}>
-            {notification.type === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
-            {notification.type === 'error' && <XCircle className="w-5 h-5 text-red-500" />}
-            {notification.type === 'warning' && <AlertCircle className="w-5 h-5 text-yellow-500" />}
-            {notification.type === 'info' && <Info className="w-5 h-5 text-blue-500" />}
+          <div
+            className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${
+              notification.type === 'success'
+                ? 'bg-green-50 border-green-200 text-green-800'
+                : notification.type === 'error'
+                ? 'bg-red-50 border-red-200 text-red-800'
+                : notification.type === 'warning'
+                ? 'bg-yellow-50 border-yellow-200 text-yellow-800'
+                : 'bg-blue-50 border-blue-200 text-blue-800'
+            }`}
+          >
+            {notification.type === 'success' && (
+              <CheckCircle className="w-5 h-5 text-green-500" />
+            )}
+            {notification.type === 'error' && (
+              <XCircle className="w-5 h-5 text-red-500" />
+            )}
+            {notification.type === 'warning' && (
+              <AlertCircle className="w-5 h-5 text-yellow-500" />
+            )}
+            {notification.type === 'info' && (
+              <Info className="w-5 h-5 text-blue-500" />
+            )}
             <p className="text-sm font-medium flex-1">{notification.message}</p>
-            <button onClick={clearNotification} className="text-gray-400 hover:text-gray-600">
+            <button
+              onClick={clearNotification}
+              className="text-gray-400 hover:text-gray-600"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -303,7 +458,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Order Details</h2>
-            <p className="text-xs text-gray-500">Order #{order.id.slice(0, 8)}</p>
+            <p className="text-xs text-gray-500">Order #{order.orderNumber}</p>
           </div>
           <button
             onClick={onClose}
@@ -314,14 +469,22 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
         </div>
 
         <div className="p-6 space-y-6">
-          <div className={`rounded-lg p-4 border ${
-            canApprove ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200' : 
-            order.status === 'COMPLETED' ? 'bg-green-50 border-green-200' :
-            order.status === 'CANCELLED' ? 'bg-red-50 border-red-200' :
-            order.status === 'REJECTED' ? 'bg-gray-50 border-gray-200' :
-            order.status === 'SHIPPED' ? 'bg-purple-50 border-purple-200' :
-            'bg-blue-50 border-blue-200'
-          }`}>
+          {/* Status banner */}
+          <div
+            className={`rounded-lg p-4 border ${
+              canApprove
+                ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'
+                : order.status === 'COMPLETED'
+                ? 'bg-green-50 border-green-200'
+                : order.status === 'CANCELLED'
+                ? 'bg-red-50 border-red-200'
+                : order.status === 'REJECTED'
+                ? 'bg-gray-50 border-gray-200'
+                : order.status === 'SHIPPED'
+                ? 'bg-purple-50 border-purple-200'
+                : 'bg-blue-50 border-blue-200'
+            }`}
+          >
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center space-x-3">
                 {canApprove ? (
@@ -338,20 +501,29 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
                   <Package className="w-5 h-5 text-blue-600" />
                 )}
                 <span className="text-sm font-medium text-gray-700">
-                  {canApprove ? 'Order Pending Review' :
-                   order.status === 'COMPLETED' ? 'Order Completed' :
-                   order.status === 'CANCELLED' ? 'Order Cancelled' :
-                   order.status === 'REJECTED' ? 'Order Rejected' :
-                   order.status === 'SHIPPED' ? 'Order Shipped' :
-                   'Order Status'}
+                  {canApprove
+                    ? 'Order Pending Review'
+                    : order.status === 'COMPLETED'
+                    ? 'Order Completed'
+                    : order.status === 'CANCELLED'
+                    ? 'Order Cancelled'
+                    : order.status === 'REJECTED'
+                    ? 'Order Rejected'
+                    : order.status === 'SHIPPED'
+                    ? 'Order Shipped'
+                    : 'Order Status'}
                 </span>
               </div>
-              
+
               <div className="flex-1"></div>
 
               <div className="flex items-center space-x-2">
                 <span className="text-xs text-gray-500">Status:</span>
-                <span className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(order.status)}`}>
+                <span
+                  className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(
+                    order.status
+                  )}`}
+                >
                   <span>{getStatusLabel(order.status)}</span>
                 </span>
               </div>
@@ -359,8 +531,9 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
 
             {canApprove ? (
               <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-amber-200">
-                <span className="text-xs text-gray-500 font-medium">Take Action:</span>
-                
+                <span className="text-xs text-gray-500 font-medium">
+                  Take Action:
+                </span>
                 <button
                   onClick={handleApproveOrder}
                   disabled={approving}
@@ -392,7 +565,9 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
             )}
           </div>
 
+          {/* Info grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Customer */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
                 <User className="w-4 h-4 text-gray-500" />
@@ -416,6 +591,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
               </div>
             </div>
 
+            {/* Address */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
                 <MapPin className="w-4 h-4 text-gray-500" />
@@ -435,6 +611,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
               </div>
             </div>
 
+            {/* Summary */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
                 <Package className="w-4 h-4 text-gray-500" />
@@ -443,7 +620,9 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Order Total:</span>
-                  <span className="font-semibold text-gray-900">{formatCurrency(order.total)}</span>
+                  <span className="font-semibold text-gray-900">
+                    {formatCurrency(order.total)}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Items:</span>
@@ -462,29 +641,102 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
               </div>
             </div>
 
+            {/* Payment Information */}
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
                 <DollarSign className="w-4 h-4 text-gray-500" />
                 <span>Payment Information</span>
               </h3>
-              <div className="space-y-2 text-sm">
+              <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500">Payment Method:</span>
-                  <span className="flex items-center space-x-1 text-gray-700">
+                  <span className="flex items-center space-x-1.5 text-gray-800 font-medium">
                     {getPaymentMethodIcon(order.paymentMethod)}
-                    <span>{order.paymentMethod || 'Not specified'}</span>
+                    <span>{getPaymentMethodLabel(order.paymentMethod)}</span>
                   </span>
                 </div>
+
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500">Payment Status:</span>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(order.paymentStatus)}`}>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(
+                      order.paymentStatus
+                    )}`}
+                  >
                     {order.paymentStatus}
                   </span>
                 </div>
+
+                {order.paymentRef && (
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-gray-500 shrink-0">Reference #:</span>
+                    <span className="text-gray-800 font-mono text-xs bg-gray-50 px-2 py-1 rounded border border-gray-200 break-all text-right">
+                      {order.paymentRef}
+                    </span>
+                  </div>
+                )}
+
+                {order.paymentProof && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-500">Payment Proof:</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDownloadProof(order.paymentProof!, order.orderNumber)
+                        }
+                        className="flex items-center space-x-1 text-xs font-medium text-green-600 hover:text-green-700"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
+
+                    {proofType === 'image' && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProof(order.paymentProof!)}
+                        className="block w-full rounded-lg border border-gray-200 overflow-hidden hover:border-green-400 transition-colors"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={order.paymentProof}
+                          alt="Payment proof"
+                          className="w-full h-44 object-contain bg-gray-50"
+                        />
+                      </button>
+                    )}
+
+                    {proofType === 'pdf' && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProof(order.paymentProof!)}
+                        className="flex w-full items-center space-x-2 rounded-lg border border-gray-200 p-3 hover:border-green-400 hover:bg-green-50 transition-colors text-left"
+                      >
+                        <FileText className="w-8 h-8 text-red-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-gray-800">
+                            PDF Receipt
+                          </p>
+                          <p className="text-[10px] text-gray-500">
+                            Click to open in new tab
+                          </p>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {!order.paymentProof && !order.paymentRef && (
+                  <p className="text-xs text-gray-400 italic pt-2 border-t border-gray-100">
+                    No payment proof or reference was attached to this order.
+                  </p>
+                )}
               </div>
             </div>
           </div>
 
+          {/* Order items table */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
               <h3 className="text-sm font-semibold text-gray-700">Order Items</h3>
@@ -493,10 +745,18 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Product
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Price
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Quantity
+                    </th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Subtotal
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -507,14 +767,14 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
                           <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0 relative">
                             {item.product.images && item.product.images.length > 0 ? (
                               <Image
-                                src={item.product.images[0]}
+                                src={normalizeImageUrl(item.product.images[0])}
                                 alt={item.product.name}
                                 fill
                                 className="object-cover"
                                 sizes="40px"
                                 onError={(e) => {
                                   const target = e.currentTarget as HTMLImageElement;
-                                  target.style.display = 'none';
+                                  target.src = '/placeholder-image.png';
                                 }}
                               />
                             ) : (
@@ -522,13 +782,21 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
                             )}
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-gray-900">{item.product.name}</p>
-                            <p className="text-xs text-gray-500">SKU: {item.productId.slice(0, 8)}</p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {item.product.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              SKU: {item.productId.slice(0, 8)}
+                            </p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{formatCurrency(item.price)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{item.quantity}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {formatCurrency(item.price)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {item.quantity}
+                      </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
                         {formatCurrency(item.price * item.quantity)}
                       </td>
@@ -537,7 +805,10 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
                 </tbody>
                 <tfoot className="bg-gray-50 border-t border-gray-200">
                   <tr>
-                    <td colSpan={3} className="px-4 py-3 text-right text-sm font-medium text-gray-700">
+                    <td
+                      colSpan={3}
+                      className="px-4 py-3 text-right text-sm font-medium text-gray-700"
+                    >
                       Total:
                     </td>
                     <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
@@ -554,23 +825,25 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, isOpen, onCl
   );
 };
 
+// ============================================================
 // Main OrdersPage component
+// ============================================================
 const OrdersPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
-  
-  // Filters
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error' | 'info' | 'warning';
+    message: string;
+  } | null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [showFilters, setShowFilters] = useState(false);
-  
-  // Modal
+
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
@@ -578,54 +851,18 @@ const OrdersPage: React.FC = () => {
   const isMounted = useRef(true);
   const initialLoadDone = useRef(false);
 
-  const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
+  const showNotification = (
+    type: 'success' | 'error' | 'info' | 'warning',
+    message: string
+  ) => {
     setNotification({ type, message });
-    if (type === 'info') {
-      toast(message, { icon: 'ℹ️' });
-    } else if (type === 'warning') {
-      toast.error(message, { icon: '⚠️' });
-    } else if (type === 'success') {
-      toast.success(message);
-    } else if (type === 'error') {
-      toast.error(message);
-    }
+    if (type === 'info') toast(message, { icon: 'ℹ️' });
+    else if (type === 'warning') toast.error(message, { icon: '⚠️' });
+    else if (type === 'success') toast.success(message);
+    else if (type === 'error') toast.error(message);
   };
 
-  const clearNotification = () => {
-    setNotification(null);
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'ETB',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount || 0);
-  };
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
-  };
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-      SHIPPED: 'bg-purple-100 text-purple-700 border-purple-200',
-      COMPLETED: 'bg-green-100 text-green-700 border-green-200',
-      CANCELLED: 'bg-red-100 text-red-700 border-red-200',
-      REJECTED: 'bg-gray-100 text-gray-700 border-gray-200',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-700 border-gray-200';
-  };
+  const clearNotification = () => setNotification(null);
 
   const getStatusIcon = (status: string) => {
     const icons: Record<string, React.ReactNode> = {
@@ -638,34 +875,12 @@ const OrdersPage: React.FC = () => {
     return icons[status] || null;
   };
 
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      PENDING: 'Pending',
-      SHIPPED: 'Shipped',
-      COMPLETED: 'Completed',
-      CANCELLED: 'Cancelled',
-      REJECTED: 'Rejected',
-    };
-    return labels[status] || status;
-  };
-
-  const getPaymentStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING: 'bg-yellow-100 text-yellow-700',
-      PAID: 'bg-green-100 text-green-700',
-      FAILED: 'bg-red-100 text-red-700',
-      REFUNDED: 'bg-gray-100 text-gray-700',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-700';
-  };
-
-  // ✅ PROCESSING completely removed from filter options
   const statuses = ['ALL', 'PENDING', 'SHIPPED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
 
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
-      
+
       const response = await ordersApi.getOrders({
         status: selectedStatus === 'ALL' ? undefined : selectedStatus,
         page: currentPage,
@@ -683,37 +898,31 @@ const OrdersPage: React.FC = () => {
         setTotal(0);
         setTotalPages(0);
       }
-      
     } catch (err) {
       console.error('❌ Fetch error:', err);
       if (!isMounted.current) return;
-      
       showNotification('error', 'Failed to fetch orders');
     } finally {
-      if (isMounted.current) {
-        setLoading(false);
-      }
+      if (isMounted.current) setLoading(false);
     }
   }, [selectedStatus, currentPage, pageSize]);
 
   useEffect(() => {
     isMounted.current = true;
-    
     if (!initialLoadDone.current) {
       initialLoadDone.current = true;
       fetchOrders();
     }
-    
     return () => {
       isMounted.current = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!initialLoadDone.current) return;
     fetchOrders();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStatus, currentPage]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -737,13 +946,13 @@ const OrdersPage: React.FC = () => {
     fetchOrders();
   };
 
-  const filteredOrders = orders.filter(order => {
-    const matchesSearch = 
-      order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  const filteredOrders = orders.filter((order) => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch =
+      String(order.orderNumber).includes(q) ||
+      order.user.name.toLowerCase().includes(q) ||
+      order.user.email.toLowerCase().includes(q) ||
       (order.user.phone && order.user.phone.includes(searchQuery));
-    
     return matchesSearch;
   });
 
@@ -753,12 +962,10 @@ const OrdersPage: React.FC = () => {
   );
 
   const totalFiltered = filteredOrders.length;
-
   const totalOrders = orders.length;
   const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
-  const pendingOrders = orders.filter(o => o.status === 'PENDING').length;
-  const shippedOrders = orders.filter(o => o.status === 'SHIPPED').length;
-  const completedOrders = orders.filter(o => o.status === 'COMPLETED').length;
+  const pendingOrders = orders.filter((o) => o.status === 'PENDING').length;
+  const completedOrders = orders.filter((o) => o.status === 'COMPLETED').length;
 
   const handleViewOrder = (order: Order) => {
     setSelectedOrder(order);
@@ -796,7 +1003,9 @@ const OrdersPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Orders</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Manage and track all customer orders</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Manage and track all customer orders
+          </p>
           <p className="text-xs text-gray-400 mt-1">Total: {totalOrders} orders</p>
         </div>
         <div className="flex items-center space-x-3">
@@ -817,7 +1026,9 @@ const OrdersPage: React.FC = () => {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Revenue</p>
-          <p className="text-lg font-bold text-green-600">{formatCurrency(totalRevenue)}</p>
+          <p className="text-lg font-bold text-green-600">
+            {formatCurrency(totalRevenue)}
+          </p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Pending</p>
@@ -834,7 +1045,7 @@ const OrdersPage: React.FC = () => {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search orders by ID, customer, email, or phone..."
+            placeholder="Search orders by number, customer, email, or phone..."
             value={searchQuery}
             onChange={handleSearchChange}
             className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
@@ -847,7 +1058,11 @@ const OrdersPage: React.FC = () => {
           >
             <Filter className="w-3.5 h-3.5" />
             <span>Filters</span>
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              className={`w-3.5 h-3.5 transition-transform ${
+                showFilters ? 'rotate-180' : ''
+              }`}
+            />
           </button>
         </div>
       </div>
@@ -861,7 +1076,7 @@ const OrdersPage: React.FC = () => {
               onChange={(e) => handleStatusChange(e.target.value)}
               className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             >
-              {statuses.map(status => (
+              {statuses.map((status) => (
                 <option key={status} value={status}>
                   {status === 'ALL' ? 'All Statuses' : getStatusLabel(status)}
                 </option>
@@ -885,32 +1100,58 @@ const OrdersPage: React.FC = () => {
             <table className="w-full min-w-[1200px]">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Order ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Contact</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Total</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Payment</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Order #
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Customer
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Contact
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Total
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Status
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Payment
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Date
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {paginatedOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => handleViewOrder(order)}>
+                  <tr
+                    key={order.id}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => handleViewOrder(order)}
+                  >
                     <td className="px-4 py-3">
-                      <span className="text-sm font-medium text-gray-900">#{order.id.slice(0, 8)}</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        #{order.orderNumber}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{order.user.name}</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          {order.user.name}
+                        </p>
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-0.5">
                         <div className="flex items-center space-x-1 text-xs text-gray-500">
                           <Mail className="w-3 h-3" />
-                          <span className="truncate max-w-[120px]">{order.user.email}</span>
+                          <span className="truncate max-w-[120px]">
+                            {order.user.email}
+                          </span>
                         </div>
                         {order.user.phone && (
                           <div className="flex items-center space-x-1 text-xs text-gray-500">
@@ -921,21 +1162,33 @@ const OrdersPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm font-semibold text-gray-900">{formatCurrency(order.total)}</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {formatCurrency(order.total)}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(order.status)}`}>
+                      <span
+                        className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(
+                          order.status
+                        )}`}
+                      >
                         {getStatusIcon(order.status)}
                         <span>{getStatusLabel(order.status)}</span>
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-0.5">
-                        <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(order.paymentStatus)}`}>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(
+                            order.paymentStatus
+                          )}`}
+                        >
                           {order.paymentStatus}
                         </span>
                         {order.paymentMethod && (
-                          <div className="text-xs text-gray-500">{order.paymentMethod}</div>
+                          <div className="text-xs text-gray-500">
+                            {getPaymentMethodLabel(order.paymentMethod)}
+                          </div>
                         )}
                       </div>
                     </td>
@@ -964,26 +1217,33 @@ const OrdersPage: React.FC = () => {
             <div className="p-8 text-center text-gray-500">
               <ShoppingCart className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-sm">No orders found</p>
-              <p className="text-xs text-gray-400 mt-1">Try adjusting your search or filters</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Try adjusting your search or filters
+              </p>
             </div>
           )}
         </div>
-        
+
         {totalFiltered > pageSize && (
           <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
             <p className="text-sm text-gray-500">
-              Showing {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, totalFiltered)} of {totalFiltered}
+              Showing {(currentPage - 1) * pageSize + 1} -{' '}
+              {Math.min(currentPage * pageSize, totalFiltered)} of {totalFiltered}
             </p>
             <div className="flex space-x-2">
               <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
                 className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
               <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalFiltered / pageSize)))}
+                onClick={() =>
+                  setCurrentPage((prev) =>
+                    Math.min(prev + 1, Math.ceil(totalFiltered / pageSize))
+                  )
+                }
                 disabled={currentPage >= Math.ceil(totalFiltered / pageSize)}
                 className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >

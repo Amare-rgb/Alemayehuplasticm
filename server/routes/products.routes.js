@@ -319,7 +319,7 @@ router.post('/bulk-visibility', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// ✅ Create product
+// ✅ Create product — with auto category image fill
 router.post('/', requireAuth, async (req, res) => {
   try {
     const body = req.body;
@@ -365,9 +365,6 @@ router.post('/', requireAuth, async (req, res) => {
       pricePerUnit: body.pricePerUnit ? (typeof body.pricePerUnit === 'string' ? parseFloat(body.pricePerUnit) : body.pricePerUnit) : null,
       visibility: body.visibility || 'VISIBLE',
     };
-
-    // ✅ FIXED: Remove condition field since it doesn't exist in schema
-    // Don't include condition, sizes, colors in productData
 
     // Resolve category
     let resolvedCategory = await prisma.category.findFirst({
@@ -420,6 +417,39 @@ router.post('/', requireAuth, async (req, res) => {
         subCategory: true,
       }
     });
+
+    // ✅ NEW: If the category has no image yet, use this product's first image.
+    //    Only fills empty slots — never overwrites an image the admin already set.
+    try {
+      const firstImage =
+        Array.isArray(productData.images) && productData.images.length > 0
+          ? productData.images[0]
+          : null;
+
+      const isPlaceholder =
+        !firstImage ||
+        firstImage === '/banners/images.jpeg' ||
+        firstImage === '/placeholder-image.png';
+
+      if (resolvedCategory && !resolvedCategory.image && !isPlaceholder) {
+        const normalizedImage = firstImage.startsWith('http')
+          ? firstImage
+          : firstImage.startsWith('/')
+          ? firstImage
+          : `/${firstImage}`;
+
+        await prisma.category.update({
+          where: { id: resolvedCategory.id },
+          data: { image: normalizedImage },
+        });
+
+        console.log(
+          `🖼️ Category "${resolvedCategory.name}" image auto-set from product: ${normalizedImage}`
+        );
+      }
+    } catch (categoryImgErr) {
+      console.warn('⚠️ Could not auto-assign category image:', categoryImgErr);
+    }
 
     res.status(201).json({
       success: true,
@@ -492,8 +522,6 @@ router.put('/:id', requireAuth, async (req, res) => {
       updateData.status = body.status;
     }
 
-    // ✅ FIXED: Don't include condition, sizes, colors if they don't exist
-
     if (body.categoryId) {
       const cat = await prisma.category.findFirst({
         where: { OR: [{ id: body.categoryId }, { slug: body.categoryId }] },
@@ -516,6 +544,38 @@ router.put('/:id', requireAuth, async (req, res) => {
         subCategory: true,
       },
     });
+
+    // ✅ NEW: Also auto-fill the category image on update, if it's still empty
+    try {
+      const firstImage =
+        Array.isArray(updateData.images) && updateData.images.length > 0
+          ? updateData.images[0]
+          : null;
+
+      const isPlaceholder =
+        !firstImage ||
+        firstImage === '/banners/images.jpeg' ||
+        firstImage === '/placeholder-image.png';
+
+      if (updated.category && !updated.category.image && !isPlaceholder && firstImage) {
+        const normalizedImage = firstImage.startsWith('http')
+          ? firstImage
+          : firstImage.startsWith('/')
+          ? firstImage
+          : `/${firstImage}`;
+
+        await prisma.category.update({
+          where: { id: updated.category.id },
+          data: { image: normalizedImage },
+        });
+
+        console.log(
+          `🖼️ Category "${updated.category.name}" image auto-set from updated product: ${normalizedImage}`
+        );
+      }
+    } catch (categoryImgErr) {
+      console.warn('⚠️ Could not auto-assign category image on update:', categoryImgErr);
+    }
 
     res.json({
       success: true,

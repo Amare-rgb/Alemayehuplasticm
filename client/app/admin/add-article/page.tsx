@@ -29,7 +29,6 @@ export default function AddArticlePage() {
   }>({ type: null, message: '' });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Handle text input changes
   const handleInputChange = (
     e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
@@ -40,12 +39,10 @@ export default function AddArticlePage() {
     }));
   };
 
-  // Handle PDF file selection
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     
     if (file) {
-      // Validate file type
       if (file.type !== 'application/pdf') {
         setSubmitStatus({
           type: 'error',
@@ -54,7 +51,6 @@ export default function AddArticlePage() {
         return;
       }
 
-      // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         setSubmitStatus({
           type: 'error',
@@ -63,7 +59,6 @@ export default function AddArticlePage() {
         return;
       }
 
-      // Create preview URL
       const previewUrl = URL.createObjectURL(file);
       setPdfPreviewUrl(previewUrl);
 
@@ -76,7 +71,6 @@ export default function AddArticlePage() {
     }
   };
 
-  // Remove PDF file
   const removePdfFile = () => {
     if (pdfPreviewUrl) {
       URL.revokeObjectURL(pdfPreviewUrl);
@@ -91,11 +85,9 @@ export default function AddArticlePage() {
     }
   };
 
-  // Handle form submission
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    // Validate required fields
     if (!formData.title.trim()) {
       setSubmitStatus({
         type: 'error',
@@ -132,14 +124,12 @@ export default function AddArticlePage() {
     setSubmitStatus({ type: null, message: '' });
 
     try {
-      // Get auth token from localStorage
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       
       if (!token) {
         throw new Error('You must be logged in to publish an article.');
       }
 
-      // Create FormData object for API transmission
       const formDataToSend = new FormData();
       formDataToSend.append('title', formData.title.trim());
       formDataToSend.append('author', formData.author.trim());
@@ -147,14 +137,12 @@ export default function AddArticlePage() {
       formDataToSend.append('content', formData.content.trim());
       formDataToSend.append('pdfFile', formData.pdfFile);
 
-      // Send to backend API
       const response = await fetch('http://localhost:5000/api/articles', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
         },
         body: formDataToSend,
-        // Do not set Content-Type header - browser sets it with boundary
       });
 
       const result = await response.json();
@@ -168,7 +156,6 @@ export default function AddArticlePage() {
         message: 'Article published successfully!',
       });
 
-      // Reset form after successful submission
       setFormData({
         title: '',
         author: '',
@@ -186,7 +173,6 @@ export default function AddArticlePage() {
         fileInputRef.current.value = '';
       }
 
-      // Redirect after short delay
       setTimeout(() => {
         router.push('/admin/articles');
       }, 2000);
@@ -204,7 +190,6 @@ export default function AddArticlePage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
         <div className="mb-8 print:hidden">
           <h1 className="text-3xl font-bold text-gray-900">Add New Article</h1>
           <p className="mt-2 text-sm text-gray-600">
@@ -212,7 +197,6 @@ export default function AddArticlePage() {
           </p>
         </div>
 
-        {/* Status Message */}
         {submitStatus.type && (
           <div
             className={`mb-6 p-4 rounded-md print:hidden ${
@@ -226,10 +210,8 @@ export default function AddArticlePage() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Form Section */}
           <div className="bg-white rounded-lg shadow-lg p-6 print:hidden">
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Title */}
               <div>
                 <label
                   htmlFor="title"
@@ -249,7 +231,6 @@ export default function AddArticlePage() {
                 />
               </div>
 
-              {/* Author */}
               <div>
                 <label
                   htmlFor="author"
@@ -269,7 +250,6 @@ export default function AddArticlePage() {
                 />
               </div>
 
-              {/* Summary */}
               <div>
                 <label
                   htmlFor="summary"
@@ -288,7 +268,6 @@ export default function AddArticlePage() {
                 />
               </div>
 
-              {/* Content */}
               <div>
                 <label
                   htmlFor="content"
@@ -308,7 +287,6 @@ export default function AddArticlePage() {
                 />
               </div>
 
-              {/* PDF Upload */}
               <div>
                 <label
                   htmlFor="pdfFile"
@@ -344,7 +322,6 @@ export default function AddArticlePage() {
                 )}
               </div>
 
-              {/* Submit Button */}
               <div className="flex space-x-4">
                 <button
                   type="submit"
@@ -366,7 +343,6 @@ export default function AddArticlePage() {
             </form>
           </div>
 
-          {/* PDF Preview Section */}
           <div className="bg-white rounded-lg shadow-lg p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 print:block">
               PDF Preview
@@ -410,7 +386,6 @@ export default function AddArticlePage() {
           </div>
         </div>
 
-        {/* Print Layout - Clean document view */}
         <div className="hidden print:block mt-8">
           <div className="max-w-4xl mx-auto">
             <h1 className="text-3xl font-bold text-gray-900 mb-4">

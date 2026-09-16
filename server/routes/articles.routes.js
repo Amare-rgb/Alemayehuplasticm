@@ -96,29 +96,18 @@ router.post('/', authenticateToken, upload.single('pdfFile'), async (req, res) =
   try {
     const { title, author, summary, content, note, status, tags } = req.body;
 
-    // Validate required fields
     if (!title || !title.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: 'Title is required'
-      });
+      return res.status(400).json({ success: false, error: 'Title is required' });
     }
 
     if (!author || !author.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: 'Author name is required'
-      });
+      return res.status(400).json({ success: false, error: 'Author name is required' });
     }
 
     if (!content || !content.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: 'Content is required'
-      });
+      return res.status(400).json({ success: false, error: 'Content is required' });
     }
 
-    // ✅ FIXED: PDF is OPTIONAL - handle both cases
     let pdfData = {};
     if (req.file) {
       pdfData = {
@@ -127,7 +116,6 @@ router.post('/', authenticateToken, upload.single('pdfFile'), async (req, res) =
         pdfFileSize: req.file.size,
       };
     } else {
-      // ✅ If no PDF, set as null (or empty string based on your preference)
       pdfData = {
         pdfUrl: null,
         pdfFileName: null,
@@ -135,7 +123,6 @@ router.post('/', authenticateToken, upload.single('pdfFile'), async (req, res) =
       };
     }
 
-    // Create article/note in database
     const article = await prisma.article.create({
       data: {
         title: title.trim(),
@@ -147,7 +134,6 @@ router.post('/', authenticateToken, upload.single('pdfFile'), async (req, res) =
         createdBy: req.user.id,
         publishedAt: new Date(),
         tags: tags ? JSON.parse(tags) : [],
-        // ✅ Spread the PDF data (optional fields)
         ...pdfData
       }
     });
@@ -160,7 +146,6 @@ router.post('/', authenticateToken, upload.single('pdfFile'), async (req, res) =
 
   } catch (error) {
     console.error('Error creating note:', error);
-    // If there's an error and file was uploaded, delete it
     if (req.file) {
       try {
         fs.unlinkSync(req.file.path);
@@ -246,7 +231,6 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    // Increment view count
     await prisma.article.update({
       where: { id: req.params.id },
       data: { views: { increment: 1 } }
@@ -276,7 +260,6 @@ router.put('/:id', authenticateToken, upload.single('pdfFile'), async (req, res)
     const { title, author, summary, content, note, status, tags } = req.body;
     const articleId = req.params.id;
 
-    // Find existing article
     const existingArticle = await prisma.article.findUnique({
       where: { id: articleId }
     });
@@ -288,7 +271,6 @@ router.put('/:id', authenticateToken, upload.single('pdfFile'), async (req, res)
       });
     }
 
-    // Prepare update data
     const updateData = {
       title: title ? title.trim() : existingArticle.title,
       author: author ? author.trim() : existingArticle.author,
@@ -300,9 +282,7 @@ router.put('/:id', authenticateToken, upload.single('pdfFile'), async (req, res)
       tags: tags ? JSON.parse(tags) : existingArticle.tags
     };
 
-    // ✅ Handle PDF update if new file is uploaded (optional)
     if (req.file) {
-      // Delete old PDF file if exists
       if (existingArticle.pdfUrl) {
         const oldFilePath = path.join(__dirname, '../', existingArticle.pdfUrl);
         if (fs.existsSync(oldFilePath)) {
@@ -318,9 +298,7 @@ router.put('/:id', authenticateToken, upload.single('pdfFile'), async (req, res)
       updateData.pdfFileName = req.file.originalname;
       updateData.pdfFileSize = req.file.size;
     }
-    // ✅ If no new PDF, keep existing PDF data (don't change it)
 
-    // Update article
     const updatedArticle = await prisma.article.update({
       where: { id: articleId },
       data: updateData
@@ -366,7 +344,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       });
     }
 
-    // Delete associated PDF file if exists
     if (article.pdfUrl) {
       const filePath = path.join(__dirname, '../', article.pdfUrl);
       if (fs.existsSync(filePath)) {
@@ -378,7 +355,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       }
     }
 
-    // Delete article from database
     await prisma.article.delete({
       where: { id: req.params.id }
     });
