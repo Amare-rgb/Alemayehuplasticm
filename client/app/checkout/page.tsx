@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/app/providers";
+import { useLanguage } from "@/context/LanguageContext";
 import { checkoutApi } from "@/lib/api";
 import toast from "react-hot-toast";
 
@@ -142,54 +143,6 @@ interface CartItem {
 }
 
 // ============================================
-// PAYMENT OPTIONS
-// ============================================
-
-const paymentOptions: PaymentOption[] = [
-  {
-    id: "telebirr",
-    name: "Telebirr Mobile Money",
-    badge: "Most Popular",
-    icon: <Smartphone className="h-5 w-5 text-[#28633e]" />,
-    tagline: "Instant mobile transfer via Telebirr SuperApp or USSD (*127#)",
-    instructions:
-      "Transfer to our official Telebirr merchant account upon order confirmation.",
-    details: [
-      { label: "Merchant Name", value: "Genesis Agri Enterprise" },
-      { label: "Merchant / Phone ID", value: "+251 911 234 567" },
-      { label: "Till / Short Code", value: "889922" },
-    ],
-  },
-  {
-    id: "bank",
-    name: "Commercial Bank Transfer",
-    badge: "Direct Account",
-    icon: <Building2 className="h-5 w-5 text-[#28633e]" />,
-    tagline: "Deposit or mobile banking transfer via CBE, Awash, or Dashen",
-    instructions:
-      "Direct bank transfer. You can upload or SMS the transaction reference number.",
-    details: [
-      { label: "CBE Account", value: "1000 4567 8901 2345 (Genesis Agri PLC)" },
-      { label: "Awash Bank", value: "0132 0891 2345 00 (Genesis Agri PLC)" },
-      { label: "Branch", value: "Bole Central, Addis Ababa" },
-    ],
-  },
-  {
-    id: "cash",
-    name: "Cash on Delivery",
-    badge: "Pay at Doorstep",
-    icon: <Coins className="h-5 w-5 text-[#28633e]" />,
-    tagline: "Inspect fresh produce and pay cash directly to the dispatch driver",
-    instructions:
-      "Available for deliveries within Addis Ababa and surrounding agricultural zones.",
-    details: [
-      { label: "Inspection", value: "100% Quality verification before payment" },
-      { label: "Exact Change", value: "Drivers carry change up to 1,000 ETB" },
-    ],
-  },
-];
-
-// ============================================
 // HELPERS
 // ============================================
 
@@ -218,6 +171,7 @@ function fileToBase64(file: File): Promise<string> {
 export default function CheckoutPage() {
   const router = useRouter();
   const { user, status } = useAuth();
+  const { t } = useLanguage();
   const { items, cartCount, totalUnits, cartTotal, clearCart } = useCart();
 
   // State
@@ -257,6 +211,108 @@ export default function CheckoutPage() {
   // Only show the upload form when Commercial Bank Transfer is selected
   const showUploadForm = selectedPayment === "bank";
 
+  // Build payment options dynamically (so translations update on language change)
+  const paymentOptions: PaymentOption[] = [
+    {
+      id: "telebirr",
+      name: t("checkout.payment_telebirr_name", "Telebirr Mobile Money"),
+      badge: t("checkout.payment_telebirr_badge", "Most Popular"),
+      icon: <Smartphone className="h-5 w-5 text-[#28633e]" />,
+      tagline: t(
+        "checkout.payment_telebirr_tagline",
+        "Instant mobile transfer via Telebirr SuperApp or USSD (*127#)"
+      ),
+      instructions: t(
+        "checkout.payment_telebirr_instructions",
+        "Transfer to our official Telebirr merchant account upon order confirmation."
+      ),
+      details: [
+        {
+          label: t("checkout.payment_telebirr_merchant_name", "Merchant Name"),
+          value: t(
+            "checkout.payment_telebirr_merchant_value",
+            "Genesis Agri Enterprise"
+          ),
+        },
+        {
+          label: t("checkout.payment_telebirr_id_label", "Merchant / Phone ID"),
+          value: t("checkout.payment_telebirr_id_value", "+251 911 234 567"),
+        },
+        {
+          label: t("checkout.payment_telebirr_till_label", "Till / Short Code"),
+          value: t("checkout.payment_telebirr_till_value", "889922"),
+        },
+      ],
+    },
+    {
+      id: "bank",
+      name: t("checkout.payment_bank_name", "Commercial Bank Transfer"),
+      badge: t("checkout.payment_bank_badge", "Direct Account"),
+      icon: <Building2 className="h-5 w-5 text-[#28633e]" />,
+      tagline: t(
+        "checkout.payment_bank_tagline",
+        "Deposit or mobile banking transfer via CBE, Awash, or Dashen"
+      ),
+      instructions: t(
+        "checkout.payment_bank_instructions",
+        "Direct bank transfer. You can upload or SMS the transaction reference number."
+      ),
+      details: [
+        {
+          label: t("checkout.payment_bank_cbe_label", "CBE Account"),
+          value: t(
+            "checkout.payment_bank_cbe_value",
+            "1000 4567 8901 2345 (Genesis Agri PLC)"
+          ),
+        },
+        {
+          label: t("checkout.payment_bank_awash_label", "Awash Bank"),
+          value: t(
+            "checkout.payment_bank_awash_value",
+            "0132 0891 2345 00 (Genesis Agri PLC)"
+          ),
+        },
+        {
+          label: t("checkout.payment_bank_branch_label", "Branch"),
+          value: t(
+            "checkout.payment_bank_branch_value",
+            "Bole Central, Addis Ababa"
+          ),
+        },
+      ],
+    },
+    {
+      id: "cash",
+      name: t("checkout.payment_cash_name", "Cash on Delivery"),
+      badge: t("checkout.payment_cash_badge", "Pay at Doorstep"),
+      icon: <Coins className="h-5 w-5 text-[#28633e]" />,
+      tagline: t(
+        "checkout.payment_cash_tagline",
+        "Inspect fresh produce and pay cash directly to the dispatch driver"
+      ),
+      instructions: t(
+        "checkout.payment_cash_instructions",
+        "Available for deliveries within Addis Ababa and surrounding agricultural zones."
+      ),
+      details: [
+        {
+          label: t("checkout.payment_cash_inspection_label", "Inspection"),
+          value: t(
+            "checkout.payment_cash_inspection_value",
+            "100% Quality verification before payment"
+          ),
+        },
+        {
+          label: t("checkout.payment_cash_change_label", "Exact Change"),
+          value: t(
+            "checkout.payment_cash_change_value",
+            "Drivers carry change up to 1,000 ETB"
+          ),
+        },
+      ],
+    },
+  ];
+
   // Fetch user's addresses if authenticated
   useEffect(() => {
     const fetchAddresses = async (): Promise<void> => {
@@ -291,7 +347,6 @@ export default function CheckoutPage() {
   const handleSelectPayment = (method: PaymentMethodId): void => {
     setSelectedPayment(method);
 
-    // If the user switches away from Bank Transfer, clear any proof/ref data
     if (method !== "bank") {
       setPaymentRef("");
       setProofFile(null);
@@ -318,11 +373,21 @@ export default function CheckoutPage() {
       "application/pdf",
     ];
     if (!allowed.includes(file.type)) {
-      setProofError("Only PNG, JPG, WEBP, or PDF files are allowed.");
+      setProofError(
+        t(
+          "checkout.upload_error_type",
+          "Only PNG, JPG, WEBP, or PDF files are allowed."
+        )
+      );
       return;
     }
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setProofError(`File must be smaller than ${MAX_FILE_SIZE_MB} MB.`);
+      setProofError(
+        t(
+          "checkout.upload_error_size",
+          `File must be smaller than ${MAX_FILE_SIZE_MB} MB.`
+        )
+      );
       return;
     }
 
@@ -351,38 +416,68 @@ export default function CheckoutPage() {
     e.preventDefault();
 
     if (items.length === 0) {
-      toast.error("Your cart is empty! Add products before checking out.");
+      toast.error(
+        t(
+          "checkout.toast_empty_cart",
+          "Your cart is empty! Add products before checking out."
+        )
+      );
       return;
     }
 
     if (!isAuthenticated) {
       if (!guestName.trim()) {
-        toast.error("Please enter your full name.");
+        toast.error(
+          t("checkout.toast_name_required", "Please enter your full name.")
+        );
         return;
       }
       if (!guestPhone.trim() || guestPhone.trim().length < 9) {
-        toast.error("Please provide a valid Ethiopian phone number.");
+        toast.error(
+          t(
+            "checkout.toast_phone_required",
+            "Please provide a valid Ethiopian phone number."
+          )
+        );
         return;
       }
       if (!deliveryAddress.trim()) {
-        toast.error("Please provide your delivery address.");
+        toast.error(
+          t(
+            "checkout.toast_address_required",
+            "Please provide your delivery address."
+          )
+        );
         return;
       }
     } else {
       if (checkoutAddresses.length === 0) {
         if (!manualAddress.trim()) {
-          toast.error("Please enter your delivery address.");
+          toast.error(
+            t(
+              "checkout.toast_address_required",
+              "Please enter your delivery address."
+            )
+          );
           return;
         }
       } else if (!selectedAddressId) {
-        toast.error("Please select a delivery address.");
+        toast.error(
+          t(
+            "checkout.toast_select_address",
+            "Please select a delivery address."
+          )
+        );
         return;
       }
     }
 
     if (showUploadForm && !paymentRef.trim() && !proofFile) {
       toast.error(
-        "Please enter the transaction reference OR upload a payment screenshot/receipt."
+        t(
+          "checkout.toast_payment_proof",
+          "Please enter the transaction reference OR upload a payment screenshot/receipt."
+        )
       );
       return;
     }
@@ -459,10 +554,10 @@ export default function CheckoutPage() {
         setOrderCreated(true);
         setCreatedOrder(response.data.order);
         clearCart();
-        toast.success("Order created successfully!");
+        toast.success(
+          t("checkout.toast_success", "Order created successfully!")
+        );
 
-        // ✅ Redirect to the orders LIST page, highlighting the new order.
-        //    The previous /orders/${id} route did not exist → 404.
         const newOrderId = response.data.order.id;
         setTimeout(() => {
           router.push(`/orders?highlight=${newOrderId}`);
@@ -478,10 +573,15 @@ export default function CheckoutPage() {
         toast.error(
           axiosError.response?.data?.error ||
             axiosError.response?.data?.message ||
-            "Failed to create order. Please try again."
+            t(
+              "checkout.toast_error",
+              "Failed to create order. Please try again."
+            )
         );
       } else {
-        toast.error("Failed to create order. Please try again.");
+        toast.error(
+          t("checkout.toast_error", "Failed to create order. Please try again.")
+        );
       }
     } finally {
       setSubmitting(false);
@@ -500,24 +600,28 @@ export default function CheckoutPage() {
               <CheckCircle2 size={40} />
             </div>
             <h2 className="font-serif-heading text-2xl sm:text-3xl font-bold text-[#123523]">
-              Order Placed Successfully!
+              {t("checkout.success_title", "Order Placed Successfully!")}
             </h2>
             <p className="mt-3 text-sm text-[#69736b]">
-              {/* ✅ Show the sequential orderNumber, not the raw cuid */}
-              Your order #{createdOrder.orderNumber} has been created.
+              {t("checkout.success_message_prefix", "Your order #")}
+              {createdOrder.orderNumber}
+              {t("checkout.success_message_suffix", " has been created.")}
             </p>
             <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
               <Link
                 href={`/orders?highlight=${createdOrder.id}`}
                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#123523] px-8 py-3 text-sm font-bold text-white shadow-lg hover:bg-[#19472d] transition"
               >
-                View My Orders
+                {t("checkout.success_view_orders", "View My Orders")}
               </Link>
               <Link
                 href="/shop"
                 className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#123523] px-8 py-3 text-sm font-bold text-[#123523] hover:bg-[#f6f3e9] transition"
               >
-                Continue Shopping
+                {t(
+                  "checkout.success_continue_shopping",
+                  "Continue Shopping"
+                )}
               </Link>
             </div>
           </div>
@@ -535,10 +639,10 @@ export default function CheckoutPage() {
             className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#28633e] hover:text-[#123523] transition"
           >
             <ArrowLeft size={14} />
-            Back to Shopping Cart
+            {t("checkout.back_to_cart", "Back to Shopping Cart")}
           </Link>
           <h1 className="mt-2 font-serif-heading text-3xl sm:text-4xl font-bold tracking-tight text-[#123523]">
-            Checkout & Farm Dispatch
+            {t("checkout.page_title", "Checkout & Farm Dispatch")}
           </h1>
         </div>
 
@@ -548,13 +652,16 @@ export default function CheckoutPage() {
               <ShoppingBag size={38} />
             </div>
             <h2 className="font-serif-heading text-2xl sm:text-3xl font-bold text-[#123523]">
-              Your cart is empty
+              {t("checkout.empty_cart_title", "Your cart is empty")}
             </h2>
             <Link
               href="/shop"
               className="mt-8 inline-flex items-center gap-2 rounded-2xl bg-[#123523] px-8 py-4 text-sm font-bold text-white shadow-lg hover:bg-[#19472d] transition"
             >
-              Browse Fresh Produce Marketplace
+              {t(
+                "checkout.empty_cart_cta",
+                "Browse Fresh Produce Marketplace"
+              )}
             </Link>
           </div>
         ) : (
@@ -572,16 +679,19 @@ export default function CheckoutPage() {
                       1
                     </span>
                     <h2 className="font-serif-heading text-xl font-bold text-[#123523]">
-                      Customer & Delivery Details
+                      {t(
+                        "checkout.step1_title",
+                        "Customer & Delivery Details"
+                      )}
                     </h2>
                   </div>
                   {isAuthenticated ? (
                     <span className="rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-[11px] font-bold text-emerald-700">
-                      ✓ Logged In Account
+                      {t("checkout.logged_in_badge", "✓ Logged In Account")}
                     </span>
                   ) : (
                     <span className="rounded-full bg-amber-50 border border-amber-200 px-3 py-1 text-[11px] font-bold text-amber-800">
-                      Guest Checkout
+                      {t("checkout.guest_badge", "Guest Checkout")}
                     </span>
                   )}
                 </div>
@@ -596,7 +706,10 @@ export default function CheckoutPage() {
                       <>
                         <div className="space-y-3">
                           <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                            Select Delivery Address{" "}
+                            {t(
+                              "checkout.select_delivery_address",
+                              "Select Delivery Address"
+                            )}{" "}
                             <span className="text-red-500">*</span>
                           </label>
                           {checkoutAddresses.map((address) => (
@@ -613,7 +726,9 @@ export default function CheckoutPage() {
                                 name="address"
                                 value={address.id}
                                 checked={selectedAddressId === address.id}
-                                onChange={() => setSelectedAddressId(address.id)}
+                                onChange={() =>
+                                  setSelectedAddressId(address.id)
+                                }
                                 className="mt-1"
                               />
                               <div className="flex-1 min-w-0">
@@ -623,7 +738,7 @@ export default function CheckoutPage() {
                                   </span>
                                   {address.isDefault && (
                                     <span className="text-[10px] font-bold uppercase bg-[#28633e]/10 text-[#28633e] px-2 py-0.5 rounded">
-                                      Default
+                                      {t("checkout.default_badge", "Default")}
                                     </span>
                                   )}
                                 </div>
@@ -645,14 +760,14 @@ export default function CheckoutPage() {
                           </div>
                           <div className="relative flex justify-center text-xs">
                             <span className="bg-white px-2 text-gray-400">
-                              OR
+                              {t("checkout.or_divider", "OR")}
                             </span>
                           </div>
                         </div>
 
                         <div>
                           <label className="block text-xs font-bold uppercase tracking-wider text-[#69736b] mb-1.5">
-                            Enter New Address
+                            {t("checkout.enter_new_address", "Enter New Address")}
                           </label>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
@@ -700,8 +815,13 @@ export default function CheckoutPage() {
                               <input
                                 type="text"
                                 value={manualAddress}
-                                onChange={(e) => setManualAddress(e.target.value)}
-                                placeholder="Street, House #, Landmark"
+                                onChange={(e) =>
+                                  setManualAddress(e.target.value)
+                                }
+                                placeholder={t(
+                                  "checkout.street_short_placeholder",
+                                  "Street, House #, Landmark"
+                                )}
                                 className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                               />
                             </div>
@@ -711,13 +831,15 @@ export default function CheckoutPage() {
                     ) : (
                       <div className="space-y-3">
                         <p className="text-sm text-amber-800 bg-amber-50 p-3 rounded-xl border border-amber-200">
-                          You dont have any saved addresses. Please enter your
-                          delivery address below.
+                          {t(
+                            "checkout.no_saved_addresses",
+                            "You don't have any saved addresses. Please enter your delivery address below."
+                          )}
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                              City & Subcity{" "}
+                              {t("checkout.city_subcity", "City & Subcity")}{" "}
                               <span className="text-red-500">*</span>
                             </label>
                             <select
@@ -762,15 +884,23 @@ export default function CheckoutPage() {
                           </div>
                           <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                              Street / Landmark / House #{" "}
+                              {t(
+                                "checkout.street_landmark",
+                                "Street / Landmark / House #"
+                              )}{" "}
                               <span className="text-red-500">*</span>
                             </label>
                             <input
                               type="text"
                               required
                               value={manualAddress}
-                              onChange={(e) => setManualAddress(e.target.value)}
-                              placeholder="e.g. Near Medhanialem Church, House 142"
+                              onChange={(e) =>
+                                setManualAddress(e.target.value)
+                              }
+                              placeholder={t(
+                                "checkout.street_placeholder",
+                                "e.g. Near Medhanialem Church, House 142"
+                              )}
                               className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                             />
                           </div>
@@ -779,7 +909,10 @@ export default function CheckoutPage() {
                           href="/profile/addresses"
                           className="inline-block text-xs text-[#28633e] font-bold hover:underline"
                         >
-                          + Add address to your account →
+                          {t(
+                            "checkout.add_address_link",
+                            "+ Add address to your account →"
+                          )}
                         </Link>
                       </div>
                     )}
@@ -789,27 +922,35 @@ export default function CheckoutPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                          Full Name <span className="text-red-500">*</span>
+                          {t("checkout.full_name", "Full Name")}{" "}
+                          <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
                           required
                           value={guestName}
                           onChange={(e) => setGuestName(e.target.value)}
-                          placeholder="e.g. Abebe Kebede"
+                          placeholder={t(
+                            "checkout.full_name_placeholder",
+                            "e.g. Abebe Kebede"
+                          )}
                           className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                         />
                       </div>
                       <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                          Phone Number <span className="text-red-500">*</span>
+                          {t("checkout.phone_number", "Phone Number")}{" "}
+                          <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="tel"
                           required
                           value={guestPhone}
                           onChange={(e) => setGuestPhone(e.target.value)}
-                          placeholder="e.g. 0911 234 567"
+                          placeholder={t(
+                            "checkout.phone_placeholder",
+                            "e.g. 0911 234 567"
+                          )}
                           className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                         />
                       </div>
@@ -817,16 +958,19 @@ export default function CheckoutPage() {
 
                     <div>
                       <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                        Email Address{" "}
+                        {t("checkout.email_address", "Email Address")}{" "}
                         <span className="text-gray-400 font-normal">
-                          (Optional)
+                          {t("checkout.email_optional", "(Optional)")}
                         </span>
                       </label>
                       <input
                         type="email"
                         value={guestEmail}
                         onChange={(e) => setGuestEmail(e.target.value)}
-                        placeholder="e.g. abebe@example.com"
+                        placeholder={t(
+                          "checkout.email_placeholder",
+                          "e.g. abebe@example.com"
+                        )}
                         className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                       />
                     </div>
@@ -834,7 +978,7 @@ export default function CheckoutPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                          City & Subcity{" "}
+                          {t("checkout.city_subcity", "City & Subcity")}{" "}
                           <span className="text-red-500">*</span>
                         </label>
                         <select
@@ -879,7 +1023,10 @@ export default function CheckoutPage() {
                       </div>
                       <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                          Street / Landmark / House #{" "}
+                          {t(
+                            "checkout.street_landmark",
+                            "Street / Landmark / House #"
+                          )}{" "}
                           <span className="text-red-500">*</span>
                         </label>
                         <input
@@ -887,7 +1034,10 @@ export default function CheckoutPage() {
                           required
                           value={deliveryAddress}
                           onChange={(e) => setDeliveryAddress(e.target.value)}
-                          placeholder="e.g. Near Medhanialem Church, House 142"
+                          placeholder={t(
+                            "checkout.street_placeholder",
+                            "e.g. Near Medhanialem Church, House 142"
+                          )}
                           className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                         />
                       </div>
@@ -898,16 +1048,22 @@ export default function CheckoutPage() {
                 <div className="space-y-4 mt-2">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                      Order / Delivery Instructions{" "}
+                      {t(
+                        "checkout.order_instructions",
+                        "Order / Delivery Instructions"
+                      )}{" "}
                       <span className="text-gray-400 font-normal">
-                        (Optional)
+                        {t("checkout.order_instructions_optional", "(Optional)")}
                       </span>
                     </label>
                     <textarea
                       rows={2}
                       value={orderNotes}
                       onChange={(e) => setOrderNotes(e.target.value)}
-                      placeholder="e.g. Please deliver in the morning."
+                      placeholder={t(
+                        "checkout.order_instructions_placeholder",
+                        "e.g. Please deliver in the morning."
+                      )}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30 resize-none"
                     />
                   </div>
@@ -922,10 +1078,13 @@ export default function CheckoutPage() {
                   </span>
                   <div>
                     <h2 className="font-serif-heading text-xl font-bold text-[#123523]">
-                      Choose Payment Method
+                      {t("checkout.step2_title", "Choose Payment Method")}
                     </h2>
                     <p className="text-xs text-[#69736b]">
-                      Select how you would like to pay for your harvest produce
+                      {t(
+                        "checkout.step2_subtitle",
+                        "Select how you would like to pay for your harvest produce"
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1013,15 +1172,24 @@ export default function CheckoutPage() {
                                     className="text-[#28633e]"
                                   />
                                   <h4 className="font-bold text-sm text-[#123523]">
-                                    Upload Payment Proof
+                                    {t(
+                                      "checkout.upload_title",
+                                      "Upload Payment Proof"
+                                    )}
                                   </h4>
                                 </div>
 
                                 <div>
                                   <label className="block text-[11px] font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                                    Transaction Reference Number{" "}
+                                    {t(
+                                      "checkout.upload_tx_ref",
+                                      "Transaction Reference Number"
+                                    )}{" "}
                                     <span className="text-gray-400 font-normal">
-                                      (Optional if you upload)
+                                      {t(
+                                        "checkout.upload_tx_ref_optional",
+                                        "(Optional if you upload)"
+                                      )}
                                     </span>
                                   </label>
                                   <input
@@ -1030,16 +1198,25 @@ export default function CheckoutPage() {
                                     onChange={(e) =>
                                       setPaymentRef(e.target.value)
                                     }
-                                    placeholder="e.g. FT2309123456 or CBE-8891234"
+                                    placeholder={t(
+                                      "checkout.upload_tx_ref_placeholder",
+                                      "e.g. FT2309123456 or CBE-8891234"
+                                    )}
                                     className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                                   />
                                 </div>
 
                                 <div>
                                   <label className="block text-[11px] font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                                    Receipt / Screenshot{" "}
+                                    {t(
+                                      "checkout.upload_receipt",
+                                      "Receipt / Screenshot"
+                                    )}{" "}
                                     <span className="text-gray-400 font-normal">
-                                      (PNG, JPG, WEBP, PDF — max {MAX_FILE_SIZE_MB} MB)
+                                      {t(
+                                        "checkout.upload_receipt_hint",
+                                        `PNG, JPG, WEBP, PDF — max ${MAX_FILE_SIZE_MB} MB`
+                                      )}
                                     </span>
                                   </label>
 
@@ -1050,10 +1227,16 @@ export default function CheckoutPage() {
                                         className="text-[#28633e]"
                                       />
                                       <span className="text-xs font-bold text-[#123523]">
-                                        Click to upload receipt
+                                        {t(
+                                          "checkout.upload_click",
+                                          "Click to upload receipt"
+                                        )}
                                       </span>
                                       <span className="text-[10px] text-[#69736b]">
-                                        or drag and drop — max {MAX_FILE_SIZE_MB} MB
+                                        {t(
+                                          "checkout.upload_drag",
+                                          `or drag and drop — max ${MAX_FILE_SIZE_MB} MB`
+                                        )}
                                       </span>
                                       <input
                                         ref={fileInputRef}
@@ -1089,7 +1272,10 @@ export default function CheckoutPage() {
                                         type="button"
                                         onClick={clearProofFile}
                                         className="flex h-8 w-8 items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-300 transition"
-                                        aria-label="Remove file"
+                                        aria-label={t(
+                                          "checkout.remove_file",
+                                          "Remove file"
+                                        )}
                                       >
                                         <X size={14} />
                                       </button>
@@ -1120,10 +1306,16 @@ export default function CheckoutPage() {
                   </div>
                   <div>
                     <h3 className="font-serif-heading text-lg font-bold text-[#123523]">
-                      Genesis Agri Enterprises PLC
+                      {t(
+                        "checkout.step3_company_name",
+                        "Genesis Agri Enterprises PLC"
+                      )}
                     </h3>
                     <p className="text-xs text-[#69736b]">
-                      Registered agricultural cooperative & fresh produce hub
+                      {t(
+                        "checkout.step3_company_sub",
+                        "Registered agricultural cooperative & fresh produce hub"
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1136,10 +1328,16 @@ export default function CheckoutPage() {
                     />
                     <div>
                       <span className="font-bold text-[#123523] block">
-                        Central Dispatch Hub
+                        {t(
+                          "checkout.company_dispatch_title",
+                          "Central Dispatch Hub"
+                        )}
                       </span>
                       <span className="text-[#69736b]">
-                        Bole Subcity, Agri Logistics Center, Addis Ababa
+                        {t(
+                          "checkout.company_dispatch_value",
+                          "Bole Subcity, Agri Logistics Center, Addis Ababa"
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1151,10 +1349,16 @@ export default function CheckoutPage() {
                     />
                     <div>
                       <span className="font-bold text-[#123523] block">
-                        Support Hotlines
+                        {t(
+                          "checkout.company_hotlines_title",
+                          "Support Hotlines"
+                        )}
                       </span>
                       <span className="text-[#69736b]">
-                        +251 911 234 567 / +251 922 345 678
+                        {t(
+                          "checkout.company_hotlines_value",
+                          "+251 911 234 567 / +251 922 345 678"
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1166,10 +1370,13 @@ export default function CheckoutPage() {
                     />
                     <div>
                       <span className="font-bold text-[#123523] block">
-                        Official Email
+                        {t("checkout.company_email_title", "Official Email")}
                       </span>
                       <span className="text-[#69736b]">
-                        orders@genesisagri.com
+                        {t(
+                          "checkout.company_email_value",
+                          "orders@genesisagri.com"
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1181,10 +1388,16 @@ export default function CheckoutPage() {
                     />
                     <div>
                       <span className="font-bold text-[#123523] block">
-                        Dispatch Hours
+                        {t(
+                          "checkout.company_hours_title",
+                          "Dispatch Hours"
+                        )}
                       </span>
                       <span className="text-[#69736b]">
-                        Mon – Sat: 7:00 AM – 7:00 PM
+                        {t(
+                          "checkout.company_hours_value",
+                          "Mon – Sat: 7:00 AM – 7:00 PM"
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1196,7 +1409,8 @@ export default function CheckoutPage() {
             <div className="lg:col-span-5 sticky top-28 space-y-4">
               <div className="rounded-[2.5rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-7 shadow-[0_15px_45px_rgba(18,53,35,.07)]">
                 <h2 className="font-serif-heading text-2xl font-bold text-[#123523] pb-4 border-b border-gray-100">
-                  Order Summary ({cartCount} items)
+                  {t("checkout.summary_title", "Order Summary")} ({cartCount}{" "}
+                  {t("checkout.summary_items_suffix", "items")})
                 </h2>
 
                 <div className="mt-4 max-h-[300px] overflow-y-auto space-y-3 pr-1 divide-y divide-gray-100">
@@ -1212,7 +1426,9 @@ export default function CheckoutPage() {
                           fill
                           sizes="56px"
                           className="object-cover"
-                          onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                          onError={(
+                            e: React.SyntheticEvent<HTMLImageElement>
+                          ) => {
                             e.currentTarget.src =
                               "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80";
                           }}
@@ -1223,13 +1439,15 @@ export default function CheckoutPage() {
                           {item.name}
                         </h4>
                         <span className="text-[11px] text-[#69736b]">
-                          {item.quantity} {item.unit} × ETB{" "}
+                          {item.quantity} {item.unit} ×{" "}
+                          {t("checkout.summary_currency", "ETB")}{" "}
                           {item.price.toLocaleString()}
                         </span>
                       </div>
                       <div className="text-right shrink-0">
                         <span className="font-serif-heading text-sm font-bold text-[#123523]">
-                          ETB {(item.price * item.quantity).toLocaleString()}
+                          {t("checkout.summary_currency", "ETB")}{" "}
+                          {(item.price * item.quantity).toLocaleString()}
                         </span>
                       </div>
                     </div>
@@ -1238,23 +1456,37 @@ export default function CheckoutPage() {
 
                 <div className="mt-6 pt-4 border-t border-gray-100 space-y-3 text-xs text-[#69736b]">
                   <div className="flex justify-between items-center">
-                    <span>Produce Subtotal ({totalUnits} units)</span>
+                    <span>
+                      {t("checkout.summary_subtotal", "Produce Subtotal")} (
+                      {totalUnits} {t("checkout.summary_units_suffix", "units")})
+                    </span>
                     <span className="font-bold text-[#123523] text-sm">
-                      ETB {cartTotal.toLocaleString()}
+                      {t("checkout.summary_currency", "ETB")}{" "}
+                      {cartTotal.toLocaleString()}
                     </span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <span>Farm Packaging & Cold Storage</span>
+                    <span>
+                      {t(
+                        "checkout.summary_packaging",
+                        "Farm Packaging & Cold Storage"
+                      )}
+                    </span>
                     <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                      Included Free
+                      {t("checkout.summary_packaging_value", "Included Free")}
                     </span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <span>Farm Direct Dispatch</span>
+                    <span>
+                      {t("checkout.summary_dispatch", "Farm Direct Dispatch")}
+                    </span>
                     <span className="font-bold text-[#28633e]">
-                      Free Local Dispatch
+                      {t(
+                        "checkout.summary_dispatch_value",
+                        "Free Local Dispatch"
+                      )}
                     </span>
                   </div>
 
@@ -1262,10 +1494,11 @@ export default function CheckoutPage() {
 
                   <div className="flex justify-between items-baseline pt-1">
                     <span className="font-serif-heading text-base font-bold text-[#123523]">
-                      Total Due
+                      {t("checkout.summary_total", "Total Due")}
                     </span>
                     <span className="font-serif-heading text-2xl font-bold text-[#123523]">
-                      ETB {cartTotal.toLocaleString()}
+                      {t("checkout.summary_currency", "ETB")}{" "}
+                      {cartTotal.toLocaleString()}
                     </span>
                   </div>
                 </div>
@@ -1278,30 +1511,47 @@ export default function CheckoutPage() {
                   {submitting ? (
                     <>
                       <Loader2 size={16} className="animate-spin" />
-                      <span>Processing Order...</span>
+                      <span>
+                        {t("checkout.placing_order", "Processing Order...")}
+                      </span>
                     </>
                   ) : (
                     <>
                       <Sparkles size={16} />
-                      <span>Confirm & Place Order</span>
+                      <span>
+                        {t("checkout.place_order", "Confirm & Place Order")}
+                      </span>
                       <span className="font-bold text-base">→</span>
                     </>
                   )}
                 </button>
 
                 <p className="mt-3 text-center text-[11px] text-[#69736b]">
-                  🔒 Secured checkout • Official agricultural distribution
+                  {t(
+                    "checkout.secured_checkout",
+                    "🔒 Secured checkout • Official agricultural distribution"
+                  )}
                 </p>
               </div>
 
               <div className="rounded-2xl bg-white p-4 border border-[rgba(20,33,25,.07)] space-y-2.5 text-xs">
                 <div className="flex items-center gap-2.5 text-[#123523] font-semibold">
                   <ShieldCheck size={16} className="text-[#28633e]" />
-                  <span>100% Quality & Freshness Guarantee</span>
+                  <span>
+                    {t(
+                      "checkout.guarantee_quality",
+                      "100% Quality & Freshness Guarantee"
+                    )}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2.5 text-[#123523] font-semibold">
                   <Truck size={16} className="text-[#28633e]" />
-                  <span>Fast Delivery within 24 Hours of Harvest</span>
+                  <span>
+                    {t(
+                      "checkout.guarantee_delivery",
+                      "Fast Delivery within 24 Hours of Harvest"
+                    )}
+                  </span>
                 </div>
               </div>
             </div>
