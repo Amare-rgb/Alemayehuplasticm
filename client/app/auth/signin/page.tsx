@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useLanguage } from "@/context/LanguageContext";
 
 function LeafMark() {
   return (
@@ -42,10 +43,7 @@ function EyeIcon({ open }: { open: boolean }) {
       stroke="currentColor"
       strokeWidth="1.8"
     >
-      <path
-        d="m3 3 18 18"
-        strokeLinecap="round"
-      />
+      <path d="m3 3 18 18" strokeLinecap="round" />
       <path
         d="M10.6 5.1A10 10 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-3.2 3.9M6.2 6.2C3.8 7.9 2.5 12 2.5 12s3.5 6 9.5 6c1.2 0 2.3-.2 3.3-.6"
         strokeLinecap="round"
@@ -58,6 +56,8 @@ function EyeIcon({ open }: { open: boolean }) {
 
 export default function SignInPage() {
   const router = useRouter();
+  const { t } = useLanguage();
+
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -65,10 +65,10 @@ export default function SignInPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    
+
     // Clear previous errors
     setError(null);
-    
+
     // Get form data
     const formData = new FormData(event.currentTarget);
     const email = formData.get("email") as string;
@@ -76,14 +76,19 @@ export default function SignInPage() {
 
     // Basic validation
     if (!email || !password) {
-      setError("Please fill in all fields.");
+      setError(t("auth.signin.error_fill_all", "Please fill in all fields."));
       return;
     }
 
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      setError("Please enter a valid email address.");
+      setError(
+        t(
+          "auth.signin.error_invalid_email",
+          "Please enter a valid email address."
+        )
+      );
       return;
     }
 
@@ -91,8 +96,9 @@ export default function SignInPage() {
 
     try {
       // Get the base URL for the API
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-      
+      const apiBaseUrl =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
       console.log("🔐 Login attempt to:", `${apiBaseUrl}/api/auth/login`);
       console.log("📧 Email:", email);
 
@@ -101,9 +107,9 @@ export default function SignInPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
+          Accept: "application/json",
         },
-        credentials: 'include',
+        credentials: "include",
         body: JSON.stringify({
           email,
           password,
@@ -111,37 +117,76 @@ export default function SignInPage() {
       });
 
       console.log("📡 Response status:", response.status);
-      
+
       // Get response text first to handle non-JSON responses
       const responseText = await response.text();
       console.log("📦 Raw response:", responseText);
-      
+
       let data;
       try {
         data = JSON.parse(responseText);
       } catch (parseError) {
         console.error("Failed to parse JSON:", parseError);
-        throw new Error("Server returned invalid response. Please check backend is running.");
+        throw new Error(
+          t(
+            "auth.signin.error_server_response",
+            "Server returned invalid response. Please check backend is running."
+          )
+        );
       }
 
       if (!response.ok) {
         // Handle different error status codes
         if (response.status === 401) {
-          throw new Error(data.error || "Invalid credentials. Please check your email and password.");
+          throw new Error(
+            data.error ||
+              t(
+                "auth.signin.error_invalid_credentials",
+                "Invalid credentials. Please check your email and password."
+              )
+          );
         } else if (response.status === 400) {
-          throw new Error(data.error || "Email and password are required.");
+          throw new Error(
+            data.error ||
+              t(
+                "auth.signin.error_missing_fields",
+                "Email and password are required."
+              )
+          );
         } else if (response.status === 403) {
-          throw new Error(data.error || "Access denied. Admin privileges required.");
+          throw new Error(
+            data.error ||
+              t(
+                "auth.signin.error_access_denied",
+                "Access denied. Admin privileges required."
+              )
+          );
         } else if (response.status === 404) {
-          throw new Error(data.error || "User not found. Please check your email.");
+          throw new Error(
+            data.error ||
+              t(
+                "auth.signin.error_user_not_found",
+                "User not found. Please check your email."
+              )
+          );
         } else {
-          throw new Error(data.error || data.message || `Login failed (Status: ${response.status}).`);
+          throw new Error(
+            data.error ||
+              data.message ||
+              t(
+                "auth.signin.error_login_failed",
+                `Login failed (Status: ${response.status}).`
+              )
+          );
         }
       }
 
       // Check if login was successful
       if (!data.success) {
-        throw new Error(data.error || "Login failed. Please try again.");
+        throw new Error(
+          data.error ||
+            t("auth.signin.error_login_failed", "Login failed. Please try again.")
+        );
       }
 
       // Success - handle authentication
@@ -150,9 +195,9 @@ export default function SignInPage() {
       console.log("🔍 User role:", data.user?.role);
 
       // ============================================
-      // FIXED: Store authentication data
+      // Store authentication data
       // ============================================
-      
+
       // Store token
       if (data.token) {
         localStorage.setItem("authToken", data.token);
@@ -161,13 +206,13 @@ export default function SignInPage() {
         sessionStorage.setItem("token", data.token);
         console.log("✅ Token stored");
       }
-      
+
       // Store user data
       if (data.user) {
         const userData = data.user;
         localStorage.setItem("user", JSON.stringify(userData));
         sessionStorage.setItem("user", JSON.stringify(userData));
-        
+
         // Store role separately for quick access (ensure uppercase)
         if (userData.role) {
           const roleUpper = userData.role.toUpperCase();
@@ -182,34 +227,39 @@ export default function SignInPage() {
       window.dispatchEvent(new Event("auth-change"));
 
       // ============================================
-      // FIXED: Redirect logic with immediate execution
+      // Redirect logic with immediate execution
       // ============================================
-      
+
       // Get role from stored data
-      const userRole = data.user?.role?.toUpperCase() || 
-                       localStorage.getItem("userRole") || 
-                       "USER";
-      
+      const userRole =
+        data.user?.role?.toUpperCase() ||
+        localStorage.getItem("userRole") ||
+        "USER";
+
       console.log("🔄 Redirecting with role:", userRole);
 
       // Determine redirect URL
-      let redirectUrl = '/shop';
-      if (userRole === 'ADMIN') {
-        redirectUrl = '/admin/dashboard';
-      } else if (userRole === 'SELLER' || userRole === 'FARMER') {
-        redirectUrl = '/seller/dashboard';
+      let redirectUrl = "/shop";
+      if (userRole === "ADMIN") {
+        redirectUrl = "/admin/dashboard";
+      } else if (userRole === "SELLER" || userRole === "FARMER") {
+        redirectUrl = "/seller/dashboard";
       }
-      
+
       console.log("🚀 Redirecting to:", redirectUrl);
 
       // Use window.location.replace for immediate redirect (prevents back button issues)
-      // Small delay to ensure storage is complete
       setTimeout(() => {
         window.location.replace(redirectUrl);
       }, 200);
-      
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An error occurred. Please try again.";
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : t(
+              "auth.signin.error_generic",
+              "An error occurred. Please try again."
+            );
       setError(errorMessage);
       console.error("Login error:", err);
     } finally {
@@ -248,10 +298,10 @@ export default function SignInPage() {
 
             <div>
               <div className="font-serif-heading text-2xl font-semibold tracking-tight text-[#f6f3e9]">
-                Genesis
+                {t("auth.signin.brand_name", "Genesis")}
               </div>
               <div className="-mt-1 text-[9px] font-bold uppercase tracking-[0.28em] text-[#b9d873]">
-                Agro-business
+                {t("auth.signin.brand_sub", "Agro-business")}
               </div>
             </div>
           </Link>
@@ -260,25 +310,32 @@ export default function SignInPage() {
             <div className="mb-6 flex items-center gap-2 text-[#b9d873]">
               <span className="h-px w-10 bg-[#b9d873]" />
               <span className="text-xs font-bold uppercase tracking-[0.22em]">
-                Farm to family
+                {t("auth.signin.panel_tagline", "Farm to family")}
               </span>
             </div>
 
             <h1 className="font-serif-heading text-5xl font-medium leading-[1.02] tracking-[-0.04em] text-[#f6f3e9] xl:text-6xl">
-              Fresh food,
+              {t("auth.signin.panel_title_line1", "Fresh food,")}
               <br />
-              <span className="text-[#b9d873]">closer to you.</span>
+              <span className="text-[#b9d873]">
+                {t("auth.signin.panel_title_line2", "closer to you.")}
+              </span>
             </h1>
 
             <p className="mt-7 max-w-md text-base leading-7 text-[#f6f3e9]/70">
-              Shop quality agricultural products directly from the source,
-              without unnecessary middlemen and inflated prices.
+              {t(
+                "auth.signin.panel_desc",
+                "Shop quality agricultural products directly from the source, without unnecessary middlemen and inflated prices."
+              )}
             </p>
           </div>
 
           <div className="flex items-center gap-4 text-sm text-[#f6f3e9]/55">
             <span className="h-2 w-2 rounded-full bg-[#b9d873]" />
-            Fresh produce. Fair prices. Direct from the farm.
+            {t(
+              "auth.signin.panel_footer",
+              "Fresh produce. Fair prices. Direct from the farm."
+            )}
           </div>
         </div>
       </section>
@@ -295,10 +352,10 @@ export default function SignInPage() {
 
               <div>
                 <div className="font-serif-heading text-2xl font-semibold text-[#123523]">
-                  Genesis
+                  {t("auth.signin.brand_name", "Genesis")}
                 </div>
                 <div className="-mt-1 text-[9px] font-bold uppercase tracking-[0.28em] text-[#28633e]">
-                  Agro-business
+                  {t("auth.signin.brand_sub", "Agro-business")}
                 </div>
               </div>
             </Link>
@@ -307,16 +364,18 @@ export default function SignInPage() {
           <div className="rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-7 shadow-[0_25px_70px_rgba(18,53,35,.10)] sm:p-9">
             <div className="mb-8">
               <div className="mb-3 inline-flex rounded-full bg-[#f6f3e9] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#28633e]">
-                Welcome back
+                {t("auth.signin.form_badge", "Welcome back")}
               </div>
 
               <h2 className="font-serif-heading text-4xl font-medium tracking-[-0.035em] text-[#123523]">
-                Sign in
+                {t("auth.signin.form_title", "Sign in")}
               </h2>
 
               <p className="mt-3 text-sm leading-6 text-[#69736b]">
-                Access your Genesis Agro-business account and continue
-                shopping fresh.
+                {t(
+                  "auth.signin.form_subtitle",
+                  "Access your Genesis Agro-business account and continue shopping fresh."
+                )}
               </p>
             </div>
 
@@ -333,7 +392,7 @@ export default function SignInPage() {
                   htmlFor="email"
                   className="mb-2 block text-sm font-semibold text-[#123523]"
                 >
-                  Email
+                  {t("auth.signin.email", "Email")}
                 </label>
 
                 <input
@@ -341,7 +400,10 @@ export default function SignInPage() {
                   name="email"
                   type="email"
                   autoComplete="email"
-                  placeholder="admin@example.com"
+                  placeholder={t(
+                    "auth.signin.email_placeholder",
+                    "admin@example.com"
+                  )}
                   required
                   disabled={isLoading}
                   className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20 disabled:opacity-60"
@@ -354,14 +416,14 @@ export default function SignInPage() {
                     htmlFor="password"
                     className="block text-sm font-semibold text-[#123523]"
                   >
-                    Password
+                    {t("auth.signin.password", "Password")}
                   </label>
 
                   <Link
                     href="/forgot-password"
                     className="text-xs font-semibold text-[#28633e] transition-colors hover:text-[#123523]"
                   >
-                    Forgot password?
+                    {t("auth.signin.forgot_password", "Forgot password?")}
                   </Link>
                 </div>
 
@@ -371,7 +433,10 @@ export default function SignInPage() {
                     name="password"
                     type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
-                    placeholder="Enter your password"
+                    placeholder={t(
+                      "auth.signin.password_placeholder",
+                      "Enter your password"
+                    )}
                     required
                     disabled={isLoading}
                     className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 pr-12 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20 disabled:opacity-60"
@@ -381,7 +446,9 @@ export default function SignInPage() {
                     type="button"
                     onClick={() => setShowPassword((value) => !value)}
                     aria-label={
-                      showPassword ? "Hide password" : "Show password"
+                      showPassword
+                        ? t("auth.signin.hide_password", "Hide password")
+                        : t("auth.signin.show_password", "Show password")
                     }
                     disabled={isLoading}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-[#69736b] transition-colors hover:text-[#123523] disabled:opacity-50"
@@ -401,7 +468,7 @@ export default function SignInPage() {
                 />
 
                 <span className="text-sm text-[#69736b]">
-                  Remember me
+                  {t("auth.signin.remember_me", "Remember me")}
                 </span>
               </label>
 
@@ -412,51 +479,69 @@ export default function SignInPage() {
               >
                 {isLoading ? (
                   <>
-                    <svg className="mr-2 h-5 w-5 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <svg
+                      className="mr-2 h-5 w-5 animate-spin text-white"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
                     </svg>
-                    Signing in...
+                    {t("auth.signin.submitting", "Signing in...")}
                   </>
                 ) : (
-                  "Sign in to your account"
+                  t("auth.signin.submit", "Sign in to your account")
                 )}
               </button>
             </form>
 
             <div className="my-7 flex items-center gap-4">
               <div className="h-px flex-1 bg-[#19472d]/10" />
-              <span className="text-xs text-[#69736b]">OR</span>
+              <span className="text-xs text-[#69736b]">
+                {t("auth.signin.or", "OR")}
+              </span>
               <div className="h-px flex-1 bg-[#19472d]/10" />
             </div>
 
             <p className="text-center text-sm text-[#69736b]">
-              Don&apos;t have an account?{" "}
+              {t("auth.signin.no_account", "Don't have an account?")}{" "}
               <Link
                 href="/auth/register"
                 className="font-bold text-[#28633e] hover:text-[#123523]"
               >
-                Create one
+                {t("auth.signin.create_one", "Create one")}
               </Link>
             </p>
           </div>
 
           <p className="mt-6 text-center text-xs leading-5 text-[#69736b]">
-            By continuing, you agree to our{" "}
+            {t("auth.signin.terms_notice", "By continuing, you agree to our")}{" "}
             <Link
               href="/terms"
               className="font-semibold text-[#28633e] hover:text-[#123523]"
             >
-              Terms
+              {t("auth.signin.terms", "Terms")}
             </Link>{" "}
-            and{" "}
+            {t("auth.signin.terms_and", "and")}{" "}
             <Link
               href="/privacy"
               className="font-semibold text-[#28633e] hover:text-[#123523]"
             >
-              Privacy Policy
+              {t("auth.signin.privacy_policy", "Privacy Policy")}
             </Link>
-            .
+            {t("auth.signin.terms_suffix", ".")}
           </p>
         </div>
       </section>

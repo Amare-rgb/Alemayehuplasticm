@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import axios from "axios";
+import { useLanguage } from "@/context/LanguageContext";
 
 // API URL — must match your backend
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
@@ -78,6 +79,8 @@ function CheckIcon() {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { t } = useLanguage();
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -101,12 +104,19 @@ export default function RegisterPage() {
     setSuccess(null);
 
     if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match");
+      setError(
+        t("auth.register.error_passwords_mismatch", "Passwords do not match")
+      );
       return;
     }
 
     if (form.password.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(
+        t(
+          "auth.register.error_password_too_short",
+          "Password must be at least 8 characters"
+        )
+      );
       return;
     }
 
@@ -123,12 +133,13 @@ export default function RegisterPage() {
       console.log("Registration response:", response.data);
 
       if (response.data.success) {
-        // ✅ Welcome-email flow — user is created immediately, no verification gate
         setSuccess(
-          "Account created successfully! Check your inbox for a welcome email. Redirecting to sign in..."
+          t(
+            "auth.register.success_message",
+            "Account created successfully! Check your inbox for a welcome email. Redirecting to sign in..."
+          )
         );
 
-        // Clear form
         setForm({
           name: "",
           email: "",
@@ -137,12 +148,14 @@ export default function RegisterPage() {
           confirmPassword: "",
         });
 
-        // Redirect to sign in after 2.5 seconds
         setTimeout(() => {
           router.push("/auth/signin");
         }, 2500);
       } else {
-        setError(response.data.error || "Registration failed");
+        setError(
+          response.data.error ||
+            t("auth.register.error_registration_failed", "Registration failed")
+        );
       }
     } catch (err) {
       console.error("Registration error:", err);
@@ -151,15 +164,32 @@ export default function RegisterPage() {
         const errorMsg =
           err.response?.data?.error ||
           err.response?.data?.message ||
-          "Registration failed. Please try again.";
+          t(
+            "auth.register.error_registration_generic",
+            "Registration failed. Please try again."
+          );
         setError(errorMsg);
       } else {
-        setError("An unexpected error occurred. Please try again.");
+        setError(
+          t(
+            "auth.register.error_unexpected",
+            "An unexpected error occurred. Please try again."
+          )
+        );
       }
     } finally {
       setIsLoading(false);
     }
   };
+
+  const benefits = [
+    t("auth.register.benefit_1", "Fresh produce directly from farms"),
+    t(
+      "auth.register.benefit_2",
+      "Competitive prices without reseller markups"
+    ),
+    t("auth.register.benefit_3", "Simple and transparent buying"),
+  ];
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[var(--cream)]">
@@ -194,39 +224,43 @@ export default function RegisterPage() {
 
                 <div>
                   <div className="font-serif-heading text-2xl font-semibold tracking-tight text-[#f6f3e9]">
-                    Genesis
+                    {t("auth.register.brand_name", "Genesis")}
                   </div>
 
                   <div className="-mt-1 text-[9px] font-bold uppercase tracking-[0.28em] text-[#b9d873]">
-                    Agro-business
+                    {t("auth.register.brand_sub", "Agro-business")}
                   </div>
                 </div>
               </Link>
 
               <div>
                 <div className="mb-5 inline-flex rounded-full bg-[#f6f3e9]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#b9d873] backdrop-blur-sm">
-                  Join Genesis
+                  {t("auth.register.brand_panel_badge", "Join Genesis")}
                 </div>
 
                 <h1 className="max-w-md font-serif-heading text-5xl font-medium leading-[1.02] tracking-[-0.04em] text-[#f6f3e9]">
-                  Better food starts
+                  {t(
+                    "auth.register.brand_panel_title_line1",
+                    "Better food starts"
+                  )}
                   <br />
                   <span className="text-[#b9d873]">
-                    with better connections.
+                    {t(
+                      "auth.register.brand_panel_title_line2",
+                      "with better connections."
+                    )}
                   </span>
                 </h1>
 
                 <p className="mt-6 max-w-md text-sm leading-7 text-[#f6f3e9]/70">
-                  Create your account and enjoy direct access to fresh,
-                  quality agricultural products from Genesis Agro-business.
+                  {t(
+                    "auth.register.brand_panel_desc",
+                    "Create your account and enjoy direct access to fresh, quality agricultural products from Genesis Agro-business."
+                  )}
                 </p>
 
                 <div className="mt-8 space-y-4">
-                  {[
-                    "Fresh produce directly from farms",
-                    "Competitive prices without reseller markups",
-                    "Simple and transparent buying",
-                  ].map((item) => (
+                  {benefits.map((item) => (
                     <div
                       key={item}
                       className="flex items-center gap-3 text-sm text-[#f6f3e9]/80"
@@ -241,7 +275,10 @@ export default function RegisterPage() {
               </div>
 
               <p className="text-xs text-[#f6f3e9]/45">
-                Genesis Agro-business · Farm to family
+                {t(
+                  "auth.register.brand_panel_footer",
+                  "Genesis Agro-business · Farm to family"
+                )}
               </p>
             </div>
           </section>
@@ -258,11 +295,11 @@ export default function RegisterPage() {
 
                   <div>
                     <div className="font-serif-heading text-2xl font-semibold text-[#123523]">
-                      Genesis
+                      {t("auth.register.brand_name", "Genesis")}
                     </div>
 
                     <div className="-mt-1 text-[9px] font-bold uppercase tracking-[0.28em] text-[#28633e]">
-                      Agro-business
+                      {t("auth.register.brand_sub", "Agro-business")}
                     </div>
                   </div>
                 </Link>
@@ -270,16 +307,18 @@ export default function RegisterPage() {
 
               <div className="mb-8">
                 <div className="mb-3 inline-flex rounded-full bg-[#f6f3e9] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#28633e]">
-                  Create account
+                  {t("auth.register.form_badge", "Create account")}
                 </div>
 
                 <h2 className="font-serif-heading text-4xl font-medium leading-tight tracking-[-0.035em] text-[#123523] sm:text-[2.8rem]">
-                  Welcome to Genesis.
+                  {t("auth.register.form_title", "Welcome to Genesis.")}
                 </h2>
 
                 <p className="mt-3 max-w-lg text-sm leading-6 text-[#69736b]">
-                  Create your account in a few simple steps and start getting
-                  fresh food closer to the farm.
+                  {t(
+                    "auth.register.form_subtitle",
+                    "Create your account in a few simple steps and start getting fresh food closer to the farm."
+                  )}
                 </p>
               </div>
 
@@ -304,7 +343,7 @@ export default function RegisterPage() {
                     htmlFor="name"
                     className="mb-2 block text-sm font-semibold text-[#123523]"
                   >
-                    Full name
+                    {t("auth.register.full_name", "Full name")}
                   </label>
 
                   <input
@@ -312,7 +351,10 @@ export default function RegisterPage() {
                     name="name"
                     type="text"
                     autoComplete="name"
-                    placeholder="Enter your full name"
+                    placeholder={t(
+                      "auth.register.full_name_placeholder",
+                      "Enter your full name"
+                    )}
                     value={form.name}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -331,7 +373,7 @@ export default function RegisterPage() {
                     htmlFor="email"
                     className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#123523]"
                   >
-                    Email
+                    {t("auth.register.email", "Email")}
                   </label>
 
                   <input
@@ -339,7 +381,10 @@ export default function RegisterPage() {
                     name="email"
                     type="email"
                     autoComplete="email"
-                    placeholder="you@example.com"
+                    placeholder={t(
+                      "auth.register.email_placeholder",
+                      "you@example.com"
+                    )}
                     value={form.email}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -358,7 +403,7 @@ export default function RegisterPage() {
                     htmlFor="phone"
                     className="mb-2 block text-sm font-semibold text-[#123523]"
                   >
-                    Phone number
+                    {t("auth.register.phone", "Phone number")}
                   </label>
 
                   <input
@@ -366,7 +411,10 @@ export default function RegisterPage() {
                     name="phone"
                     type="tel"
                     autoComplete="tel"
-                    placeholder="+251 9XX XXX XXX"
+                    placeholder={t(
+                      "auth.register.phone_placeholder",
+                      "+251 9XX XXX XXX"
+                    )}
                     value={form.phone}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -386,7 +434,7 @@ export default function RegisterPage() {
                       htmlFor="password"
                       className="mb-2 block text-sm font-semibold text-[#123523]"
                     >
-                      Password
+                      {t("auth.register.password", "Password")}
                     </label>
 
                     <div className="relative">
@@ -395,7 +443,10 @@ export default function RegisterPage() {
                         name="password"
                         type={showPassword ? "text" : "password"}
                         autoComplete="new-password"
-                        placeholder="Create a password"
+                        placeholder={t(
+                          "auth.register.password_placeholder",
+                          "Create a password"
+                        )}
                         value={form.password}
                         onChange={(event) =>
                           setForm((current) => ({
@@ -412,7 +463,15 @@ export default function RegisterPage() {
                         type="button"
                         onClick={() => setShowPassword((value) => !value)}
                         aria-label={
-                          showPassword ? "Hide password" : "Show password"
+                          showPassword
+                            ? t(
+                                "auth.register.hide_password",
+                                "Hide password"
+                              )
+                            : t(
+                                "auth.register.show_password",
+                                "Show password"
+                              )
                         }
                         className="absolute right-4 top-1/2 -translate-y-1/2 text-[#69736b] hover:text-[#123523]"
                       >
@@ -426,7 +485,7 @@ export default function RegisterPage() {
                       htmlFor="confirmPassword"
                       className="mb-2 block text-sm font-semibold text-[#123523]"
                     >
-                      Confirm password
+                      {t("auth.register.confirm_password", "Confirm password")}
                     </label>
 
                     <div className="relative">
@@ -435,7 +494,10 @@ export default function RegisterPage() {
                         name="confirmPassword"
                         type={showConfirmPassword ? "text" : "password"}
                         autoComplete="new-password"
-                        placeholder="Repeat password"
+                        placeholder={t(
+                          "auth.register.confirm_password_placeholder",
+                          "Repeat password"
+                        )}
                         value={form.confirmPassword}
                         onChange={(event) =>
                           setForm((current) => ({
@@ -460,8 +522,14 @@ export default function RegisterPage() {
                         }
                         aria-label={
                           showConfirmPassword
-                            ? "Hide confirm password"
-                            : "Show confirm password"
+                            ? t(
+                                "auth.register.hide_confirm_password",
+                                "Hide confirm password"
+                              )
+                            : t(
+                                "auth.register.show_confirm_password",
+                                "Show confirm password"
+                              )
                         }
                         className="absolute right-4 top-1/2 -translate-y-1/2 text-[#69736b] hover:text-[#123523]"
                       >
@@ -471,7 +539,10 @@ export default function RegisterPage() {
 
                     {!passwordsMatch && (
                       <p className="mt-2 text-xs font-medium text-red-500">
-                        Passwords do not match.
+                        {t(
+                          "auth.register.passwords_do_not_match",
+                          "Passwords do not match."
+                        )}
                       </p>
                     )}
                   </div>
@@ -480,7 +551,10 @@ export default function RegisterPage() {
                 {/* Password requirement */}
                 <div className="rounded-2xl bg-[#f6f3e9] p-4">
                   <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-[#28633e]">
-                    Password requirements
+                    {t(
+                      "auth.register.password_requirements",
+                      "Password requirements"
+                    )}
                   </p>
 
                   <div className="grid gap-2 text-xs text-[#69736b] sm:grid-cols-2">
@@ -489,7 +563,10 @@ export default function RegisterPage() {
                         form.password.length >= 8 ? "text-[#28633e]" : ""
                       }
                     >
-                      • At least 8 characters
+                      {t(
+                        "auth.register.req_min_length",
+                        "• At least 8 characters"
+                      )}
                     </span>
 
                     <span
@@ -497,7 +574,10 @@ export default function RegisterPage() {
                         /[0-9]/.test(form.password) ? "text-[#28633e]" : ""
                       }
                     >
-                      • At least one number
+                      {t(
+                        "auth.register.req_one_number",
+                        "• At least one number"
+                      )}
                     </span>
                   </div>
                 </div>
@@ -511,21 +591,24 @@ export default function RegisterPage() {
                   />
 
                   <span className="text-xs leading-5 text-[#69736b]">
-                    I agree to Genesis Agro-business&apos;s{" "}
+                    {t(
+                      "auth.register.terms_prefix",
+                      "I agree to Genesis Agro-business's"
+                    )}{" "}
                     <Link
                       href="/terms"
                       className="font-semibold text-[#28633e] hover:text-[#123523]"
                     >
-                      Terms of Service
+                      {t("auth.register.terms_of_service", "Terms of Service")}
                     </Link>{" "}
-                    and{" "}
+                    {t("auth.register.terms_and", "and")}{" "}
                     <Link
                       href="/privacy"
                       className="font-semibold text-[#28633e] hover:text-[#123523]"
                     >
-                      Privacy Policy
+                      {t("auth.register.privacy_policy", "Privacy Policy")}
                     </Link>
-                    .
+                    {t("auth.register.terms_suffix", ".")}
                   </span>
                 </label>
 
@@ -537,21 +620,24 @@ export default function RegisterPage() {
                   {isLoading ? (
                     <>
                       <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-[#f6f3e9] border-t-transparent" />
-                      Creating account...
+                      {t("auth.register.submitting", "Creating account...")}
                     </>
                   ) : (
-                    "Create my account"
+                    t("auth.register.submit", "Create my account")
                   )}
                 </button>
               </form>
 
               <p className="mt-7 text-center text-sm text-[#69736b]">
-                Already have an account?{" "}
+                {t(
+                  "auth.register.already_have_account",
+                  "Already have an account?"
+                )}{" "}
                 <Link
                   href="/auth/signin"
                   className="font-bold text-[#28633e] hover:text-[#123523]"
                 >
-                  Sign in
+                  {t("auth.register.sign_in", "Sign in")}
                 </Link>
               </p>
             </div>

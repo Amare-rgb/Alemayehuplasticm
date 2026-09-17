@@ -25,6 +25,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/app/providers";
+import { useLanguage } from "@/context/LanguageContext";
 import { ordersApi } from "@/lib/api";
 
 // ============================================================
@@ -74,11 +75,13 @@ function normalizeImageUrl(src?: string | null): string {
 }
 
 // ============================================================
-// Status config
+// Status config helper — built inside the component for translation
 // ============================================================
 type FilterType = "All" | OrderStatus;
 
-const STATUS_CONFIG: Record<
+function buildStatusConfig(
+  t: (key: string, fallback?: string) => string
+): Record<
   OrderStatus,
   {
     color: string;
@@ -87,43 +90,45 @@ const STATUS_CONFIG: Record<
     icon: React.ReactNode;
     label: string;
   }
-> = {
-  PENDING: {
-    color: "text-yellow-700",
-    bg: "bg-yellow-50",
-    border: "border-yellow-200",
-    icon: <Clock size={13} />,
-    label: "Pending",
-  },
-  SHIPPED: {
-    color: "text-purple-700",
-    bg: "bg-purple-50",
-    border: "border-purple-200",
-    icon: <Truck size={13} />,
-    label: "Shipped",
-  },
-  COMPLETED: {
-    color: "text-emerald-700",
-    bg: "bg-emerald-50",
-    border: "border-emerald-200",
-    icon: <Check size={13} strokeWidth={3} />,
-    label: "Completed",
-  },
-  CANCELLED: {
-    color: "text-red-600",
-    bg: "bg-red-50",
-    border: "border-red-200",
-    icon: <X size={13} strokeWidth={3} />,
-    label: "Cancelled",
-  },
-  REJECTED: {
-    color: "text-gray-600",
-    bg: "bg-gray-50",
-    border: "border-gray-200",
-    icon: <X size={13} strokeWidth={3} />,
-    label: "Rejected",
-  },
-};
+> {
+  return {
+    PENDING: {
+      color: "text-yellow-700",
+      bg: "bg-yellow-50",
+      border: "border-yellow-200",
+      icon: <Clock size={13} />,
+      label: t("orders.status_pending", "Pending"),
+    },
+    SHIPPED: {
+      color: "text-purple-700",
+      bg: "bg-purple-50",
+      border: "border-purple-200",
+      icon: <Truck size={13} />,
+      label: t("orders.status_shipped", "Shipped"),
+    },
+    COMPLETED: {
+      color: "text-emerald-700",
+      bg: "bg-emerald-50",
+      border: "border-emerald-200",
+      icon: <Check size={13} strokeWidth={3} />,
+      label: t("orders.status_completed", "Completed"),
+    },
+    CANCELLED: {
+      color: "text-red-600",
+      bg: "bg-red-50",
+      border: "border-red-200",
+      icon: <X size={13} strokeWidth={3} />,
+      label: t("orders.status_cancelled", "Cancelled"),
+    },
+    REJECTED: {
+      color: "text-gray-600",
+      bg: "bg-gray-50",
+      border: "border-gray-200",
+      icon: <X size={13} strokeWidth={3} />,
+      label: t("orders.status_rejected", "Rejected"),
+    },
+  };
+}
 
 // ============================================================
 // Helpers
@@ -149,15 +154,17 @@ function getOrderTotal(items: OrderItem[]) {
 }
 
 // ============================================================
-// Loading fallback (used by the Suspense boundary)
+// Loading fallback
 // ============================================================
 function OrdersPageFallback() {
+  const { t } = useLanguage();
+
   return (
     <div className="min-h-screen bg-[var(--cream)] flex items-center justify-center">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-[#123523] border-t-[#b9d873] rounded-full animate-spin" />
         <p className="text-[#69736b] font-sans text-sm">
-          Loading your orders...
+          {t("orders.loading", "Loading your orders...")}
         </p>
       </div>
     </div>
@@ -165,13 +172,16 @@ function OrdersPageFallback() {
 }
 
 // ============================================================
-// Inner component — uses useSearchParams
+// Inner component
 // ============================================================
 function OrdersPageContent() {
   const { user, status } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const highlightId = searchParams?.get("highlight") ?? null;
+  const { t } = useLanguage();
+
+  const STATUS_CONFIG = buildStatusConfig(t);
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -183,7 +193,6 @@ function OrdersPageContent() {
   const isMountedRef = useRef(true);
   const hasFetchedInitialRef = useRef(false);
 
-  // ── Mount / unmount tracking ──
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -191,14 +200,12 @@ function OrdersPageContent() {
     };
   }, []);
 
-  // ── Redirect unauthenticated users ──
   useEffect(() => {
     if (status === "unauthenticated") {
       router.replace("/auth/signin");
     }
   }, [status, router]);
 
-  // ── Fetch function ──
   const fetchOrders = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent ?? false;
@@ -211,11 +218,9 @@ function OrdersPageContent() {
         if (!isMountedRef.current) return;
 
         const list = (response?.orders ?? []) as Order[];
-        // Newest first
         list.sort((a, b) => b.orderNumber - a.orderNumber);
         setOrders(list);
 
-        // Auto-expand highlighted order, else the newest
         if (highlightId && list.some((o) => o.id === highlightId)) {
           setExpandedOrder(highlightId);
         } else if (list.length > 0) {
@@ -224,7 +229,12 @@ function OrdersPageContent() {
       } catch (err) {
         console.error("Failed to load orders:", err);
         if (!isMountedRef.current) return;
-        setError("Failed to load your orders. Please try again.");
+        setError(
+          t(
+            "orders.error_load",
+            "Failed to load your orders. Please try again."
+          )
+        );
       } finally {
         if (isMountedRef.current) {
           setLoading(false);
@@ -236,7 +246,6 @@ function OrdersPageContent() {
     [highlightId]
   );
 
-  // ── Initial fetch when authenticated ──
   useEffect(() => {
     if (status !== "authenticated") return;
     if (hasFetchedInitialRef.current) return;
@@ -259,14 +268,12 @@ function OrdersPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
-  // ── Loading state ──
   if (status === "loading" || (loading && status === "authenticated")) {
     return <OrdersPageFallback />;
   }
 
   if (!user) return null;
 
-  // ── Derived data ──
   const filteredOrders =
     activeFilter === "All"
       ? orders
@@ -291,9 +298,7 @@ function OrdersPageContent() {
 
   return (
     <div className="min-h-screen bg-[var(--cream)]">
-      {/* ═══════════════════════════════════════════════════════
-          PAGE HEADER
-      ═══════════════════════════════════════════════════════ */}
+      {/* PAGE HEADER */}
       <div className="bg-gradient-to-br from-[#0b2419] via-[#123523] to-[#19472d] relative overflow-hidden">
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-[#b9d873]/5 rounded-full blur-3xl" />
         <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-[#28633e]/10 rounded-full blur-3xl" />
@@ -305,19 +310,24 @@ function OrdersPageContent() {
               className="hover:text-[#b9d873] transition-colors flex items-center gap-1"
             >
               <ArrowLeft size={14} />
-              My Profile
+              {t("orders.breadcrumb_profile", "My Profile")}
             </Link>
             <ChevronRight size={14} />
-            <span className="text-[#b9d873]/80">Orders</span>
+            <span className="text-[#b9d873]/80">
+              {t("orders.breadcrumb_orders", "Orders")}
+            </span>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
             <div>
               <h1 className="text-3xl sm:text-4xl font-bold text-white font-serif-heading tracking-tight">
-                My Orders
+                {t("orders.page_title", "My Orders")}
               </h1>
               <p className="text-[#b9d873]/60 text-sm mt-2">
-                {orders.length} order{orders.length !== 1 ? "s" : ""} placed
+                {orders.length}{" "}
+                {orders.length === 1
+                  ? t("orders.order_count_singular", "order placed")
+                  : t("orders.order_count_plural", "orders placed")}
               </p>
             </div>
             <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -330,23 +340,21 @@ function OrdersPageContent() {
                   size={14}
                   className={refreshing ? "animate-spin" : ""}
                 />
-                Refresh
+                {t("orders.refresh", "Refresh")}
               </button>
               <Link
                 href="/shop"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-[#b9d873]/15 text-[#b9d873] border border-[#b9d873]/20 hover:bg-[#b9d873]/25 transition-all duration-200"
               >
                 <ShoppingBag size={16} />
-                Continue Shopping
+                {t("orders.continue_shopping", "Continue Shopping")}
               </Link>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════
-          FILTER TABS
-      ═══════════════════════════════════════════════════════ */}
+      {/* FILTER TABS */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-[rgba(20,33,25,.09)] shadow-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-1 overflow-x-auto py-3 scrollbar-hide -mx-1">
@@ -379,7 +387,9 @@ function OrdersPageContent() {
                       <Package size={14} />
                     </span>
                   )}
-                  {filter === "All" ? "All" : statusConf?.label}
+                  {filter === "All"
+                    ? t("orders.filter_all", "All")
+                    : statusConf?.label}
                   <span
                     className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold min-w-[20px] text-center ${
                       isActive
@@ -396,9 +406,7 @@ function OrdersPageContent() {
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════
-          ORDER LIST
-      ═══════════════════════════════════════════════════════ */}
+      {/* ORDER LIST */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {error && (
           <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between">
@@ -407,7 +415,7 @@ function OrdersPageContent() {
               onClick={() => fetchOrders()}
               className="text-xs font-bold text-red-700 hover:text-red-900 underline"
             >
-              Retry
+              {t("orders.retry", "Retry")}
             </button>
           </div>
         )}
@@ -418,25 +426,33 @@ function OrdersPageContent() {
               <Package size={36} className="text-[#69736b]/50" />
             </div>
             <h3 className="text-xl font-bold text-[#123523] font-serif-heading mb-2">
-              No{" "}
               {activeFilter !== "All"
-                ? STATUS_CONFIG[activeFilter as OrderStatus].label.toLowerCase()
-                : ""}{" "}
-              orders found
+                ? t("orders.empty_title_filtered", "No {status} orders found").replace(
+                    "{status}",
+                    STATUS_CONFIG[activeFilter as OrderStatus].label.toLowerCase()
+                  )
+                : t("orders.empty_title_all", "No orders found")}
             </h3>
             <p className="text-sm text-[#69736b] max-w-sm mx-auto mb-6">
               {activeFilter === "All"
-                ? "You haven't placed any orders yet. Start browsing our fresh produce!"
-                : `You don't have any orders with "${
+                ? t(
+                    "orders.empty_desc_all",
+                    "You haven't placed any orders yet. Start browsing our fresh produce!"
+                  )
+                : t(
+                    "orders.empty_desc_filtered",
+                    "You don't have any orders with \"{status}\" status."
+                  ).replace(
+                    "{status}",
                     STATUS_CONFIG[activeFilter as OrderStatus].label
-                  }" status.`}
+                  )}
             </p>
             {activeFilter !== "All" ? (
               <button
                 onClick={() => setActiveFilter("All")}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-[#28633e] bg-green-50 hover:bg-green-100 border border-green-200 transition-all"
               >
-                View all orders
+                {t("orders.view_all_orders", "View all orders")}
               </button>
             ) : (
               <Link
@@ -444,7 +460,7 @@ function OrdersPageContent() {
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-white bg-[#123523] hover:bg-[#19472d] shadow-md transition-all"
               >
                 <ShoppingBag size={16} />
-                Start Shopping
+                {t("orders.start_shopping", "Start Shopping")}
               </Link>
             )}
           </div>
@@ -466,9 +482,10 @@ function OrdersPageContent() {
                       : "border-[rgba(20,33,25,.09)]"
                   }`}
                 >
-                  {/* Order header */}
                   <button
-                    onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
+                    onClick={() =>
+                      setExpandedOrder(isExpanded ? null : order.id)
+                    }
                     className="w-full text-left px-5 py-4 sm:px-6 sm:py-5 flex items-center justify-between gap-4 group"
                     aria-expanded={isExpanded}
                   >
@@ -484,7 +501,8 @@ function OrdersPageContent() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="text-sm sm:text-base font-bold text-[#123523]">
-                            Order #{order.orderNumber}
+                            {t("orders.order_label", "Order")} #
+                            {order.orderNumber}
                           </h3>
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${statusConf.bg} ${statusConf.border} ${statusConf.color}`}
@@ -504,7 +522,10 @@ function OrdersPageContent() {
                           </span>
                           <span className="text-[#69736b]/50">·</span>
                           <span>
-                            {totalItems} item{totalItems > 1 ? "s" : ""}
+                            {totalItems}{" "}
+                            {totalItems === 1
+                              ? t("orders.items_singular", "item")
+                              : t("orders.items_plural", "items")}
                           </span>
                         </div>
                       </div>
@@ -513,10 +534,12 @@ function OrdersPageContent() {
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <div className="text-right hidden sm:block">
                         <p className="text-sm font-bold text-[#123523]">
-                          ETB {orderTotal.toLocaleString()}
+                          {t("orders.currency", "ETB")}{" "}
+                          {orderTotal.toLocaleString()}
                         </p>
                         <p className="text-[11px] text-[#69736b]">
-                          {order.paymentMethod || "Not specified"}
+                          {order.paymentMethod ||
+                            t("orders.not_specified", "Not specified")}
                         </p>
                       </div>
                       <div
@@ -529,7 +552,6 @@ function OrdersPageContent() {
                     </div>
                   </button>
 
-                  {/* Expanded content */}
                   <div
                     className={`transition-all duration-300 ease-in-out overflow-hidden ${
                       isExpanded
@@ -546,14 +568,17 @@ function OrdersPageContent() {
                           >
                             <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-[var(--cream)] flex-shrink-0 border border-[rgba(20,33,25,.09)] relative">
                               <Image
-                                src={normalizeImageUrl(item.product.images?.[0])}
+                                src={normalizeImageUrl(
+                                  item.product.images?.[0]
+                                )}
                                 alt={item.product.name}
                                 fill
                                 sizes="64px"
                                 className="object-cover"
                                 unoptimized
                                 onError={(e) => {
-                                  const target = e.currentTarget as HTMLImageElement;
+                                  const target =
+                                    e.currentTarget as HTMLImageElement;
                                   target.src = "/placeholder-image.png";
                                 }}
                               />
@@ -564,42 +589,49 @@ function OrdersPageContent() {
                                 {item.product.name}
                               </p>
                               <p className="text-xs text-[#69736b] mt-0.5">
-                                Qty: {item.quantity} × ETB{" "}
+                                {t("orders.qty_label", "Qty")}: {item.quantity}{" "}
+                                × {t("orders.currency", "ETB")}{" "}
                                 {item.price.toLocaleString()}
                               </p>
                             </div>
 
                             <p className="text-sm font-bold text-[#123523] flex-shrink-0">
-                              ETB{" "}
+                              {t("orders.currency", "ETB")}{" "}
                               {(item.price * item.quantity).toLocaleString()}
                             </p>
                           </div>
                         ))}
                       </div>
 
-                      {/* Footer summary */}
                       <div className="bg-[var(--cream)]/40 px-5 py-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-4 text-xs text-[#69736b]">
                           <span className="flex items-center gap-1.5">
                             <Calendar size={13} />
-                            Ordered {formatDate(order.createdAt)} at{" "}
+                            {t("orders.ordered_on", "Ordered")}{" "}
+                            {formatDate(order.createdAt)}{" "}
+                            {t("orders.at_time", "at")}{" "}
                             {formatTime(order.createdAt)}
                           </span>
                           <span className="hidden sm:inline text-[#69736b]/40">
                             |
                           </span>
                           <span className="hidden sm:flex items-center gap-1.5">
-                            Paid via {order.paymentMethod || "N/A"}
+                            {t("orders.paid_via", "Paid via")}{" "}
+                            {order.paymentMethod || t("orders.na", "N/A")}
                           </span>
                         </div>
                         <div className="flex items-center justify-between sm:justify-end gap-4">
                           <span className="text-xs text-[#69736b] sm:hidden">
-                            Paid via {order.paymentMethod || "N/A"}
+                            {t("orders.paid_via", "Paid via")}{" "}
+                            {order.paymentMethod || t("orders.na", "N/A")}
                           </span>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-[#69736b]">Total:</span>
+                            <span className="text-xs text-[#69736b]">
+                              {t("orders.total_label", "Total")}:
+                            </span>
                             <span className="text-lg font-bold text-[#123523]">
-                              ETB {orderTotal.toLocaleString()}
+                              {t("orders.currency", "ETB")}{" "}
+                              {orderTotal.toLocaleString()}
                             </span>
                           </div>
                         </div>
@@ -612,11 +644,12 @@ function OrdersPageContent() {
           </div>
         )}
 
-        {/* Bottom CTA */}
         {filteredOrders.length > 0 && (
           <div className="mt-8 text-center">
             <p className="text-sm text-[#69736b] mb-4">
-              Showing {filteredOrders.length} of {orders.length} orders
+              {t("orders.showing_orders", "Showing {shown} of {total} orders")
+                .replace("{shown}", String(filteredOrders.length))
+                .replace("{total}", String(orders.length))}
             </p>
             <div className="flex items-center justify-center gap-3">
               <Link
@@ -624,14 +657,14 @@ function OrdersPageContent() {
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-[#69736b] bg-white border border-[rgba(20,33,25,.09)] hover:bg-[var(--cream)] transition-all duration-200"
               >
                 <ArrowLeft size={15} />
-                Back to Profile
+                {t("orders.back_to_profile", "Back to Profile")}
               </Link>
               <Link
                 href="/shop"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-[#123523] hover:bg-[#19472d] shadow-md transition-all duration-200"
               >
                 <ShoppingBag size={15} />
-                Shop More
+                {t("orders.shop_more", "Shop More")}
               </Link>
             </div>
           </div>
@@ -642,8 +675,7 @@ function OrdersPageContent() {
 }
 
 // ============================================================
-// Default export — wraps the content in a Suspense boundary
-// so `useSearchParams` doesn't break the production build
+// Default export — Suspense boundary
 // ============================================================
 export default function OrdersPage() {
   return (
