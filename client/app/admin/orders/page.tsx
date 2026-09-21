@@ -32,6 +32,7 @@ import {
   Smartphone,
   FileText,
   Download,
+  Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -127,7 +128,6 @@ interface Order {
   items: OrderItem[];
 }
 
-// Notification Component
 interface NotificationProps {
   type: 'success' | 'error' | 'info' | 'warning';
   message: string;
@@ -177,9 +177,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
         isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'
       }`}
     >
-      <div
-        className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${getColors()}`}
-      >
+      <div className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${getColors()}`}>
         {getIcon()}
         <p className="text-sm font-medium flex-1">{message}</p>
         <button
@@ -267,8 +265,7 @@ const getPaymentMethodIcon = (method?: string) => {
   if (lower.includes('bank')) return <Building className="w-4 h-4" />;
   if (lower.includes('cash')) return <Banknote className="w-4 h-4" />;
   if (lower.includes('card')) return <CreditCard className="w-4 h-4" />;
-  if (lower.includes('paypal') || lower.includes('wallet'))
-    return <Wallet className="w-4 h-4" />;
+  if (lower.includes('paypal') || lower.includes('wallet')) return <Wallet className="w-4 h-4" />;
   return <CreditCard className="w-4 h-4" />;
 };
 
@@ -280,7 +277,7 @@ const getProofType = (proof?: string): 'image' | 'pdf' | 'unknown' => {
 };
 
 // ============================================================
-// Order Detail Modal
+// Order Detail Modal (with Approve / Reject / Delete)
 // ============================================================
 interface OrderDetailModalProps {
   order: Order | null;
@@ -296,15 +293,17 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   onStatusUpdate,
 }) => {
   const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showRejectInput, setShowRejectInput] = useState(false);
+
   const [notification, setNotification] = useState<{
     type: 'success' | 'error' | 'info' | 'warning';
     message: string;
   } | null>(null);
 
-  const showNotification = (
-    type: 'success' | 'error' | 'info' | 'warning',
-    message: string
-  ) => {
+  const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
     if (type === 'info') toast(message, { icon: 'ℹ️' });
     else if (type === 'warning') toast.error(message, { icon: '⚠️' });
@@ -344,7 +343,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
       document.body.appendChild(a);
       a.click();
       a.remove();
-
       setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
     } catch (err) {
       console.error('Download failed:', err);
@@ -358,15 +356,12 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
         window.open(proof, '_blank', 'noopener,noreferrer');
         return;
       }
-
       const blobUrl = dataUrlToBlobUrl(proof);
       if (!blobUrl) {
         showNotification('error', 'Failed to open the file');
         return;
       }
-
       window.open(blobUrl, '_blank', 'noopener,noreferrer');
-
       setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
     } catch (err) {
       console.error('Open failed:', err);
@@ -376,7 +371,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
   const handleApproveOrder = async () => {
     if (!order) return;
-
     if (order.status !== 'PENDING') {
       showNotification('warning', 'Only pending orders can be approved');
       return;
@@ -384,9 +378,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
     setApproving(true);
     try {
-      // ✅ Send BOTH status AND paymentStatus so the two badges stay in sync.
-      //    The backend also auto-sets paymentStatus to PAID for COMPLETED
-      //    orders, but sending it explicitly makes the intent unambiguous.
       const response = await ordersApi.updateOrder({
         orderId: order.id,
         status: 'COMPLETED',
@@ -394,10 +385,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
       });
 
       if (response.success) {
-        showNotification(
-          'success',
-          `Order #${order.orderNumber} approved successfully!`
-        );
+        showNotification('success', `Order #${order.orderNumber} approved successfully!`);
         onStatusUpdate();
         setTimeout(() => onClose(), 1500);
       } else {
@@ -411,9 +399,68 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
     }
   };
 
+  const handleRejectOrder = async () => {
+    if (!order) return;
+    if (order.status !== 'PENDING') {
+      showNotification('warning', 'Only pending orders can be rejected');
+      return;
+    }
+
+    setRejecting(true);
+    try {
+      const response = await ordersApi.updateOrder({
+        orderId: order.id,
+        status: 'REJECTED',
+        paymentStatus: 'FAILED',
+        notes: rejectReason
+          ? `${order.notes || ''}\n[Rejected] ${rejectReason}`.trim()
+          : order.notes,
+      });
+
+      if (response.success) {
+        showNotification('success', `Order #${order.orderNumber} rejected.`);
+        onStatusUpdate();
+        setTimeout(() => onClose(), 1500);
+      } else {
+        showNotification('error', response.message || 'Failed to reject order');
+      }
+    } catch (err) {
+      console.error('Error rejecting order:', err);
+      showNotification('error', 'Failed to reject order');
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!order) return;
+    const confirmed = window.confirm(
+      `Delete order #${order.orderNumber} permanently? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    try {
+      const response = await ordersApi.deleteOrder(order.id);
+
+      if (response.success) {
+        showNotification('success', `Order #${order.orderNumber} deleted.`);
+        onStatusUpdate();
+        setTimeout(() => onClose(), 1200);
+      } else {
+        showNotification('error', response.message || 'Failed to delete order');
+      }
+    } catch (err) {
+      console.error('Error deleting order:', err);
+      showNotification('error', 'Failed to delete order');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (!isOpen || !order) return null;
 
-  const canApprove = order.status === 'PENDING';
+  const canAct = order.status === 'PENDING';
   const proofType = getProofType(order.paymentProof);
 
   return (
@@ -431,23 +478,12 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 : 'bg-blue-50 border-blue-200 text-blue-800'
             }`}
           >
-            {notification.type === 'success' && (
-              <CheckCircle className="w-5 h-5 text-green-500" />
-            )}
-            {notification.type === 'error' && (
-              <XCircle className="w-5 h-5 text-red-500" />
-            )}
-            {notification.type === 'warning' && (
-              <AlertCircle className="w-5 h-5 text-yellow-500" />
-            )}
-            {notification.type === 'info' && (
-              <Info className="w-5 h-5 text-blue-500" />
-            )}
+            {notification.type === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
+            {notification.type === 'error' && <XCircle className="w-5 h-5 text-red-500" />}
+            {notification.type === 'warning' && <AlertCircle className="w-5 h-5 text-yellow-500" />}
+            {notification.type === 'info' && <Info className="w-5 h-5 text-blue-500" />}
             <p className="text-sm font-medium flex-1">{notification.message}</p>
-            <button
-              onClick={clearNotification}
-              className="text-gray-400 hover:text-gray-600"
-            >
+            <button onClick={clearNotification} className="text-gray-400 hover:text-gray-600">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -472,7 +508,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           {/* Status banner */}
           <div
             className={`rounded-lg p-4 border ${
-              canApprove
+              canAct
                 ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'
                 : order.status === 'COMPLETED'
                 ? 'bg-green-50 border-green-200'
@@ -487,7 +523,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           >
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center space-x-3">
-                {canApprove ? (
+                {canAct ? (
                   <Clock className="w-5 h-5 text-amber-600" />
                 ) : order.status === 'COMPLETED' ? (
                   <CheckCircle className="w-5 h-5 text-green-600" />
@@ -501,7 +537,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   <Package className="w-5 h-5 text-blue-600" />
                 )}
                 <span className="text-sm font-medium text-gray-700">
-                  {canApprove
+                  {canAct
                     ? 'Order Pending Review'
                     : order.status === 'COMPLETED'
                     ? 'Order Completed'
@@ -519,38 +555,83 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
               <div className="flex items-center space-x-2">
                 <span className="text-xs text-gray-500">Status:</span>
-                <span
-                  className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(
-                    order.status
-                  )}`}
-                >
+                <span className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(order.status)}`}>
                   <span>{getStatusLabel(order.status)}</span>
                 </span>
               </div>
             </div>
 
-            {canApprove ? (
-              <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-amber-200">
-                <span className="text-xs text-gray-500 font-medium">
-                  Take Action:
-                </span>
-                <button
-                  onClick={handleApproveOrder}
-                  disabled={approving}
-                  className="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-sm hover:shadow-md"
-                >
-                  {approving ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Approving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ThumbsUp className="w-4 h-4" />
-                      <span>Approve Order</span>
-                    </>
-                  )}
-                </button>
+            {canAct ? (
+              <div className="mt-4 pt-4 border-t border-amber-200 space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs text-gray-500 font-medium">Take Action:</span>
+
+                  {/* Approve */}
+                  <button
+                    onClick={handleApproveOrder}
+                    disabled={approving || rejecting || deleting}
+                    className="flex items-center space-x-2 px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-sm hover:shadow-md"
+                  >
+                    {approving ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Approving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ThumbsUp className="w-4 h-4" />
+                        <span>Approve</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Reject */}
+                  <button
+                    onClick={() => setShowRejectInput((v) => !v)}
+                    disabled={approving || rejecting || deleting}
+                    className="flex items-center space-x-2 px-5 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-sm hover:shadow-md"
+                  >
+                    {rejecting ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Rejecting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4" />
+                        <span>Reject</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {showRejectInput && (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mt-2">
+                    <input
+                      type="text"
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder="Reason for rejection (optional)"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                    />
+                    <button
+                      onClick={handleRejectOrder}
+                      disabled={rejecting}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
+                    >
+                      Confirm Reject
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowRejectInput(false);
+                        setRejectReason('');
+                      }}
+                      className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center space-x-2 mt-4 pt-4 border-t border-gray-200">
@@ -620,9 +701,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Order Total:</span>
-                  <span className="font-semibold text-gray-900">
-                    {formatCurrency(order.total)}
-                  </span>
+                  <span className="font-semibold text-gray-900">{formatCurrency(order.total)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Items:</span>
@@ -658,11 +737,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500">Payment Status:</span>
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(
-                      order.paymentStatus
-                    )}`}
-                  >
+                  <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(order.paymentStatus)}`}>
                     {order.paymentStatus}
                   </span>
                 </div>
@@ -682,9 +757,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                       <span className="text-gray-500">Payment Proof:</span>
                       <button
                         type="button"
-                        onClick={() =>
-                          handleDownloadProof(order.paymentProof!, order.orderNumber)
-                        }
+                        onClick={() => handleDownloadProof(order.paymentProof!, order.orderNumber)}
                         className="flex items-center space-x-1 text-xs font-medium text-green-600 hover:text-green-700"
                       >
                         <Download className="w-3.5 h-3.5" />
@@ -715,12 +788,8 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                       >
                         <FileText className="w-8 h-8 text-red-500 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-gray-800">
-                            PDF Receipt
-                          </p>
-                          <p className="text-[10px] text-gray-500">
-                            Click to open in new tab
-                          </p>
+                          <p className="text-xs font-medium text-gray-800">PDF Receipt</p>
+                          <p className="text-[10px] text-gray-500">Click to open in new tab</p>
                         </div>
                       </button>
                     )}
@@ -745,18 +814,10 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Product
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Price
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Quantity
-                    </th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Subtotal
-                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -782,21 +843,13 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                             )}
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-gray-900">
-                              {item.product.name}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              SKU: {item.productId.slice(0, 8)}
-                            </p>
+                            <p className="text-sm font-medium text-gray-900">{item.product.name}</p>
+                            <p className="text-xs text-gray-500">SKU: {item.productId.slice(0, 8)}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        {formatCurrency(item.price)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        {item.quantity}
-                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{formatCurrency(item.price)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{item.quantity}</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
                         {formatCurrency(item.price * item.quantity)}
                       </td>
@@ -805,12 +858,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </tbody>
                 <tfoot className="bg-gray-50 border-t border-gray-200">
                   <tr>
-                    <td
-                      colSpan={3}
-                      className="px-4 py-3 text-right text-sm font-medium text-gray-700"
-                    >
-                      Total:
-                    </td>
+                    <td colSpan={3} className="px-4 py-3 text-right text-sm font-medium text-gray-700">Total:</td>
                     <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
                       {formatCurrency(order.total)}
                     </td>
@@ -818,6 +866,30 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </tfoot>
               </table>
             </div>
+          </div>
+
+          {/* Delete section (admin) */}
+          <div className="border-t border-gray-200 pt-4 flex items-center justify-between">
+            <div className="text-xs text-gray-500">
+              Admin action: deleting removes the order permanently from the database.
+            </div>
+            <button
+              onClick={handleDeleteOrder}
+              disabled={deleting || approving || rejecting}
+              className="flex items-center space-x-2 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50 text-sm font-medium"
+            >
+              {deleting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Deleting...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Order</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -851,10 +923,7 @@ const OrdersPage: React.FC = () => {
   const isMounted = useRef(true);
   const initialLoadDone = useRef(false);
 
-  const showNotification = (
-    type: 'success' | 'error' | 'info' | 'warning',
-    message: string
-  ) => {
+  const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
     setNotification({ type, message });
     if (type === 'info') toast(message, { icon: 'ℹ️' });
     else if (type === 'warning') toast.error(message, { icon: '⚠️' });
@@ -880,7 +949,6 @@ const OrdersPage: React.FC = () => {
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
-
       const response = await ordersApi.getOrders({
         status: selectedStatus === 'ALL' ? undefined : selectedStatus,
         page: currentPage,
@@ -1003,9 +1071,7 @@ const OrdersPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Orders</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Manage and track all customer orders
-          </p>
+          <p className="text-xs text-gray-500 mt-0.5">Manage and track all customer orders</p>
           <p className="text-xs text-gray-400 mt-1">Total: {totalOrders} orders</p>
         </div>
         <div className="flex items-center space-x-3">
@@ -1026,9 +1092,7 @@ const OrdersPage: React.FC = () => {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Revenue</p>
-          <p className="text-lg font-bold text-green-600">
-            {formatCurrency(totalRevenue)}
-          </p>
+          <p className="text-lg font-bold text-green-600">{formatCurrency(totalRevenue)}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Pending</p>
@@ -1058,11 +1122,7 @@ const OrdersPage: React.FC = () => {
           >
             <Filter className="w-3.5 h-3.5" />
             <span>Filters</span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 transition-transform ${
-                showFilters ? 'rotate-180' : ''
-              }`}
-            />
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
         </div>
       </div>
@@ -1100,30 +1160,14 @@ const OrdersPage: React.FC = () => {
             <table className="w-full min-w-[1200px]">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Order #
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Customer
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Contact
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Total
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Payment
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Date
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Actions
-                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Order #</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Customer</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Contact</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Total</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Payment</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -1134,24 +1178,18 @@ const OrdersPage: React.FC = () => {
                     onClick={() => handleViewOrder(order)}
                   >
                     <td className="px-4 py-3">
-                      <span className="text-sm font-medium text-gray-900">
-                        #{order.orderNumber}
-                      </span>
+                      <span className="text-sm font-medium text-gray-900">#{order.orderNumber}</span>
                     </td>
                     <td className="px-4 py-3">
                       <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          {order.user.name}
-                        </p>
+                        <p className="text-sm font-medium text-gray-900">{order.user.name}</p>
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-0.5">
                         <div className="flex items-center space-x-1 text-xs text-gray-500">
                           <Mail className="w-3 h-3" />
-                          <span className="truncate max-w-[120px]">
-                            {order.user.email}
-                          </span>
+                          <span className="truncate max-w-[120px]">{order.user.email}</span>
                         </div>
                         {order.user.phone && (
                           <div className="flex items-center space-x-1 text-xs text-gray-500">
@@ -1162,40 +1200,26 @@ const OrdersPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm font-semibold text-gray-900">
-                        {formatCurrency(order.total)}
-                      </span>
+                      <span className="text-sm font-semibold text-gray-900">{formatCurrency(order.total)}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(
-                          order.status
-                        )}`}
-                      >
+                      <span className={`inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded-full border ${getStatusColor(order.status)}`}>
                         {getStatusIcon(order.status)}
                         <span>{getStatusLabel(order.status)}</span>
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-0.5">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(
-                            order.paymentStatus
-                          )}`}
-                        >
+                        <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(order.paymentStatus)}`}>
                           {order.paymentStatus}
                         </span>
                         {order.paymentMethod && (
-                          <div className="text-xs text-gray-500">
-                            {getPaymentMethodLabel(order.paymentMethod)}
-                          </div>
+                          <div className="text-xs text-gray-500">{getPaymentMethodLabel(order.paymentMethod)}</div>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-xs text-gray-500 whitespace-nowrap">
-                        {formatDate(order.createdAt)}
-                      </div>
+                      <div className="text-xs text-gray-500 whitespace-nowrap">{formatDate(order.createdAt)}</div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
@@ -1217,9 +1241,7 @@ const OrdersPage: React.FC = () => {
             <div className="p-8 text-center text-gray-500">
               <ShoppingCart className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-sm">No orders found</p>
-              <p className="text-xs text-gray-400 mt-1">
-                Try adjusting your search or filters
-              </p>
+              <p className="text-xs text-gray-400 mt-1">Try adjusting your search or filters</p>
             </div>
           )}
         </div>
@@ -1227,8 +1249,7 @@ const OrdersPage: React.FC = () => {
         {totalFiltered > pageSize && (
           <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
             <p className="text-sm text-gray-500">
-              Showing {(currentPage - 1) * pageSize + 1} -{' '}
-              {Math.min(currentPage * pageSize, totalFiltered)} of {totalFiltered}
+              Showing {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, totalFiltered)} of {totalFiltered}
             </p>
             <div className="flex space-x-2">
               <button
@@ -1239,11 +1260,7 @@ const OrdersPage: React.FC = () => {
                 Previous
               </button>
               <button
-                onClick={() =>
-                  setCurrentPage((prev) =>
-                    Math.min(prev + 1, Math.ceil(totalFiltered / pageSize))
-                  )
-                }
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, Math.ceil(totalFiltered / pageSize)))}
                 disabled={currentPage >= Math.ceil(totalFiltered / pageSize)}
                 className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >

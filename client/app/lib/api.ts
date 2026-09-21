@@ -298,6 +298,17 @@ export const ordersApi = {
     );
     return response.data;
   },
+
+  // ✅ NEW: hard-delete an order (admin only) — same endpoint as cancelOrder
+  // but the backend distinguishes them by role. Used by the admin orders page.
+  deleteOrder: async (
+    orderId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const response = await api.delete<{ success: boolean; message: string }>(
+      `/api/orders/${orderId}`
+    );
+    return response.data;
+  },
 };
 
 // ✅ checkoutApi uses `api` → hits the Express backend at http://localhost:5000

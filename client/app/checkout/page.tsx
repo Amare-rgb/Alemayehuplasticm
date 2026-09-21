@@ -88,6 +88,8 @@ interface CreateCheckoutResponse {
     order: Order;
     items?: CheckoutSummaryItem[];
     isGuest?: boolean;
+    telebirrCheckoutUrl?: string | null;
+    telebirrError?: string;
   };
 }
 
@@ -142,11 +144,19 @@ interface CartItem {
   slug?: string;
 }
 
+interface PendingTelebirrOrder {
+  orderId: string;
+  orderNumber: number;
+  total: number;
+  createdAt: number;
+}
+
 // ============================================
 // HELPERS
 // ============================================
 
 const MAX_FILE_SIZE_MB = 5;
+const PENDING_TELEBIRR_KEY = "pendingTelebirrOrder";
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -164,6 +174,14 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function savePendingTelebirrOrder(payload: PendingTelebirrOrder): void {
+  try {
+    sessionStorage.setItem(PENDING_TELEBIRR_KEY, JSON.stringify(payload));
+  } catch {
+    /* sessionStorage may be unavailable in private mode — ignore */
+  }
+}
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -174,7 +192,6 @@ export default function CheckoutPage() {
   const { t } = useLanguage();
   const { items, cartCount, totalUnits, cartTotal, clearCart } = useCart();
 
-  // State
   const [loading, setLoading] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [checkoutAddresses, setCheckoutAddresses] = useState<Address[]>([]);
@@ -183,7 +200,6 @@ export default function CheckoutPage() {
   const [manualAddress, setManualAddress] = useState<string>("");
   const [manualCity, setManualCity] = useState<string>("Addis Ababa - Bole");
 
-  // Guest Form State
   const [guestName, setGuestName] = useState<string>("");
   const [guestPhone, setGuestPhone] = useState<string>("");
   const [guestEmail, setGuestEmail] = useState<string>("");
@@ -191,27 +207,21 @@ export default function CheckoutPage() {
   const [citySubcity, setCitySubcity] = useState<string>("Addis Ababa - Bole");
   const [orderNotes, setOrderNotes] = useState<string>("");
 
-  // Payment Selection — default to Telebirr
   const [selectedPayment, setSelectedPayment] =
     useState<PaymentMethodId>("telebirr");
 
-  // Upload / reference state (only used when bank is selected)
   const [paymentRef, setPaymentRef] = useState<string>("");
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const [proofError, setProofError] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Order success state
   const [orderCreated, setOrderCreated] = useState<boolean>(false);
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
 
   const isAuthenticated = status === "authenticated" && !!user;
-
-  // Only show the upload form when Commercial Bank Transfer is selected
   const showUploadForm = selectedPayment === "bank";
 
-  // Build payment options dynamically (so translations update on language change)
   const paymentOptions: PaymentOption[] = [
     {
       id: "telebirr",
@@ -224,7 +234,7 @@ export default function CheckoutPage() {
       ),
       instructions: t(
         "checkout.payment_telebirr_instructions",
-        "Transfer to our official Telebirr merchant account upon order confirmation."
+        "You will be redirected to Telebirr secure checkout to complete payment."
       ),
       details: [
         {
@@ -313,7 +323,6 @@ export default function CheckoutPage() {
     },
   ];
 
-  // Fetch user's addresses if authenticated
   useEffect(() => {
     const fetchAddresses = async (): Promise<void> => {
       if (!isAuthenticated) return;
@@ -341,12 +350,8 @@ export default function CheckoutPage() {
     fetchAddresses();
   }, [isAuthenticated]);
 
-  // ============================================
-  // PAYMENT METHOD HANDLER
-  // ============================================
   const handleSelectPayment = (method: PaymentMethodId): void => {
     setSelectedPayment(method);
-
     if (method !== "bank") {
       setPaymentRef("");
       setProofFile(null);
@@ -357,9 +362,6 @@ export default function CheckoutPage() {
     }
   };
 
-  // ============================================
-  // FILE HANDLERS
-  // ============================================
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     setProofError("");
     const file = e.target.files?.[0];
@@ -374,25 +376,18 @@ export default function CheckoutPage() {
     ];
     if (!allowed.includes(file.type)) {
       setProofError(
-        t(
-          "checkout.upload_error_type",
-          "Only PNG, JPG, WEBP, or PDF files are allowed."
-        )
+        t("checkout.upload_error_type", "Only PNG, JPG, WEBP, or PDF files are allowed.")
       );
       return;
     }
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
       setProofError(
-        t(
-          "checkout.upload_error_size",
-          `File must be smaller than ${MAX_FILE_SIZE_MB} MB.`
-        )
+        t("checkout.upload_error_size", `File must be smaller than ${MAX_FILE_SIZE_MB} MB.`)
       );
       return;
     }
 
     if (proofPreview) URL.revokeObjectURL(proofPreview);
-
     setProofFile(file);
     if (file.type.startsWith("image/")) {
       setProofPreview(URL.createObjectURL(file));
@@ -409,65 +404,41 @@ export default function CheckoutPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // ============================================
-  // SUBMIT
-  // ============================================
   const handlePlaceOrder = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
 
     if (items.length === 0) {
       toast.error(
-        t(
-          "checkout.toast_empty_cart",
-          "Your cart is empty! Add products before checking out."
-        )
+        t("checkout.toast_empty_cart", "Your cart is empty! Add products before checking out.")
       );
       return;
     }
 
     if (!isAuthenticated) {
       if (!guestName.trim()) {
-        toast.error(
-          t("checkout.toast_name_required", "Please enter your full name.")
-        );
+        toast.error(t("checkout.toast_name_required", "Please enter your full name."));
         return;
       }
       if (!guestPhone.trim() || guestPhone.trim().length < 9) {
         toast.error(
-          t(
-            "checkout.toast_phone_required",
-            "Please provide a valid Ethiopian phone number."
-          )
+          t("checkout.toast_phone_required", "Please provide a valid Ethiopian phone number.")
         );
         return;
       }
       if (!deliveryAddress.trim()) {
-        toast.error(
-          t(
-            "checkout.toast_address_required",
-            "Please provide your delivery address."
-          )
-        );
+        toast.error(t("checkout.toast_address_required", "Please provide your delivery address."));
         return;
       }
     } else {
       if (checkoutAddresses.length === 0) {
         if (!manualAddress.trim()) {
           toast.error(
-            t(
-              "checkout.toast_address_required",
-              "Please enter your delivery address."
-            )
+            t("checkout.toast_address_required", "Please enter your delivery address.")
           );
           return;
         }
       } else if (!selectedAddressId) {
-        toast.error(
-          t(
-            "checkout.toast_select_address",
-            "Please select a delivery address."
-          )
-        );
+        toast.error(t("checkout.toast_select_address", "Please select a delivery address."));
         return;
       }
     }
@@ -536,29 +507,81 @@ export default function CheckoutPage() {
         };
       }
 
-      console.log("📦 Checkout payload:", {
-        ...payload,
-        paymentProof: paymentProof
-          ? {
-              fileName: paymentProof.fileName,
-              mimeType: paymentProof.mimeType,
-              base64Length: paymentProof.base64.length,
-            }
-          : null,
-      });
-
       const response =
         (await checkoutApi.createCheckout(payload)) as CreateCheckoutResponse;
 
       if (response.success) {
+        const newOrderId = response.data.order.id;
+
+        // ═══════════════════════════════════════════════════════
+        // Telebirr: redirect to real Telebirr app / H5 checkout
+        // ═══════════════════════════════════════════════════════
+        if (
+          selectedPayment === "telebirr" &&
+          response.data.telebirrCheckoutUrl
+        ) {
+          // ✅ Persist pending order so we can detect cancelled payments on return
+          savePendingTelebirrOrder({
+            orderId: response.data.order.id,
+            orderNumber: response.data.order.orderNumber,
+            total: response.data.order.total,
+            createdAt: Date.now(),
+          });
+
+          clearCart();
+
+          toast.success(
+            t(
+              "checkout.toast_redirecting_telebirr",
+              "Redirecting to Telebirr secure checkout..."
+            ),
+            { duration: 2000 }
+          );
+
+          // Small delay so the toast renders before the page navigates away.
+          // Using window.location.href (not router.push) is REQUIRED because
+          // we are leaving the Next.js app entirely.
+          const telebirrUrl = response.data.telebirrCheckoutUrl;
+          setTimeout(() => {
+            window.location.href = telebirrUrl;
+          }, 700);
+          return;
+        }
+
+        // Telebirr was selected but backend returned no URL
+        if (
+          selectedPayment === "telebirr" &&
+          !response.data.telebirrCheckoutUrl
+        ) {
+          const backendError = response.data.telebirrError || "Unknown error";
+          console.error("❌ Telebirr unavailable. Backend reason:", backendError);
+
+          setOrderCreated(true);
+          setCreatedOrder(response.data.order);
+          clearCart();
+
+          toast.error(
+            process.env.NODE_ENV === "development" && response.data.telebirrError
+              ? `Telebirr: ${response.data.telebirrError}`
+              : t(
+                  "checkout.toast_telebirr_unavailable",
+                  "Order placed, but Telebirr is temporarily unavailable. Please pay via the Orders page."
+                ),
+            { duration: 6000 }
+          );
+
+          setTimeout(() => {
+            router.push(`/orders?highlight=${newOrderId}`);
+          }, 3000);
+          return;
+        }
+
+        // Cash / Bank
         setOrderCreated(true);
         setCreatedOrder(response.data.order);
         clearCart();
-        toast.success(
-          t("checkout.toast_success", "Order created successfully!")
-        );
+        toast.success(t("checkout.toast_success", "Order created successfully!"));
 
-        const newOrderId = response.data.order.id;
         setTimeout(() => {
           router.push(`/orders?highlight=${newOrderId}`);
         }, 2000);
@@ -573,10 +596,7 @@ export default function CheckoutPage() {
         toast.error(
           axiosError.response?.data?.error ||
             axiosError.response?.data?.message ||
-            t(
-              "checkout.toast_error",
-              "Failed to create order. Please try again."
-            )
+            t("checkout.toast_error", "Failed to create order. Please try again.")
         );
       } else {
         toast.error(
@@ -588,9 +608,6 @@ export default function CheckoutPage() {
     }
   };
 
-  // ============================================
-  // SUCCESS SCREEN
-  // ============================================
   if (orderCreated && createdOrder) {
     return (
       <main className="min-h-screen bg-[var(--cream)] pt-28 sm:pt-32 flex items-center justify-center">
@@ -618,10 +635,7 @@ export default function CheckoutPage() {
                 href="/shop"
                 className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#123523] px-8 py-3 text-sm font-bold text-[#123523] hover:bg-[#f6f3e9] transition"
               >
-                {t(
-                  "checkout.success_continue_shopping",
-                  "Continue Shopping"
-                )}
+                {t("checkout.success_continue_shopping", "Continue Shopping")}
               </Link>
             </div>
           </div>
@@ -658,10 +672,7 @@ export default function CheckoutPage() {
               href="/shop"
               className="mt-8 inline-flex items-center gap-2 rounded-2xl bg-[#123523] px-8 py-4 text-sm font-bold text-white shadow-lg hover:bg-[#19472d] transition"
             >
-              {t(
-                "checkout.empty_cart_cta",
-                "Browse Fresh Produce Marketplace"
-              )}
+              {t("checkout.empty_cart_cta", "Browse Fresh Produce Marketplace")}
             </Link>
           </div>
         ) : (
@@ -669,9 +680,8 @@ export default function CheckoutPage() {
             onSubmit={handlePlaceOrder}
             className="grid grid-cols-1 gap-8 lg:grid-cols-12 items-start"
           >
-            {/* LEFT COLUMN */}
             <div className="lg:col-span-7 space-y-7">
-              {/* 1. Customer & Delivery Information */}
+              {/* Step 1: Customer & Delivery */}
               <div className="rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-8 shadow-[0_10px_35px_rgba(18,53,35,.05)]">
                 <div className="flex items-center justify-between pb-4 mb-5 border-b border-gray-100">
                   <div className="flex items-center gap-3">
@@ -679,10 +689,7 @@ export default function CheckoutPage() {
                       1
                     </span>
                     <h2 className="font-serif-heading text-xl font-bold text-[#123523]">
-                      {t(
-                        "checkout.step1_title",
-                        "Customer & Delivery Details"
-                      )}
+                      {t("checkout.step1_title", "Customer & Delivery Details")}
                     </h2>
                   </div>
                   {isAuthenticated ? (
@@ -706,10 +713,7 @@ export default function CheckoutPage() {
                       <>
                         <div className="space-y-3">
                           <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                            {t(
-                              "checkout.select_delivery_address",
-                              "Select Delivery Address"
-                            )}{" "}
+                            {t("checkout.select_delivery_address", "Select Delivery Address")}{" "}
                             <span className="text-red-500">*</span>
                           </label>
                           {checkoutAddresses.map((address) => (
@@ -726,9 +730,7 @@ export default function CheckoutPage() {
                                 name="address"
                                 value={address.id}
                                 checked={selectedAddressId === address.id}
-                                onChange={() =>
-                                  setSelectedAddressId(address.id)
-                                }
+                                onChange={() => setSelectedAddressId(address.id)}
                                 className="mt-1"
                               />
                               <div className="flex-1 min-w-0">
@@ -742,12 +744,9 @@ export default function CheckoutPage() {
                                     </span>
                                   )}
                                 </div>
+                                <p className="text-xs text-[#69736b]">{address.phone}</p>
                                 <p className="text-xs text-[#69736b]">
-                                  {address.phone}
-                                </p>
-                                <p className="text-xs text-[#69736b]">
-                                  {address.street}, {address.city},{" "}
-                                  {address.state}, {address.country}
+                                  {address.street}, {address.city}, {address.state}, {address.country}
                                 </p>
                               </div>
                             </label>
@@ -776,48 +775,24 @@ export default function CheckoutPage() {
                                 onChange={(e) => setManualCity(e.target.value)}
                                 className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                               >
-                                <option value="Addis Ababa - Bole">
-                                  Addis Ababa — Bole
-                                </option>
-                                <option value="Addis Ababa - Kirkos">
-                                  Addis Ababa — Kirkos
-                                </option>
-                                <option value="Addis Ababa - Yeka">
-                                  Addis Ababa — Yeka
-                                </option>
-                                <option value="Addis Ababa - Nifas Silk">
-                                  Addis Ababa — Nifas Silk
-                                </option>
-                                <option value="Addis Ababa - Arada">
-                                  Addis Ababa — Arada
-                                </option>
-                                <option value="Addis Ababa - Gulele">
-                                  Addis Ababa — Gulele
-                                </option>
-                                <option value="Addis Ababa - Akaki Kality">
-                                  Addis Ababa — Akaki Kality
-                                </option>
-                                <option value="Oromia - Bishoftu / Mojo">
-                                  Oromia — Bishoftu / Mojo
-                                </option>
-                                <option value="Oromia - Sebeta / Burayu">
-                                  Oromia — Sebeta / Burayu
-                                </option>
-                                <option value="Amhara - Bahir Dar">
-                                  Amhara — Bahir Dar
-                                </option>
-                                <option value="Other Agricultural Region">
-                                  Other Agricultural Region
-                                </option>
+                                <option value="Addis Ababa - Bole">Addis Ababa — Bole</option>
+                                <option value="Addis Ababa - Kirkos">Addis Ababa — Kirkos</option>
+                                <option value="Addis Ababa - Yeka">Addis Ababa — Yeka</option>
+                                <option value="Addis Ababa - Nifas Silk">Addis Ababa — Nifas Silk</option>
+                                <option value="Addis Ababa - Arada">Addis Ababa — Arada</option>
+                                <option value="Addis Ababa - Gulele">Addis Ababa — Gulele</option>
+                                <option value="Addis Ababa - Akaki Kality">Addis Ababa — Akaki Kality</option>
+                                <option value="Oromia - Bishoftu / Mojo">Oromia — Bishoftu / Mojo</option>
+                                <option value="Oromia - Sebeta / Burayu">Oromia — Sebeta / Burayu</option>
+                                <option value="Amhara - Bahir Dar">Amhara — Bahir Dar</option>
+                                <option value="Other Agricultural Region">Other Agricultural Region</option>
                               </select>
                             </div>
                             <div>
                               <input
                                 type="text"
                                 value={manualAddress}
-                                onChange={(e) =>
-                                  setManualAddress(e.target.value)
-                                }
+                                onChange={(e) => setManualAddress(e.target.value)}
                                 placeholder={t(
                                   "checkout.street_short_placeholder",
                                   "Street, House #, Landmark"
@@ -847,56 +822,29 @@ export default function CheckoutPage() {
                               onChange={(e) => setManualCity(e.target.value)}
                               className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                             >
-                              <option value="Addis Ababa - Bole">
-                                Addis Ababa — Bole
-                              </option>
-                              <option value="Addis Ababa - Kirkos">
-                                Addis Ababa — Kirkos
-                              </option>
-                              <option value="Addis Ababa - Yeka">
-                                Addis Ababa — Yeka
-                              </option>
-                              <option value="Addis Ababa - Nifas Silk">
-                                Addis Ababa — Nifas Silk
-                              </option>
-                              <option value="Addis Ababa - Arada">
-                                Addis Ababa — Arada
-                              </option>
-                              <option value="Addis Ababa - Gulele">
-                                Addis Ababa — Gulele
-                              </option>
-                              <option value="Addis Ababa - Akaki Kality">
-                                Addis Ababa — Akaki Kality
-                              </option>
-                              <option value="Oromia - Bishoftu / Mojo">
-                                Oromia — Bishoftu / Mojo
-                              </option>
-                              <option value="Oromia - Sebeta / Burayu">
-                                Oromia — Sebeta / Burayu
-                              </option>
-                              <option value="Amhara - Bahir Dar">
-                                Amhara — Bahir Dar
-                              </option>
-                              <option value="Other Agricultural Region">
-                                Other Agricultural Region
-                              </option>
+                              <option value="Addis Ababa - Bole">Addis Ababa — Bole</option>
+                              <option value="Addis Ababa - Kirkos">Addis Ababa — Kirkos</option>
+                              <option value="Addis Ababa - Yeka">Addis Ababa — Yeka</option>
+                              <option value="Addis Ababa - Nifas Silk">Addis Ababa — Nifas Silk</option>
+                              <option value="Addis Ababa - Arada">Addis Ababa — Arada</option>
+                              <option value="Addis Ababa - Gulele">Addis Ababa — Gulele</option>
+                              <option value="Addis Ababa - Akaki Kality">Addis Ababa — Akaki Kality</option>
+                              <option value="Oromia - Bishoftu / Mojo">Oromia — Bishoftu / Mojo</option>
+                              <option value="Oromia - Sebeta / Burayu">Oromia — Sebeta / Burayu</option>
+                              <option value="Amhara - Bahir Dar">Amhara — Bahir Dar</option>
+                              <option value="Other Agricultural Region">Other Agricultural Region</option>
                             </select>
                           </div>
                           <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                              {t(
-                                "checkout.street_landmark",
-                                "Street / Landmark / House #"
-                              )}{" "}
+                              {t("checkout.street_landmark", "Street / Landmark / House #")}{" "}
                               <span className="text-red-500">*</span>
                             </label>
                             <input
                               type="text"
                               required
                               value={manualAddress}
-                              onChange={(e) =>
-                                setManualAddress(e.target.value)
-                              }
+                              onChange={(e) => setManualAddress(e.target.value)}
                               placeholder={t(
                                 "checkout.street_placeholder",
                                 "e.g. Near Medhanialem Church, House 142"
@@ -909,10 +857,7 @@ export default function CheckoutPage() {
                           href="/profile/addresses"
                           className="inline-block text-xs text-[#28633e] font-bold hover:underline"
                         >
-                          {t(
-                            "checkout.add_address_link",
-                            "+ Add address to your account →"
-                          )}
+                          {t("checkout.add_address_link", "+ Add address to your account →")}
                         </Link>
                       </div>
                     )}
@@ -930,10 +875,7 @@ export default function CheckoutPage() {
                           required
                           value={guestName}
                           onChange={(e) => setGuestName(e.target.value)}
-                          placeholder={t(
-                            "checkout.full_name_placeholder",
-                            "e.g. Abebe Kebede"
-                          )}
+                          placeholder={t("checkout.full_name_placeholder", "e.g. Abebe Kebede")}
                           className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                         />
                       </div>
@@ -947,10 +889,7 @@ export default function CheckoutPage() {
                           required
                           value={guestPhone}
                           onChange={(e) => setGuestPhone(e.target.value)}
-                          placeholder={t(
-                            "checkout.phone_placeholder",
-                            "e.g. 0911 234 567"
-                          )}
+                          placeholder={t("checkout.phone_placeholder", "e.g. 0911 234 567")}
                           className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                         />
                       </div>
@@ -967,10 +906,7 @@ export default function CheckoutPage() {
                         type="email"
                         value={guestEmail}
                         onChange={(e) => setGuestEmail(e.target.value)}
-                        placeholder={t(
-                          "checkout.email_placeholder",
-                          "e.g. abebe@example.com"
-                        )}
+                        placeholder={t("checkout.email_placeholder", "e.g. abebe@example.com")}
                         className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                       />
                     </div>
@@ -986,47 +922,22 @@ export default function CheckoutPage() {
                           onChange={(e) => setCitySubcity(e.target.value)}
                           className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
                         >
-                          <option value="Addis Ababa - Bole">
-                            Addis Ababa — Bole
-                          </option>
-                          <option value="Addis Ababa - Kirkos">
-                            Addis Ababa — Kirkos
-                          </option>
-                          <option value="Addis Ababa - Yeka">
-                            Addis Ababa — Yeka
-                          </option>
-                          <option value="Addis Ababa - Nifas Silk">
-                            Addis Ababa — Nifas Silk
-                          </option>
-                          <option value="Addis Ababa - Arada">
-                            Addis Ababa — Arada
-                          </option>
-                          <option value="Addis Ababa - Gulele">
-                            Addis Ababa — Gulele
-                          </option>
-                          <option value="Addis Ababa - Akaki Kality">
-                            Addis Ababa — Akaki Kality
-                          </option>
-                          <option value="Oromia - Bishoftu / Mojo">
-                            Oromia — Bishoftu / Mojo
-                          </option>
-                          <option value="Oromia - Sebeta / Burayu">
-                            Oromia — Sebeta / Burayu
-                          </option>
-                          <option value="Amhara - Bahir Dar">
-                            Amhara — Bahir Dar
-                          </option>
-                          <option value="Other Agricultural Region">
-                            Other Agricultural Region
-                          </option>
+                          <option value="Addis Ababa - Bole">Addis Ababa — Bole</option>
+                          <option value="Addis Ababa - Kirkos">Addis Ababa — Kirkos</option>
+                          <option value="Addis Ababa - Yeka">Addis Ababa — Yeka</option>
+                          <option value="Addis Ababa - Nifas Silk">Addis Ababa — Nifas Silk</option>
+                          <option value="Addis Ababa - Arada">Addis Ababa — Arada</option>
+                          <option value="Addis Ababa - Gulele">Addis Ababa — Gulele</option>
+                          <option value="Addis Ababa - Akaki Kality">Addis Ababa — Akaki Kality</option>
+                          <option value="Oromia - Bishoftu / Mojo">Oromia — Bishoftu / Mojo</option>
+                          <option value="Oromia - Sebeta / Burayu">Oromia — Sebeta / Burayu</option>
+                          <option value="Amhara - Bahir Dar">Amhara — Bahir Dar</option>
+                          <option value="Other Agricultural Region">Other Agricultural Region</option>
                         </select>
                       </div>
                       <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                          {t(
-                            "checkout.street_landmark",
-                            "Street / Landmark / House #"
-                          )}{" "}
+                          {t("checkout.street_landmark", "Street / Landmark / House #")}{" "}
                           <span className="text-red-500">*</span>
                         </label>
                         <input
@@ -1048,10 +959,7 @@ export default function CheckoutPage() {
                 <div className="space-y-4 mt-2">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                      {t(
-                        "checkout.order_instructions",
-                        "Order / Delivery Instructions"
-                      )}{" "}
+                      {t("checkout.order_instructions", "Order / Delivery Instructions")}{" "}
                       <span className="text-gray-400 font-normal">
                         {t("checkout.order_instructions_optional", "(Optional)")}
                       </span>
@@ -1070,7 +978,7 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              {/* 2. Payment Method Selection */}
+              {/* Step 2: Payment Method */}
               <div className="rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-8 shadow-[0_10px_35px_rgba(18,53,35,.05)]">
                 <div className="flex items-center gap-3 pb-4 mb-5 border-b border-gray-100">
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#123523] text-[var(--lime)] font-bold text-xs">
@@ -1167,37 +1075,23 @@ export default function CheckoutPage() {
                             {showUploadForm && (
                               <div className="mt-4 rounded-xl border border-[#28633e]/25 bg-white p-4 space-y-4">
                                 <div className="flex items-center gap-2">
-                                  <Upload
-                                    size={16}
-                                    className="text-[#28633e]"
-                                  />
+                                  <Upload size={16} className="text-[#28633e]" />
                                   <h4 className="font-bold text-sm text-[#123523]">
-                                    {t(
-                                      "checkout.upload_title",
-                                      "Upload Payment Proof"
-                                    )}
+                                    {t("checkout.upload_title", "Upload Payment Proof")}
                                   </h4>
                                 </div>
 
                                 <div>
                                   <label className="block text-[11px] font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                                    {t(
-                                      "checkout.upload_tx_ref",
-                                      "Transaction Reference Number"
-                                    )}{" "}
+                                    {t("checkout.upload_tx_ref", "Transaction Reference Number")}{" "}
                                     <span className="text-gray-400 font-normal">
-                                      {t(
-                                        "checkout.upload_tx_ref_optional",
-                                        "(Optional if you upload)"
-                                      )}
+                                      {t("checkout.upload_tx_ref_optional", "(Optional if you upload)")}
                                     </span>
                                   </label>
                                   <input
                                     type="text"
                                     value={paymentRef}
-                                    onChange={(e) =>
-                                      setPaymentRef(e.target.value)
-                                    }
+                                    onChange={(e) => setPaymentRef(e.target.value)}
                                     placeholder={t(
                                       "checkout.upload_tx_ref_placeholder",
                                       "e.g. FT2309123456 or CBE-8891234"
@@ -1208,10 +1102,7 @@ export default function CheckoutPage() {
 
                                 <div>
                                   <label className="block text-[11px] font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                                    {t(
-                                      "checkout.upload_receipt",
-                                      "Receipt / Screenshot"
-                                    )}{" "}
+                                    {t("checkout.upload_receipt", "Receipt / Screenshot")}{" "}
                                     <span className="text-gray-400 font-normal">
                                       {t(
                                         "checkout.upload_receipt_hint",
@@ -1222,15 +1113,9 @@ export default function CheckoutPage() {
 
                                   {!proofFile ? (
                                     <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#28633e]/40 bg-[#f6f3e9]/40 px-4 py-6 cursor-pointer hover:bg-[#f6f3e9]/70 transition">
-                                      <Upload
-                                        size={22}
-                                        className="text-[#28633e]"
-                                      />
+                                      <Upload size={22} className="text-[#28633e]" />
                                       <span className="text-xs font-bold text-[#123523]">
-                                        {t(
-                                          "checkout.upload_click",
-                                          "Click to upload receipt"
-                                        )}
+                                        {t("checkout.upload_click", "Click to upload receipt")}
                                       </span>
                                       <span className="text-[10px] text-[#69736b]">
                                         {t(
@@ -1272,10 +1157,7 @@ export default function CheckoutPage() {
                                         type="button"
                                         onClick={clearProofFile}
                                         className="flex h-8 w-8 items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-300 transition"
-                                        aria-label={t(
-                                          "checkout.remove_file",
-                                          "Remove file"
-                                        )}
+                                        aria-label={t("checkout.remove_file", "Remove file")}
                                       >
                                         <X size={14} />
                                       </button>
@@ -1298,7 +1180,7 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              {/* 3. Company Info */}
+              {/* Step 3: Company Info */}
               <div className="rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-7 shadow-[0_10px_35px_rgba(18,53,35,.04)]">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--lime)] text-[var(--green-950)] font-bold">
@@ -1306,10 +1188,7 @@ export default function CheckoutPage() {
                   </div>
                   <div>
                     <h3 className="font-serif-heading text-lg font-bold text-[#123523]">
-                      {t(
-                        "checkout.step3_company_name",
-                        "Genesis Agri Enterprises PLC"
-                      )}
+                      {t("checkout.step3_company_name", "Genesis Agri Enterprises PLC")}
                     </h3>
                     <p className="text-xs text-[#69736b]">
                       {t(
@@ -1322,16 +1201,10 @@ export default function CheckoutPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div className="flex items-start gap-2.5 rounded-xl bg-[#f6f3e9]/60 p-3">
-                    <MapPin
-                      size={16}
-                      className="text-[#28633e] shrink-0 mt-0.5"
-                    />
+                    <MapPin size={16} className="text-[#28633e] shrink-0 mt-0.5" />
                     <div>
                       <span className="font-bold text-[#123523] block">
-                        {t(
-                          "checkout.company_dispatch_title",
-                          "Central Dispatch Hub"
-                        )}
+                        {t("checkout.company_dispatch_title", "Central Dispatch Hub")}
                       </span>
                       <span className="text-[#69736b]">
                         {t(
@@ -1343,16 +1216,10 @@ export default function CheckoutPage() {
                   </div>
 
                   <div className="flex items-start gap-2.5 rounded-xl bg-[#f6f3e9]/60 p-3">
-                    <Phone
-                      size={16}
-                      className="text-[#28633e] shrink-0 mt-0.5"
-                    />
+                    <Phone size={16} className="text-[#28633e] shrink-0 mt-0.5" />
                     <div>
                       <span className="font-bold text-[#123523] block">
-                        {t(
-                          "checkout.company_hotlines_title",
-                          "Support Hotlines"
-                        )}
+                        {t("checkout.company_hotlines_title", "Support Hotlines")}
                       </span>
                       <span className="text-[#69736b]">
                         {t(
@@ -1364,40 +1231,25 @@ export default function CheckoutPage() {
                   </div>
 
                   <div className="flex items-start gap-2.5 rounded-xl bg-[#f6f3e9]/60 p-3">
-                    <Mail
-                      size={16}
-                      className="text-[#28633e] shrink-0 mt-0.5"
-                    />
+                    <Mail size={16} className="text-[#28633e] shrink-0 mt-0.5" />
                     <div>
                       <span className="font-bold text-[#123523] block">
                         {t("checkout.company_email_title", "Official Email")}
                       </span>
                       <span className="text-[#69736b]">
-                        {t(
-                          "checkout.company_email_value",
-                          "orders@genesisagri.com"
-                        )}
+                        {t("checkout.company_email_value", "orders@genesisagri.com")}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-2.5 rounded-xl bg-[#f6f3e9]/60 p-3">
-                    <Truck
-                      size={16}
-                      className="text-[#28633e] shrink-0 mt-0.5"
-                    />
+                    <Truck size={16} className="text-[#28633e] shrink-0 mt-0.5" />
                     <div>
                       <span className="font-bold text-[#123523] block">
-                        {t(
-                          "checkout.company_hours_title",
-                          "Dispatch Hours"
-                        )}
+                        {t("checkout.company_hours_title", "Dispatch Hours")}
                       </span>
                       <span className="text-[#69736b]">
-                        {t(
-                          "checkout.company_hours_value",
-                          "Mon – Sat: 7:00 AM – 7:00 PM"
-                        )}
+                        {t("checkout.company_hours_value", "Mon – Sat: 7:00 AM – 7:00 PM")}
                       </span>
                     </div>
                   </div>
@@ -1405,7 +1257,7 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Order Summary */}
+            {/* Order Summary */}
             <div className="lg:col-span-5 sticky top-28 space-y-4">
               <div className="rounded-[2.5rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-7 shadow-[0_15px_45px_rgba(18,53,35,.07)]">
                 <h2 className="font-serif-heading text-2xl font-bold text-[#123523] pb-4 border-b border-gray-100">
@@ -1426,9 +1278,7 @@ export default function CheckoutPage() {
                           fill
                           sizes="56px"
                           className="object-cover"
-                          onError={(
-                            e: React.SyntheticEvent<HTMLImageElement>
-                          ) => {
+                          onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
                             e.currentTarget.src =
                               "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80";
                           }}
@@ -1483,10 +1333,7 @@ export default function CheckoutPage() {
                       {t("checkout.summary_dispatch", "Farm Direct Dispatch")}
                     </span>
                     <span className="font-bold text-[#28633e]">
-                      {t(
-                        "checkout.summary_dispatch_value",
-                        "Free Local Dispatch"
-                      )}
+                      {t("checkout.summary_dispatch_value", "Free Local Dispatch")}
                     </span>
                   </div>
 
@@ -1511,16 +1358,12 @@ export default function CheckoutPage() {
                   {submitting ? (
                     <>
                       <Loader2 size={16} className="animate-spin" />
-                      <span>
-                        {t("checkout.placing_order", "Processing Order...")}
-                      </span>
+                      <span>{t("checkout.placing_order", "Processing Order...")}</span>
                     </>
                   ) : (
                     <>
                       <Sparkles size={16} />
-                      <span>
-                        {t("checkout.place_order", "Confirm & Place Order")}
-                      </span>
+                      <span>{t("checkout.place_order", "Confirm & Place Order")}</span>
                       <span className="font-bold text-base">→</span>
                     </>
                   )}

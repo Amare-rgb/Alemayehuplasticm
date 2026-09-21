@@ -1,18 +1,26 @@
-// server.js - Fixed for Prisma 5 (No adapter)
+// server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { PrismaClient } = require('@prisma/client');
+const http = require('http');
 
-// ✅ FIX: Simple Prisma Client initialization without adapter
-const prisma = new PrismaClient();
+// ✅ Shared Prisma client (singleton) — no `new PrismaClient()` here.
+//    lib/prisma.js should export a single instance used by all routes.
+const prisma = require('./lib/prisma');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Import routes
+// ═══════════════════════════════════════════════════════════
+// TRUST PROXY (needed behind ngrok / nginx for correct protocol/ip)
+// ═══════════════════════════════════════════════════════════
+app.set('trust proxy', 1);
+
+// ═══════════════════════════════════════════════════════════
+// IMPORT ROUTES
+// ═══════════════════════════════════════════════════════════
 const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
 const adminDashboardRoutes = require('./routes/admin.dashboard');
@@ -28,86 +36,102 @@ const settingsRoutes = require('./routes/settings.routes');
 const profileRoutes = require('./routes/profile.routes');
 const articlesRoutes = require('./routes/articles.routes');
 const chatbotRoutes = require('./routes/chatbot.routes');
+// ✅ Telebirr payment routes (notify + return)
+const telebirrRoutes = require('./routes/telebirr.routes');
 
-// Ensure uploads directory exists
+// ═══════════════════════════════════════════════════════════
+// ENSURE UPLOAD DIRECTORIES EXIST
+// ═══════════════════════════════════════════════════════════
 const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log('✅ Created uploads directory:', uploadsDir);
-}
-
-// Ensure products subdirectory exists
 const productsDir = path.join(uploadsDir, 'products');
-if (!fs.existsSync(productsDir)) {
-  fs.mkdirSync(productsDir, { recursive: true });
-  console.log('✅ Created products directory:', productsDir);
-}
-
-// Ensure settings subdirectory exists
 const settingsDir = path.join(uploadsDir, 'settings');
-if (!fs.existsSync(settingsDir)) {
-  fs.mkdirSync(settingsDir, { recursive: true });
-  console.log('✅ Created settings directory:', settingsDir);
-}
-
-// Ensure PDFs directory exists
 const pdfsDir = path.join(uploadsDir, 'pdfs');
-if (!fs.existsSync(pdfsDir)) {
-  fs.mkdirSync(pdfsDir, { recursive: true });
-  console.log('✅ Created PDFs directory:', pdfsDir);
-}
 
-// Middleware
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
-}));
+[uploadsDir, productsDir, settingsDir, pdfsDir].forEach((dir) => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log('✅ Created directory:', dir);
+  }
+});
 
-// ✅ FIX: Increase JSON body limit to accept base64 payment proofs (images/PDFs)
-// The default 100kb limit caused: PayloadTooLargeError: request entity too large
+// ═══════════════════════════════════════════════════════════
+// CORS — supports multiple origins (dev + prod + ngrok)
+// ═══════════════════════════════════════════════════════════
+const rawOrigins = [
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL,
+  'http://localhost:3000',
+  'http://localhost:3001',
+].filter(Boolean);
+
+const allowedOrigins = new Set(rawOrigins.map((o) => o.replace(/\/+$/, '')));
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Allow non-browser tools (curl, Postman) and same-origin requests
+      if (!origin) return callback(null, true);
+      const cleaned = origin.replace(/\/+$/, '');
+      if (allowedOrigins.has(cleaned)) return callback(null, true);
+      // Allow any ngrok subdomain in development for Telebirr testing
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        /\.ngrok(-free)?\.(io|app)$/.test(cleaned)
+      ) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+  })
+);
+
+// ═══════════════════════════════════════════════════════════
+// BODY PARSERS
+// ═══════════════════════════════════════════════════════════
+// ✅ Raised limit so base64 payment proofs (images/PDF) are accepted.
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ============== STATIC FILES ==============
-// Serve static files from uploads directory with proper path
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-  setHeaders: (res, filePath) => {
-    // Cache control for images - allow caching but revalidate
-    if (filePath.match(/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i)) {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    } else {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    }
-  }
-}));
+// ═══════════════════════════════════════════════════════════
+// STATIC FILES
+// ═══════════════════════════════════════════════════════════
+app.use(
+  '/uploads',
+  express.static(uploadsDir, {
+    setHeaders: (res, filePath) => {
+      if (filePath.match(/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    },
+  })
+);
 
-// Also serve individual subdirectories explicitly
-app.use('/uploads/products', express.static(path.join(__dirname, 'uploads/products')));
-app.use('/uploads/settings', express.static(path.join(__dirname, 'uploads/settings')));
-app.use('/uploads/pdfs', express.static(path.join(__dirname, 'uploads/pdfs')));
+app.use('/uploads/products', express.static(productsDir));
+app.use('/uploads/settings', express.static(settingsDir));
+app.use('/uploads/pdfs', express.static(pdfsDir));
 
-console.log('✅ Serving static files from:', path.join(__dirname, 'uploads'));
+console.log('✅ Serving static files from:', uploadsDir);
 console.log('   - Products: /uploads/products');
 console.log('   - Settings: /uploads/settings');
-console.log('   - PDFs: /uploads/pdfs');
+console.log('   - PDFs:     /uploads/pdfs');
 
-// ============== DATABASE CONNECTION ==============
+// ═══════════════════════════════════════════════════════════
+// DATABASE CONNECTION
+// ═══════════════════════════════════════════════════════════
 async function connectDatabase() {
   try {
     await prisma.$connect();
     console.log('✅ Database connected successfully');
 
-    // Test the connection
     const userCount = await prisma.user.count();
     console.log(`📊 Database contains ${userCount} users`);
 
-    // Check if admin exists
-    const adminUser = await prisma.user.findFirst({
-      where: { role: 'ADMIN' }
-    });
-
+    const adminUser = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
     if (adminUser) {
       console.log('👤 Admin user exists:', adminUser.email);
     } else {
@@ -122,7 +146,9 @@ async function connectDatabase() {
   }
 }
 
-// ============== ROUTES ==============
+// ═══════════════════════════════════════════════════════════
+// ROUTES
+// ═══════════════════════════════════════════════════════════
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);
@@ -138,39 +164,45 @@ app.use('/api/admin/settings', settingsRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/articles', articlesRoutes);
 app.use('/api/chatbot', chatbotRoutes);
+// ✅ Telebirr payment routes (POST /notify + GET /return)
+app.use('/api/telebirr', telebirrRoutes);
 
-// Health check with database status
+// ═══════════════════════════════════════════════════════════
+// HEALTH CHECK
+// ═══════════════════════════════════════════════════════════
 app.get('/api/health', async (req, res) => {
   try {
-    // Check database connection
     await prisma.$queryRaw`SELECT 1`;
     const userCount = await prisma.user.count();
 
     res.json({
       status: 'OK',
       timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV,
+      environment: process.env.NODE_ENV || 'development',
       uptime: process.uptime(),
+      backendUrl: process.env.BACKEND_URL || `http://localhost:${PORT}`,
       database: {
         connected: true,
-        userCount: userCount
-      }
+        userCount,
+      },
     });
   } catch (error) {
     res.status(500).json({
       status: 'ERROR',
       timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV,
+      environment: process.env.NODE_ENV || 'development',
       uptime: process.uptime(),
       database: {
         connected: false,
-        error: error.message
-      }
+        error: error.message,
+      },
     });
   }
 });
 
-// Root route
+// ═══════════════════════════════════════════════════════════
+// ROOT ROUTE
+// ═══════════════════════════════════════════════════════════
 app.get('/', (req, res) => {
   res.json({
     name: 'Genesis Agri API Server',
@@ -193,27 +225,34 @@ app.get('/', (req, res) => {
       users: '/api/users',
       profile: '/api/profile',
       settings: '/api/admin/settings',
-      health: '/api/health'
-    }
+      health: '/api/health',
+      // ✅ Telebirr
+      telebirrNotify: '/api/telebirr/notify',
+      telebirrReturn: '/api/telebirr/return',
+    },
   });
 });
 
-// 404 handler
+// ═══════════════════════════════════════════════════════════
+// 404 HANDLER
+// ═══════════════════════════════════════════════════════════
 app.use((req, res) => {
   console.log('❌ Route not found:', req.method, req.url);
   res.status(404).json({
     success: false,
     error: 'Route not found',
     path: req.url,
-    method: req.method
+    method: req.method,
   });
 });
 
-// Global error handler
+// ═══════════════════════════════════════════════════════════
+// GLOBAL ERROR HANDLER
+// ═══════════════════════════════════════════════════════════
 app.use((err, req, res, next) => {
   console.error('❌ Global error handler:', err);
 
-  // ✅ Friendly response for oversized payloads
+  // Friendly response for oversized bodies (payment proofs)
   if (err.type === 'entity.too.large') {
     return res.status(413).json({
       success: false,
@@ -221,65 +260,92 @@ app.use((err, req, res, next) => {
     });
   }
 
+  // CORS rejection
+  if (err.message && err.message.startsWith('CORS blocked')) {
+    return res.status(403).json({
+      success: false,
+      error: err.message,
+    });
+  }
+
   res.status(500).json({
     success: false,
     error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
   });
 });
 
-// ============== START SERVER ==============
+// ═══════════════════════════════════════════════════════════
+// SERVER STARTUP
+// ═══════════════════════════════════════════════════════════
+let server; // keep a reference for graceful shutdown
+
 async function startServer() {
-  // Connect to database first
   const dbConnected = await connectDatabase();
 
   if (!dbConnected) {
     console.log('⚠️ Server starting without database connection. Some features may not work.');
   }
 
-  // Start listening
-  app.listen(PORT, () => {
-    console.log('\n🌱 Genesis Agri Server running on http://localhost:' + PORT);
-    console.log('📁 Uploads directory: ' + path.join(__dirname, 'uploads'));
-    console.log('📁 Products directory: ' + path.join(__dirname, 'uploads/products'));
-    console.log('📁 Settings directory: ' + path.join(__dirname, 'uploads/settings'));
-    console.log('📁 PDFs directory: ' + path.join(__dirname, 'uploads/pdfs'));
-    console.log('🌍 Environment: ' + process.env.NODE_ENV);
+  server = http.createServer(app);
+  server.listen(PORT, () => {
+    const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+    console.log('\n🌱 Genesis Agri Server running on ' + backendUrl);
+    console.log('📁 Uploads directory: ' + uploadsDir);
+    console.log('📁 Products directory: ' + productsDir);
+    console.log('📁 Settings directory: ' + settingsDir);
+    console.log('📁 PDFs directory: ' + pdfsDir);
+    console.log('🌍 Environment: ' + (process.env.NODE_ENV || 'development'));
     console.log('💾 Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
     console.log('');
     console.log('📋 Available Endpoints:');
-    console.log('   /api/auth         - Authentication routes');
-    console.log('   /api/admin        - Admin routes');
-    console.log('   /api/admin/dashboard - Dashboard routes');
-    console.log('   /api/articles     - Article management routes');
-    console.log('   /api/blog         - Blog routes');
-    console.log('   /api/cart         - Cart routes');
-    console.log('   /api/categories   - Category routes');
-    console.log('   /api/chatbot      - Chatbot routes');
-    console.log('   /api/checkout     - Checkout routes');
-    console.log('   /api/orders       - Order routes');
-    console.log('   /api/products     - Product routes');
-    console.log('   /api/upload       - Upload routes');
-    console.log('   /api/users        - User routes');
-    console.log('   /api/profile      - Profile routes');
-    console.log('   /api/admin/settings - Settings routes');
-    console.log('   /api/health       - Health check');
+    console.log('   /api/auth             - Authentication routes');
+    console.log('   /api/admin            - Admin routes');
+    console.log('   /api/admin/dashboard  - Dashboard routes');
+    console.log('   /api/articles         - Article management routes');
+    console.log('   /api/blog             - Blog routes');
+    console.log('   /api/cart             - Cart routes');
+    console.log('   /api/categories       - Category routes');
+    console.log('   /api/chatbot          - Chatbot routes');
+    console.log('   /api/checkout         - Checkout routes');
+    console.log('   /api/orders           - Order routes');
+    console.log('   /api/products         - Product routes');
+    console.log('   /api/upload           - Upload routes');
+    console.log('   /api/users            - User routes');
+    console.log('   /api/profile          - Profile routes');
+    console.log('   /api/admin/settings   - Settings routes');
+    console.log('   /api/health           - Health check');
+    console.log('   /api/telebirr/notify  - Telebirr server-to-server webhook');
+    console.log('   /api/telebirr/return  - Telebirr user return handler');
     console.log('');
-    console.log('📸 Logo URL: http://localhost:' + PORT + '/uploads/settings/logo-*.jpeg');
+    console.log('🔗 Telebirr URLs in use:');
+    console.log('   notify_url   : ' + (process.env.TELEBIRR_NOTIFY_URL || `${backendUrl}/api/telebirr/notify`));
+    console.log('   redirect_url : ' + (process.env.TELEBIRR_REDIRECT_URL || `${backendUrl}/api/telebirr/return`));
     console.log('');
   });
 }
 
-// Handle graceful shutdown
-async function gracefulShutdown() {
-  console.log('\n🛑 Shutting down gracefully...');
-  await prisma.$disconnect();
-  console.log('✅ Database disconnected');
-  process.exit(0);
+// ═══════════════════════════════════════════════════════════
+// GRACEFUL SHUTDOWN
+// ═══════════════════════════════════════════════════════════
+async function gracefulShutdown(signal) {
+  console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+  try {
+    if (server) {
+      await new Promise((resolve) => server.close(resolve));
+      console.log('✅ HTTP server closed');
+    }
+    await prisma.$disconnect();
+    console.log('✅ Database disconnected');
+    process.exit(0);
+  } catch (err) {
+    console.error('❌ Error during shutdown:', err);
+    process.exit(1);
+  }
 }
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start the server
 startServer();
