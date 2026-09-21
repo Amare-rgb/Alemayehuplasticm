@@ -33,10 +33,15 @@ import toast from "react-hot-toast";
 // TYPES
 // ============================================
 
-type PaymentMethodId = "telebirr" | "bank" | "cash";
+// Internal UI ids — mapped to canonical backend strings on submit.
+type PaymentMethodUiId = "telebirr" | "bank" | "cash";
+
+// Canonical values the BACKEND accepts (must match routes/checkout.routes.js)
+type CanonicalPaymentMethod = "Telebirr" | "Bank Transfer" | "Cash on Delivery";
 
 interface PaymentOption {
-  id: PaymentMethodId;
+  id: PaymentMethodUiId;
+  canonical: CanonicalPaymentMethod;
   name: string;
   badge?: string;
   icon: React.ReactNode;
@@ -93,8 +98,9 @@ interface CreateCheckoutResponse {
   };
 }
 
+// paymentMethod matches @/lib/api (string | undefined), not `| null`
 interface CheckoutPayload {
-  paymentMethod: PaymentMethodId;
+  paymentMethod?: string;
   notes: string;
   addressId?: string;
   paymentRef?: string;
@@ -151,12 +157,30 @@ interface PendingTelebirrOrder {
   createdAt: number;
 }
 
+interface AxiosLikeError {
+  response?: {
+    status?: number;
+    data?: {
+      error?: string;
+      message?: string;
+      code?: string;
+      existingOrderId?: string;
+      existingOrderNumber?: number;
+    };
+  };
+}
+
 // ============================================
-// HELPERS
+// CONSTANTS & HELPERS
 // ============================================
 
 const MAX_FILE_SIZE_MB = 5;
 const PENDING_TELEBIRR_KEY = "pendingTelebirrOrder";
+const USED_BANK_REFS_KEY = "usedBankRefs_v1"; // best-effort client cache
+
+// Same regex the backend uses. Keep them in sync.
+const BANK_REF_REGEX = /^[A-Z0-9-]{6,32}$/;
+// Telebirr refs come from the gateway — client never sends them.
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -174,12 +198,49 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function savePendingTelebirrOrder(payload: PendingTelebirrOrder): void {
+// Date.now() lives inside this module-scope helper,
+// not at the call site inside the component render path.
+function savePendingTelebirrOrder(
+  payload: Omit<PendingTelebirrOrder, "createdAt">
+): void {
   try {
-    sessionStorage.setItem(PENDING_TELEBIRR_KEY, JSON.stringify(payload));
+    const stamped: PendingTelebirrOrder = {
+      ...payload,
+      createdAt: Date.now(),
+    };
+    sessionStorage.setItem(PENDING_TELEBIRR_KEY, JSON.stringify(stamped));
   } catch {
     /* sessionStorage may be unavailable in private mode — ignore */
   }
+}
+
+/** Client-side duplicate cache (best-effort; backend is authoritative). */
+function rememberBankRef(ref: string): void {
+  try {
+    const raw = sessionStorage.getItem(USED_BANK_REFS_KEY);
+    const list: string[] = raw ? JSON.parse(raw) : [];
+    if (!list.includes(ref)) {
+      list.push(ref);
+      sessionStorage.setItem(USED_BANK_REFS_KEY, JSON.stringify(list));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function hasBankRefBeenUsed(ref: string): boolean {
+  try {
+    const raw = sessionStorage.getItem(USED_BANK_REFS_KEY);
+    if (!raw) return false;
+    const list: string[] = JSON.parse(raw);
+    return list.includes(ref);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeRefInput(input: string): string {
+  return input.replace(/[\s\u0000-\u001F\u007F]+/g, "").toUpperCase().slice(0, 64);
 }
 
 // ============================================
@@ -208,12 +269,13 @@ export default function CheckoutPage() {
   const [orderNotes, setOrderNotes] = useState<string>("");
 
   const [selectedPayment, setSelectedPayment] =
-    useState<PaymentMethodId>("telebirr");
+    useState<PaymentMethodUiId>("telebirr");
 
   const [paymentRef, setPaymentRef] = useState<string>("");
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const [proofError, setProofError] = useState<string>("");
+  const [refError, setRefError] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [orderCreated, setOrderCreated] = useState<boolean>(false);
@@ -222,9 +284,13 @@ export default function CheckoutPage() {
   const isAuthenticated = status === "authenticated" && !!user;
   const showUploadForm = selectedPayment === "bank";
 
+  // ==========================================
+  // PAYMENT OPTIONS — `id` is UI, `canonical` is backend
+  // ==========================================
   const paymentOptions: PaymentOption[] = [
     {
       id: "telebirr",
+      canonical: "Telebirr",
       name: t("checkout.payment_telebirr_name", "Telebirr Mobile Money"),
       badge: t("checkout.payment_telebirr_badge", "Most Popular"),
       icon: <Smartphone className="h-5 w-5 text-[#28633e]" />,
@@ -256,6 +322,7 @@ export default function CheckoutPage() {
     },
     {
       id: "bank",
+      canonical: "Bank Transfer",
       name: t("checkout.payment_bank_name", "Commercial Bank Transfer"),
       badge: t("checkout.payment_bank_badge", "Direct Account"),
       icon: <Building2 className="h-5 w-5 text-[#28633e]" />,
@@ -265,7 +332,7 @@ export default function CheckoutPage() {
       ),
       instructions: t(
         "checkout.payment_bank_instructions",
-        "Direct bank transfer. You can upload or SMS the transaction reference number."
+        "Direct bank transfer. You MUST provide a unique transaction reference number."
       ),
       details: [
         {
@@ -293,6 +360,7 @@ export default function CheckoutPage() {
     },
     {
       id: "cash",
+      canonical: "Cash on Delivery",
       name: t("checkout.payment_cash_name", "Cash on Delivery"),
       badge: t("checkout.payment_cash_badge", "Pay at Doorstep"),
       icon: <Coins className="h-5 w-5 text-[#28633e]" />,
@@ -323,6 +391,12 @@ export default function CheckoutPage() {
     },
   ];
 
+  const selectedOption = paymentOptions.find((o) => o.id === selectedPayment)!;
+  const canonicalMethod: CanonicalPaymentMethod = selectedOption.canonical;
+
+  // ==========================================
+  // EFFECT — load saved addresses
+  // ==========================================
   useEffect(() => {
     const fetchAddresses = async (): Promise<void> => {
       if (!isAuthenticated) return;
@@ -350,7 +424,10 @@ export default function CheckoutPage() {
     fetchAddresses();
   }, [isAuthenticated]);
 
-  const handleSelectPayment = (method: PaymentMethodId): void => {
+  // ==========================================
+  // PAYMENT SELECTION
+  // ==========================================
+  const handleSelectPayment = (method: PaymentMethodUiId): void => {
     setSelectedPayment(method);
     if (method !== "bank") {
       setPaymentRef("");
@@ -358,10 +435,14 @@ export default function CheckoutPage() {
       if (proofPreview) URL.revokeObjectURL(proofPreview);
       setProofPreview(null);
       setProofError("");
+      setRefError("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
+  // ==========================================
+  // FILE UPLOAD
+  // ==========================================
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     setProofError("");
     const file = e.target.files?.[0];
@@ -404,6 +485,35 @@ export default function CheckoutPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // ==========================================
+  // REF INPUT (bank only)
+  // ==========================================
+  const handleRefChange = (value: string): void => {
+    const cleaned = normalizeRefInput(value);
+    setPaymentRef(cleaned);
+    setRefError("");
+  };
+
+  const validateBankRef = (ref: string): string | null => {
+    if (!ref) return null; // handled separately (proof is enough)
+    if (!BANK_REF_REGEX.test(ref)) {
+      return t(
+        "checkout.ref_invalid",
+        "Reference must be 6–32 characters: letters, digits, dashes only."
+      );
+    }
+    if (hasBankRefBeenUsed(ref)) {
+      return t(
+        "checkout.ref_used_session",
+        "You already used this reference in this session. Please use a different one."
+      );
+    }
+    return null;
+  };
+
+  // ==========================================
+  // SUBMIT
+  // ==========================================
   const handlePlaceOrder = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
 
@@ -414,6 +524,7 @@ export default function CheckoutPage() {
       return;
     }
 
+    // Address validation
     if (!isAuthenticated) {
       if (!guestName.trim()) {
         toast.error(t("checkout.toast_name_required", "Please enter your full name."));
@@ -443,19 +554,32 @@ export default function CheckoutPage() {
       }
     }
 
-    if (showUploadForm && !paymentRef.trim() && !proofFile) {
-      toast.error(
-        t(
-          "checkout.toast_payment_proof",
-          "Please enter the transaction reference OR upload a payment screenshot/receipt."
-        )
-      );
-      return;
+    // ─── BANK: reference is REQUIRED unless a receipt is uploaded ───
+    if (canonicalMethod === "Bank Transfer") {
+      const trimmedRef = paymentRef.trim();
+      if (!trimmedRef && !proofFile) {
+        const msg = t(
+          "checkout.toast_payment_ref_required",
+          "Please enter the transaction reference number OR upload a payment receipt."
+        );
+        setRefError(msg);
+        toast.error(msg);
+        return;
+      }
+      if (trimmedRef) {
+        const refErr = validateBankRef(trimmedRef);
+        if (refErr) {
+          setRefError(refErr);
+          toast.error(refErr);
+          return;
+        }
+      }
     }
 
     try {
       setSubmitting(true);
 
+      // Build cart items — backend re-prices anyway; we only send what it needs.
       const cartItems = items.map((item: CartItem) => {
         const productId = item.productId || item.id;
         return {
@@ -478,10 +602,14 @@ export default function CheckoutPage() {
       }
 
       const payload: CheckoutPayload = {
-        paymentMethod: selectedPayment,
+        paymentMethod: canonicalMethod,
         notes: orderNotes,
         items: cartItems,
-        paymentRef: showUploadForm ? paymentRef.trim() || undefined : undefined,
+        // Telebirr & COD: NEVER send a ref. Bank: send sanitized ref only.
+        paymentRef:
+          canonicalMethod === "Bank Transfer" && paymentRef.trim()
+            ? paymentRef.trim()
+            : undefined,
         paymentProof,
       };
 
@@ -513,19 +641,15 @@ export default function CheckoutPage() {
       if (response.success) {
         const newOrderId = response.data.order.id;
 
-        // ═══════════════════════════════════════════════════════
-        // Telebirr: redirect to real Telebirr app / H5 checkout
-        // ═══════════════════════════════════════════════════════
+        // ─── Telebirr: redirect to real Telebirr checkout ───
         if (
           selectedPayment === "telebirr" &&
           response.data.telebirrCheckoutUrl
         ) {
-          // ✅ Persist pending order so we can detect cancelled payments on return
           savePendingTelebirrOrder({
             orderId: response.data.order.id,
             orderNumber: response.data.order.orderNumber,
             total: response.data.order.total,
-            createdAt: Date.now(),
           });
 
           clearCart();
@@ -538,9 +662,6 @@ export default function CheckoutPage() {
             { duration: 2000 }
           );
 
-          // Small delay so the toast renders before the page navigates away.
-          // Using window.location.href (not router.push) is REQUIRED because
-          // we are leaving the Next.js app entirely.
           const telebirrUrl = response.data.telebirrCheckoutUrl;
           setTimeout(() => {
             window.location.href = telebirrUrl;
@@ -548,7 +669,7 @@ export default function CheckoutPage() {
           return;
         }
 
-        // Telebirr was selected but backend returned no URL
+        // ─── Telebirr selected but no URL returned ───
         if (
           selectedPayment === "telebirr" &&
           !response.data.telebirrCheckoutUrl
@@ -576,7 +697,14 @@ export default function CheckoutPage() {
           return;
         }
 
-        // Cash / Bank
+        // ─── Bank / Cash: remember ref, then redirect ───
+        if (
+          canonicalMethod === "Bank Transfer" &&
+          paymentRef.trim()
+        ) {
+          rememberBankRef(paymentRef.trim());
+        }
+
         setOrderCreated(true);
         setCreatedOrder(response.data.order);
         clearCart();
@@ -588,26 +716,44 @@ export default function CheckoutPage() {
       }
     } catch (error) {
       console.error("Checkout error:", error);
-      interface AxiosErrorWithResponse {
-        response?: { data?: { error?: string; message?: string } };
+
+      const axiosErr = error as AxiosLikeError;
+      const status = axiosErr?.response?.status;
+      const data = axiosErr?.response?.data;
+
+      // Backend duplicate-ref guard → dedicated message
+      if (status === 409 || data?.code === "DUPLICATE_PAYMENT_REF") {
+        const msg =
+          data?.error ||
+          t(
+            "checkout.toast_duplicate_ref",
+            "This transaction reference was already used for another order. Please use a different reference."
+          );
+        setRefError(msg);
+        toast.error(msg, { duration: 6000 });
+        return;
       }
-      if (error && typeof error === "object" && "response" in error) {
-        const axiosError = error as AxiosErrorWithResponse;
-        toast.error(
-          axiosError.response?.data?.error ||
-            axiosError.response?.data?.message ||
-            t("checkout.toast_error", "Failed to create order. Please try again.")
-        );
-      } else {
-        toast.error(
+
+      // Backend validation error (400) → surface the exact message
+      if (status === 400 && data?.error) {
+        if (/reference/i.test(data.error)) setRefError(data.error);
+        toast.error(data.error);
+        return;
+      }
+
+      toast.error(
+        data?.error ||
+          data?.message ||
           t("checkout.toast_error", "Failed to create order. Please try again.")
-        );
-      }
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
+  // ==========================================
+  // SUCCESS SCREEN
+  // ==========================================
   if (orderCreated && createdOrder) {
     return (
       <main className="min-h-screen bg-[var(--cream)] pt-28 sm:pt-32 flex items-center justify-center">
@@ -644,6 +790,9 @@ export default function CheckoutPage() {
     );
   }
 
+  // ==========================================
+  // MAIN RENDER
+  // ==========================================
   return (
     <main className="min-h-screen bg-[var(--cream)] pb-24 pt-28 sm:pt-32">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -681,7 +830,7 @@ export default function CheckoutPage() {
             className="grid grid-cols-1 gap-8 lg:grid-cols-12 items-start"
           >
             <div className="lg:col-span-7 space-y-7">
-              {/* Step 1: Customer & Delivery */}
+              {/* ───── Step 1: Customer & Delivery ───── */}
               <div className="rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-8 shadow-[0_10px_35px_rgba(18,53,35,.05)]">
                 <div className="flex items-center justify-between pb-4 mb-5 border-b border-gray-100">
                   <div className="flex items-center gap-3">
@@ -978,7 +1127,7 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              {/* Step 2: Payment Method */}
+              {/* ───── Step 2: Payment Method ───── */}
               <div className="rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-8 shadow-[0_10px_35px_rgba(18,53,35,.05)]">
                 <div className="flex items-center gap-3 pb-4 mb-5 border-b border-gray-100">
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#123523] text-[var(--lime)] font-bold text-xs">
@@ -1077,27 +1226,51 @@ export default function CheckoutPage() {
                                 <div className="flex items-center gap-2">
                                   <Upload size={16} className="text-[#28633e]" />
                                   <h4 className="font-bold text-sm text-[#123523]">
-                                    {t("checkout.upload_title", "Upload Payment Proof")}
+                                    {t("checkout.upload_title", "Payment Reference & Receipt")}
                                   </h4>
                                 </div>
 
                                 <div>
                                   <label className="block text-[11px] font-bold uppercase tracking-wider text-[#123523] mb-1.5">
-                                    {t("checkout.upload_tx_ref", "Transaction Reference Number")}{" "}
+                                    {t(
+                                      "checkout.upload_tx_ref",
+                                      "Transaction Reference Number"
+                                    )}{" "}
+                                    <span className="text-red-500 font-bold">*</span>{" "}
                                     <span className="text-gray-400 font-normal">
-                                      {t("checkout.upload_tx_ref_optional", "(Optional if you upload)")}
+                                      {t(
+                                        "checkout.upload_tx_ref_required_hint",
+                                        "(Required unless you upload a receipt)"
+                                      )}
                                     </span>
                                   </label>
                                   <input
                                     type="text"
                                     value={paymentRef}
-                                    onChange={(e) => setPaymentRef(e.target.value)}
+                                    onChange={(e) => handleRefChange(e.target.value)}
                                     placeholder={t(
                                       "checkout.upload_tx_ref_placeholder",
                                       "e.g. FT2309123456 or CBE-8891234"
                                     )}
-                                    className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:border-[#28633e] focus:bg-white focus:ring-2 focus:ring-[#b9d873]/30"
+                                    className={`w-full rounded-xl border bg-gray-50/50 px-4 py-3 text-xs font-medium text-[#123523] outline-none transition focus:bg-white focus:ring-2 ${
+                                      refError
+                                        ? "border-red-400 focus:border-red-500 focus:ring-red-200/40"
+                                        : "border-gray-200 focus:border-[#28633e] focus:ring-[#b9d873]/30"
+                                    }`}
+                                    autoComplete="off"
+                                    spellCheck={false}
                                   />
+                                  <p className="mt-1 text-[10px] text-[#69736b]">
+                                    {t(
+                                      "checkout.upload_tx_ref_hint",
+                                      "6–32 characters. Letters, digits and dashes only. Must be unique — you cannot reuse a reference from another order."
+                                    )}
+                                  </p>
+                                  {refError && (
+                                    <p className="mt-2 text-[11px] font-semibold text-red-600">
+                                      {refError}
+                                    </p>
+                                  )}
                                 </div>
 
                                 <div>
@@ -1180,7 +1353,7 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              {/* Step 3: Company Info */}
+              {/* ───── Step 3: Company Info ───── */}
               <div className="rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-7 shadow-[0_10px_35px_rgba(18,53,35,.04)]">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--lime)] text-[var(--green-950)] font-bold">
@@ -1257,7 +1430,7 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* Order Summary */}
+            {/* ───── Order Summary ───── */}
             <div className="lg:col-span-5 sticky top-28 space-y-4">
               <div className="rounded-[2.5rem] border border-[rgba(20,33,25,.09)] bg-white p-6 sm:p-7 shadow-[0_15px_45px_rgba(18,53,35,.07)]">
                 <h2 className="font-serif-heading text-2xl font-bold text-[#123523] pb-4 border-b border-gray-100">

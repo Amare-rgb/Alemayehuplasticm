@@ -127,6 +127,9 @@ export default function ProfilePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
 
+  // ✅ Track logout-in-progress so we don't bounce the user to /auth/login
+  const [loggingOut, setLoggingOut] = useState(false);
+
   useEffect(() => {
     if (!isEditing && user) {
       queueMicrotask(() => {
@@ -140,12 +143,29 @@ export default function ProfilePage() {
     }
   }, [user?.id, isEditing, user]);
 
-  // Redirect if not authenticated
+  // ✅ Redirect only when NOT actively logging out.
+  //    Send unauthenticated visitors to HOME (/), not /auth/login (which 404s).
   useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/auth/login");
+    if (status === "unauthenticated" && !loggingOut) {
+      router.replace("/");
     }
-  }, [status, router]);
+  }, [status, router, loggingOut]);
+
+  // ✅ Explicit logout handler → clear session, then go to home page.
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+    } catch (err) {
+      console.error("Logout error:", err);
+    } finally {
+      router.replace("/");
+      // Hard fallback in case the SPA router is stuck on the profile route.
+      if (typeof window !== "undefined") {
+        window.location.href = "/";
+      }
+    }
+  };
 
   const handleAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -822,16 +842,24 @@ export default function ProfilePage() {
                   />
                 </Link>
 
+                {/* ✅ Uses the new handleLogout → routes to home, no 404 */}
                 <button
-                  onClick={logout}
-                  className="flex items-center gap-3.5 px-3 py-3 rounded-xl hover:bg-red-50 transition-all duration-200 group w-full text-left"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  className="flex items-center gap-3.5 px-3 py-3 rounded-xl hover:bg-red-50 transition-all duration-200 group w-full text-left disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center text-red-500 bg-red-50 group-hover:scale-110 transition-transform duration-200">
-                    <LogOut size={18} />
+                    {loggingOut ? (
+                      <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <LogOut size={18} />
+                    )}
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-red-600">
-                      {t("profile.account_signout_title", "Sign Out")}
+                      {loggingOut
+                        ? t("profile.account_signing_out", "Signing out…")
+                        : t("profile.account_signout_title", "Sign Out")}
                     </p>
                     <p className="text-[11px] text-red-400">
                       {t(
