@@ -18,8 +18,8 @@ router.get('/', requireAuth, async (req, res) => {
       search,
       page = 1,
       limit = 10,
-      sortBy = 'orderNumber',   // ✅ Ascending by sequential order number
-      sortOrder = 'asc',        // ✅ #1, #2, #3, … top-to-bottom
+      sortBy = 'orderNumber',
+      sortOrder = 'asc',
     } = req.query;
 
     const isAdmin = req.session.user?.role === 'ADMIN';
@@ -43,8 +43,6 @@ router.get('/', requireAuth, async (req, res) => {
     }
 
     if (search) {
-      // ✅ Search by sequential orderNumber OR customer name/email.
-      //    orderNumber is an Int, so we try to coerce the search string.
       const numeric = Number(search);
       const orConditions = [
         { user: { name: { contains: search, mode: 'insensitive' } } },
@@ -59,7 +57,6 @@ router.get('/', requireAuth, async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
     const orderBy = {};
-    // ✅ Only allow 'asc' or 'desc'; normalize anything else to 'asc'
     orderBy[sortBy] = sortOrder.toLowerCase() === 'desc' ? 'desc' : 'asc';
 
     const [orders, total] = await Promise.all([
@@ -69,20 +66,11 @@ router.get('/', requireAuth, async (req, res) => {
         take,
         orderBy,
         include: {
-          user: {
-            select: { id: true, name: true, email: true, phone: true, role: true },
-          },
+          user: { select: { id: true, name: true, email: true, phone: true, role: true } },
           items: {
             include: {
               product: {
-                select: {
-                  id: true,
-                  name: true,
-                  images: true,
-                  slug: true,
-                  price: true,
-                  stock: true,
-                },
+                select: { id: true, name: true, images: true, slug: true, price: true, stock: true },
               },
             },
           },
@@ -92,7 +80,6 @@ router.get('/', requireAuth, async (req, res) => {
       prisma.order.count({ where }),
     ]);
 
-    // ✅ Serialize: Number-ify Decimals, ensure all payment fields are present
     const serializedOrders = orders.map((order) => ({
       ...order,
       total: Number(order.total),
@@ -141,20 +128,11 @@ router.get('/:orderId', requireAuth, async (req, res) => {
     const order = await prisma.order.findFirst({
       where,
       include: {
-        user: {
-          select: { id: true, name: true, email: true, phone: true, role: true },
-        },
+        user: { select: { id: true, name: true, email: true, phone: true, role: true } },
         items: {
           include: {
             product: {
-              select: {
-                id: true,
-                name: true,
-                images: true,
-                slug: true,
-                price: true,
-                stock: true,
-              },
+              select: { id: true, name: true, images: true, slug: true, price: true, stock: true },
             },
           },
         },
@@ -193,14 +171,7 @@ router.get('/:orderId', requireAuth, async (req, res) => {
 // ============================================================
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const {
-      addressId,
-      paymentMethod,
-      paymentRef,
-      paymentStatus = 'PENDING',
-      notes,
-    } = req.body;
-
+    const { addressId, paymentMethod, paymentRef, paymentStatus = 'PENDING', notes } = req.body;
     const userId = req.session.user.id;
 
     const cartItems = await prisma.cartItem.findMany({
@@ -272,20 +243,11 @@ router.post('/', requireAuth, async (req, res) => {
           },
         },
         include: {
-          user: {
-            select: { id: true, name: true, email: true, phone: true },
-          },
+          user: { select: { id: true, name: true, email: true, phone: true } },
           items: {
             include: {
               product: {
-                select: {
-                  id: true,
-                  name: true,
-                  images: true,
-                  slug: true,
-                  price: true,
-                  stock: true,
-                },
+                select: { id: true, name: true, images: true, slug: true, price: true, stock: true },
               },
             },
           },
@@ -300,9 +262,7 @@ router.post('/', requireAuth, async (req, res) => {
         });
       }
 
-      await tx.cartItem.deleteMany({
-        where: { userId },
-      });
+      await tx.cartItem.deleteMany({ where: { userId } });
 
       return newOrder;
     });
@@ -334,7 +294,8 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // ============================================================
-// PATCH /api/orders - Update order (Admin only)
+// PATCH /api/orders - Update order status (Admin only)
+// Handles: SHIPPED, COMPLETED, CANCELLED, REJECTED
 // ============================================================
 router.patch('/', requireAdmin, async (req, res) => {
   try {
@@ -344,21 +305,17 @@ router.patch('/', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Order ID is required' });
     }
 
-    // ✅ Force deny "PROCESSING"
     if (status === 'PROCESSING') {
       return res.status(400).json({
         error: 'PROCESSING is no longer a valid status. Use COMPLETED.',
       });
     }
 
-    // ✅ Validate the status against the new list
     if (status && !ALLOWED_STATUSES.includes(status)) {
       return res.status(400).json({ error: `Invalid status: ${status}` });
     }
 
-    const existingOrder = await prisma.order.findUnique({
-      where: { id: orderId },
-    });
+    const existingOrder = await prisma.order.findUnique({ where: { id: orderId } });
 
     if (!existingOrder) {
       return res.status(404).json({ error: 'Order not found' });
@@ -369,27 +326,46 @@ router.patch('/', requireAdmin, async (req, res) => {
     if (paymentStatus) updateData.paymentStatus = paymentStatus;
     if (notes !== undefined) updateData.notes = notes;
 
-    // ✅ Auto-set paymentStatus to PAID when the order is marked COMPLETED
-    //    (unless the caller explicitly sent a different paymentStatus).
-    //    This keeps the "Payment" badge in sync with the order status.
+    // Auto-sync payment status with order status
     if (status === 'COMPLETED' && !paymentStatus) {
       updateData.paymentStatus = 'PAID';
     }
+    if (status === 'CANCELLED' && !paymentStatus) {
+      updateData.paymentStatus = 'REFUNDED';
+    }
+    if (status === 'REJECTED' && !paymentStatus) {
+      updateData.paymentStatus = 'FAILED';
+    }
 
-    const updated = await prisma.order.update({
-      where: { id: orderId },
-      data: updateData,
-      include: {
-        user: { select: { id: true, name: true, email: true, phone: true } },
-        items: {
-          include: {
-            product: {
-              select: { id: true, name: true, images: true, slug: true, price: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.order.update({
+        where: { id: orderId },
+        data: updateData,
+        include: {
+          user: { select: { id: true, name: true, email: true, phone: true } },
+          items: {
+            include: {
+              product: {
+                select: { id: true, name: true, images: true, slug: true, price: true },
+              },
             },
           },
+          address: true,
         },
-        address: true,
-      },
+      });
+
+      // If the order is being rejected, restore stock
+      if (status === 'REJECTED' && existingOrder.status === 'PENDING') {
+        const items = await tx.orderItem.findMany({ where: { orderId } });
+        for (const item of items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+      }
+
+      return result;
     });
 
     res.json({
@@ -414,14 +390,14 @@ router.patch('/', requireAdmin, async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error updating order:', error);
-    return res
-      .status(500)
-      .json({ error: error.message || 'Failed to update order' });
+    return res.status(500).json({ error: error.message || 'Failed to update order' });
   }
 });
 
 // ============================================================
-// DELETE /api/orders/:orderId - Cancel order
+// DELETE /api/orders/:orderId - Cancel or delete an order
+// Regular users can cancel PENDING orders.
+// Admins can delete any order (hard delete from DB).
 // ============================================================
 router.delete('/:orderId', requireAuth, async (req, res) => {
   try {
@@ -440,6 +416,33 @@ router.delete('/:orderId', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
+    // Admin hard delete
+    if (isAdmin) {
+      // Restore stock first (order is being removed)
+      await prisma.$transaction(async (tx) => {
+        const items = await tx.orderItem.findMany({
+          where: { orderId },
+          select: { productId: true, quantity: true },
+        });
+
+        for (const item of items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+
+        await tx.orderItem.deleteMany({ where: { orderId } });
+        await tx.order.delete({ where: { id: orderId } });
+      });
+
+      return res.json({
+        success: true,
+        message: 'Order deleted successfully',
+      });
+    }
+
+    // Regular user: can only cancel PENDING orders
     if (order.status !== 'PENDING') {
       return res.status(400).json({
         error: 'Only pending orders can be cancelled',
@@ -461,7 +464,7 @@ router.delete('/:orderId', requireAuth, async (req, res) => {
 
       await tx.order.update({
         where: { id: orderId },
-        data: { status: 'CANCELLED' },
+        data: { status: 'CANCELLED', paymentStatus: 'REFUNDED' },
       });
     });
 

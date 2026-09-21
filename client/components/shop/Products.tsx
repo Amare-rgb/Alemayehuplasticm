@@ -5,8 +5,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Product, ProductCategory, products as fallbackProducts } from "@/data/products";
-import { ShoppingBag, ArrowUpRight, Search } from "lucide-react";
+import { Product, products as fallbackProducts } from "@/data/products";
+import { ArrowUpRight, Search } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 
 export type { Product };
@@ -17,51 +17,79 @@ interface CategoryOption {
   id: string;
   name: string;
   slug: string;
-  parentId?: string | null; // Added parentId property
+  parentId?: string | null;
 }
 
-// Fallback API Base URL
+/* Raw shape returned by the backend /api/products/public endpoint */
+interface ApiProduct {
+  id: string;
+  slug?: string;
+  name: string;
+  category?: { name?: string } | null;
+  description?: string | null;
+  price: number | string;
+  discountPrice?: number | string | null;
+  unitOfMeasurement?: string | null;
+  stock?: number | null;
+  isFeatured?: boolean;
+  images?: string[] | null;
+}
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "http://localhost:5000";
 
-// Default fallback image
-const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+const DEFAULT_IMAGE = "/placeholder.png";
+const FALLBACK_REMOTE_IMAGE =
+  "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
 
-// Product Image Component using Next.js Image
-const ProductImage: React.FC<{ src: string; alt: string; className?: string }> = ({ 
-  src, 
-  alt, 
-  className = "" 
-}) => {
+/* -------------------------------------------------------------------------- */
+/*  STABLE PRODUCT IMAGE                                                       */
+/*  - Square box provided by parent (aspect-square) → no layout shift          */
+/*  - fill + object-cover + object-center → no distortion                      */
+/*  - Error → swaps src, box stays the same size                               */
+/*  - No useEffect: state adjusted during render (React-recommended pattern)   */
+/*  - LCP: above-the-fold images use loading="eager" + fetchPriority="high"    */
+/* -------------------------------------------------------------------------- */
+const ProductImage: React.FC<{
+  src: string;
+  alt: string;
+  priority?: boolean;
+}> = ({ src, alt, priority = false }) => {
+  const [prevSrc, setPrevSrc] = useState(src);
   const [imgSrc, setImgSrc] = useState(src);
-  const [hasError, setHasError] = useState(false);
+  const [errored, setErrored] = useState(false);
+
+  // ✅ Adjust state during render when `src` prop changes.
+  // React discards the current render output and re-renders immediately —
+  // no cascading render, no stale image flash.
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setImgSrc(src);
+    setErrored(false);
+  }
 
   const handleError = () => {
-    if (!hasError) {
-      setHasError(true);
-      setImgSrc(DEFAULT_IMAGE);
-    }
-  };
-
-  if (hasError) {
-    return (
-      <div className={`flex items-center justify-center bg-gray-200 ${className}`}>
-        <ShoppingBag className="w-8 h-8 text-gray-400" />
-      </div>
+    if (errored) return;
+    setErrored(true);
+    setImgSrc((prev) =>
+      prev === DEFAULT_IMAGE ? FALLBACK_REMOTE_IMAGE : DEFAULT_IMAGE
     );
-  }
+  };
 
   return (
     <Image
       src={imgSrc}
       alt={alt}
       fill
-      className={`object-cover ${className}`}
+      className="object-cover object-center transition-transform duration-500 ease-out group-hover:scale-[1.04]"
       onError={handleError}
-      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-      priority={false}
+      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+      // ✅ `priority` prop is deprecated in Next.js 16.
+      // Use `loading` + `fetchPriority` for LCP images instead.
+      loading={priority ? "eager" : "lazy"}
+      fetchPriority={priority ? "high" : "auto"}
     />
   );
 };
@@ -81,7 +109,6 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("featured");
 
-  // Helper to translate category names if standard
   const getCategoryLabel = (catName: string) => {
     const lower = catName.toLowerCase();
     if (lower === "all") return t("shop.category_all", "All");
@@ -92,7 +119,6 @@ export default function Products() {
   };
 
   // Sync category state when URL search params change
-  // FIXED: Using useEffect with proper dependency and ref to avoid cascading renders
   useEffect(() => {
     const cat = searchParams.get("category");
     if (cat && cat !== selectedCategory && !hasInitializedFromURL.current) {
@@ -101,7 +127,7 @@ export default function Products() {
     }
   }, [searchParams, selectedCategory]);
 
-  // Fetch public categories from backend
+  // Fetch public categories
   useEffect(() => {
     let isMounted = true;
     const fetchCategories = async () => {
@@ -111,7 +137,6 @@ export default function Products() {
           const data = await res.json();
           const list = Array.isArray(data) ? data : data?.categories || [];
           if (isMounted && list.length > 0) {
-            // Pick top-level categories
             const top = list.filter((c: CategoryOption) => !c.parentId);
             const items = (top.length > 0 ? top : list).map((c: CategoryOption) => ({
               id: c.id,
@@ -126,14 +151,13 @@ export default function Products() {
         console.warn("Could not fetch categories list from backend:", err);
       }
     };
-
     fetchCategories();
     return () => {
       isMounted = false;
     };
   }, []);
 
-  // Fetch products from backend
+  // Fetch products
   useEffect(() => {
     let isMounted = true;
 
@@ -141,57 +165,38 @@ export default function Products() {
       setLoading(true);
       setError(null);
       try {
-        // Use the /api/products/public endpoint which only returns VISIBLE and APPROVED products
         const url = `${API_BASE_URL}/api/products/public?limit=50`;
         const res = await fetch(url);
-
-        if (!res.ok) {
-          throw new Error(`Server returned ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
         const data = await res.json();
-        const rawProducts = Array.isArray(data)
+        const rawProducts: unknown = Array.isArray(data)
           ? data
-          : Array.isArray(data?.products)
-          ? data.products
+          : data && typeof data === "object" && "products" in data
+          ? (data as { products?: unknown }).products
           : [];
 
         if (isMounted) {
-          if (rawProducts.length > 0) {
-            const mapped: Product[] = rawProducts.map((p: {
-              id: string;
-              slug?: string;
-              name: string;
-              category?: { name: string };
-              description?: string;
-              price: number;
-              discountPrice?: number;
-              unitOfMeasurement?: string;
-              stock: number;
-              isFeatured?: boolean;
-              images?: string[];
-            }) => {
+          if (Array.isArray(rawProducts) && rawProducts.length > 0) {
+            const mapped: Product[] = (rawProducts as ApiProduct[]).map((p) => {
               const categoryName = p.category?.name || "Produce";
-              
-              // Handle images properly
+
               let imageList: string[] = [];
               if (Array.isArray(p.images) && p.images.length > 0) {
                 imageList = p.images.map((img: string) => {
                   if (!img) return DEFAULT_IMAGE;
-                  if (img.startsWith("http://") || img.startsWith("https://")) {
-                    return img;
-                  }
-                  if (img.startsWith("/uploads/")) {
-                    return `${API_BASE_URL}${img}`;
-                  }
-                  if (img.startsWith("uploads/")) {
-                    return `${API_BASE_URL}/${img}`;
-                  }
+                  if (img.startsWith("http://") || img.startsWith("https://")) return img;
+                  if (img.startsWith("/uploads/")) return `${API_BASE_URL}${img}`;
+                  if (img.startsWith("uploads/")) return `${API_BASE_URL}/${img}`;
                   return `${API_BASE_URL}/uploads/products/${img}`;
                 });
               } else {
                 imageList = [DEFAULT_IMAGE];
               }
+
+              const price = Number(p.price) || 0;
+              const discountPrice = p.discountPrice ? Number(p.discountPrice) : null;
+              const stock = typeof p.stock === "number" ? p.stock : 0;
 
               return {
                 id: p.id,
@@ -199,18 +204,17 @@ export default function Products() {
                 name: p.name,
                 category: categoryName,
                 description: p.description || "",
-                price: Number(p.price) || 0,
-                discountPrice: p.discountPrice ? Number(p.discountPrice) : null,
+                price,
+                discountPrice,
                 unit: p.unitOfMeasurement || "kg",
-                stock: typeof p.stock === "number" ? p.stock : 0,
-                featured: Boolean(p.discountPrice || p.isFeatured),
-                badge: p.discountPrice ? "Special Offer" : undefined,
+                stock,
+                featured: Boolean(discountPrice || p.isFeatured),
+                badge: discountPrice ? "Special Offer" : undefined,
                 images: imageList,
               };
             });
             setProducts(mapped);
           } else {
-            // If backend has no products, fallback to local products
             setProducts(fallbackProducts || []);
           }
         }
@@ -221,40 +225,31 @@ export default function Products() {
           setProducts(fallbackProducts || []);
         }
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchProducts();
-
     return () => {
       isMounted = false;
     };
   }, []);
 
-  // Compute available category tabs - now from actual categories
   const categoryTabs = useMemo(() => {
     const set = new Set<string>(["All"]);
-    if (categoriesList.length > 0) {
-      categoriesList.forEach((c) => set.add(c.name));
-    }
-    // Also add categories from products
+    categoriesList.forEach((c) => set.add(c.name));
     products.forEach((p) => {
       if (p.category) set.add(p.category);
     });
     return Array.from(set);
   }, [categoriesList, products]);
 
-  // Filter & sort products
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.toLowerCase().trim();
     const normalizedCategory = selectedCategory.toLowerCase().trim();
 
     const filtered = products.filter((product) => {
       const productCat = (product.category || "").toLowerCase().trim();
-
       const matchesCategory =
         normalizedCategory === "all" ||
         productCat === normalizedCategory ||
@@ -273,24 +268,18 @@ export default function Products() {
     return [...filtered].sort((a, b) => {
       const priceA = a.discountPrice ?? a.price;
       const priceB = b.discountPrice ?? b.price;
-
       switch (sort) {
-        case "price-low":
-          return priceA - priceB;
-        case "price-high":
-          return priceB - priceA;
-        case "name":
-          return a.name.localeCompare(b.name);
-        case "featured":
-        default:
-          return Number(b.featured) - Number(a.featured);
+        case "price-low":  return priceA - priceB;
+        case "price-high": return priceB - priceA;
+        case "name":       return a.name.localeCompare(b.name);
+        default:           return Number(b.featured) - Number(a.featured);
       }
     });
   }, [products, selectedCategory, search, sort]);
 
   return (
     <main className="min-h-screen bg-[var(--cream)]">
-      {/* Hero Section */}
+      {/* Hero */}
       <section className="relative overflow-hidden bg-[#123523] px-5 pb-16 pt-28 sm:px-8 lg:px-12 lg:pb-20 lg:pt-36">
         <div
           className="pointer-events-none absolute -right-24 -top-40 h-[32rem] w-[32rem] rounded-full bg-[#b9d873]/10 blur-3xl"
@@ -321,18 +310,16 @@ export default function Products() {
         </div>
       </section>
 
-      {/* Catalogue & Controls */}
+      {/* Catalogue */}
       <section className="px-5 py-12 sm:px-8 lg:px-12 lg:py-16">
         <div className="mx-auto max-w-7xl">
           {/* Controls Bar */}
-          <div className="mb-10 rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-4 shadow-[0_15px_45px_rgba(18,53,35,.06)] sm:p-5">
+          <div className="mb-8 rounded-3xl border border-[rgba(20,33,25,.09)] bg-white p-4 shadow-[0_15px_45px_rgba(18,53,35,.06)] sm:p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              {/* Search Bar */}
               <div className="relative w-full lg:max-w-md">
                 <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#69736b]">
                   <Search size={18} />
                 </div>
-
                 <input
                   type="search"
                   value={search}
@@ -341,26 +328,23 @@ export default function Products() {
                     "shop.search_placeholder",
                     "Search fresh harvest, crops, produce..."
                   )}
-                  className="h-12 w-full rounded-xl border border-[#19472d]/10 bg-[#f6f3e9]/60 pl-11 pr-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
+                  className="h-11 w-full rounded-xl border border-[#19472d]/10 bg-[#f6f3e9]/60 pl-11 pr-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
                 />
               </div>
 
-              {/* Filter Tabs & Sort Dropdown */}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                {/* Category Pills */}
                 <div className="flex flex-wrap gap-2">
                   {categoryTabs.map((category) => {
                     const active =
                       selectedCategory.toLowerCase() === category.toLowerCase();
-
                     return (
                       <button
                         key={category}
                         type="button"
                         onClick={() => setSelectedCategory(category)}
-                        className={`rounded-full px-4 py-2 text-xs font-semibold transition-all duration-200 ${
+                        className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
                           active
-                            ? "bg-[#123523] text-[#f6f3e9] shadow-md scale-105"
+                            ? "bg-[#123523] text-[#f6f3e9] shadow-md"
                             : "bg-[#f6f3e9] text-[#69736b] hover:bg-[#eae5d7] hover:text-[#123523]"
                         }`}
                       >
@@ -370,7 +354,6 @@ export default function Products() {
                   })}
                 </div>
 
-                {/* Sort Option Dropdown */}
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortOption)}
@@ -385,16 +368,14 @@ export default function Products() {
                   <option value="price-high">
                     {t("shop.sort_price_high", "Price: High to Low")}
                   </option>
-                  <option value="name">
-                    {t("shop.sort_name", "Name A–Z")}
-                  </option>
+                  <option value="name">{t("shop.sort_name", "Name A–Z")}</option>
                 </select>
               </div>
             </div>
           </div>
 
           {/* Results Summary */}
-          <div className="mb-7 flex items-center justify-between">
+          <div className="mb-5 flex items-center justify-between">
             <p className="text-sm text-[#69736b]">
               {t("shop.showing", "Showing")}{" "}
               <span className="font-bold text-[#123523]">
@@ -425,107 +406,101 @@ export default function Products() {
             )}
           </div>
 
-          {/* Loading Skeletons */}
+          {/* Grid — 2 / 3 / 4 columns */}
           {loading ? (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <div
                   key={i}
-                  className="overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-4 animate-pulse"
+                  className="overflow-hidden rounded-2xl border border-[rgba(20,33,25,.09)] bg-white p-2.5 animate-pulse"
                 >
-                  <div className="aspect-[1.1/1] w-full rounded-2xl bg-gray-200" />
-                  <div className="mt-4 space-y-2">
-                    <div className="h-6 w-3/4 rounded bg-gray-200" />
-                    <div className="h-4 w-full rounded bg-gray-100" />
-                    <div className="h-4 w-1/2 rounded bg-gray-100" />
-                    <div className="mt-4 h-10 w-full rounded-xl bg-gray-200" />
+                  <div className="aspect-square w-full rounded-xl bg-gray-200" />
+                  <div className="mt-3 space-y-1.5">
+                    <div className="h-4 w-3/4 rounded bg-gray-200" />
+                    <div className="h-3 w-1/2 rounded bg-gray-100" />
+                    <div className="mt-2 h-5 w-1/2 rounded bg-gray-200" />
                   </div>
                 </div>
               ))}
             </div>
           ) : filteredProducts.length > 0 ? (
-            /* Product Cards Grid */
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {filteredProducts.map((product) => {
-                const hasDiscount =
-                  product.discountPrice !== null &&
-                  product.discountPrice !== undefined &&
-                  product.discountPrice < product.price;
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {filteredProducts.map((product, index) => {
+                // ✅ Only the first 2 cards (top row on mobile) load eagerly.
+                // Everything else stays lazy → fast LCP, low bandwidth.
+                const isAboveTheFold = index < 2;
 
+                const hasDiscount =
+                  product.discountPrice != null &&
+                  product.discountPrice < product.price;
                 const displayPrice = hasDiscount
                   ? product.discountPrice!
                   : product.price;
-
                 const discountPercent = hasDiscount
                   ? Math.round(
-                      ((product.price - product.discountPrice!) /
-                        product.price) *
+                      ((product.price - product.discountPrice!) / product.price) *
                         100
                     )
                   : 0;
-
                 const isAvailable = product.stock > 0;
                 const imageUrl = product.images?.[0] || DEFAULT_IMAGE;
 
                 return (
                   <div
                     key={product.id}
-                    className="group flex flex-col justify-between overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white shadow-[0_15px_45px_rgba(18,53,35,.06)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_25px_65px_rgba(18,53,35,.12)]"
+                    className="group flex flex-col overflow-hidden rounded-2xl border border-[rgba(20,33,25,.09)] bg-white shadow-[0_8px_24px_rgba(18,53,35,.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_40px_rgba(18,53,35,.12)]"
                   >
-                    {/* Image Link */}
+                    {/* STABLE SQUARE IMAGE */}
                     <Link
                       href={`/shop/${encodeURIComponent(product.slug)}`}
-                      className="block relative aspect-[1.15/1] overflow-hidden bg-[#0b2419]"
+                      className="relative block aspect-square w-full overflow-hidden bg-[#0b2419]"
                     >
                       <ProductImage
                         src={imageUrl}
                         alt={product.name}
-                        className="w-full h-full"
+                        priority={isAboveTheFold}
                       />
 
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#0b2419]/60 via-transparent to-transparent opacity-80" />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b2419]/55 via-transparent to-transparent" />
 
-                      {/* Top Badges */}
-                      <div className="absolute left-4 top-4 flex flex-wrap gap-1.5">
-                        <span className="rounded-full bg-white/95 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#123523] shadow-sm backdrop-blur">
+                      {/* Badges */}
+                      <div className="absolute left-2 top-2 flex flex-wrap gap-1">
+                        <span className="rounded-full bg-white/95 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#123523] shadow-sm backdrop-blur">
                           {getCategoryLabel(product.category)}
                         </span>
-
                         {hasDiscount && (
-                          <span className="rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-sm">
+                          <span className="rounded-full bg-red-600 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm">
                             -{discountPercent}%
                           </span>
                         )}
                       </div>
 
-                      {/* Stock Badge */}
-                      <span className="absolute bottom-4 left-4 rounded-full bg-[#123523]/85 px-3 py-1 text-[10px] font-medium text-white backdrop-blur">
+                      {/* Stock badge */}
+                      <span className="absolute bottom-2 left-2 rounded-full bg-[#123523]/85 px-2 py-0.5 text-[9px] font-medium text-white backdrop-blur">
                         {isAvailable
-                          ? `${t("shop.in_stock", "In Stock")} (${product.stock} ${product.unit})`
+                          ? `${t("shop.in_stock", "In Stock")} (${product.stock})`
                           : t("shop.out_of_stock", "Out of stock")}
                       </span>
 
-                      {/* Quick Detail Arrow */}
-                      <span className="absolute bottom-4 right-4 flex h-9 w-9 translate-y-2 items-center justify-center rounded-full bg-[var(--lime)] text-[#123523] opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 shadow-md">
-                        <ArrowUpRight size={18} strokeWidth={2.2} />
+                      {/* Arrow */}
+                      <span className="absolute bottom-2 right-2 flex h-7 w-7 translate-y-2 items-center justify-center rounded-full bg-[var(--lime)] text-[#123523] opacity-0 shadow-md transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+                        <ArrowUpRight size={14} strokeWidth={2.4} />
                       </span>
                     </Link>
 
-                    {/* Content Section */}
-                    <div className="flex flex-1 flex-col justify-between p-6">
+                    {/* CONTENT — compact */}
+                    <div className="flex flex-1 flex-col justify-between p-3 sm:p-3.5">
                       <div>
-                        {/* Title */}
                         <Link
                           href={`/shop/${encodeURIComponent(product.slug)}`}
                           className="block"
                         >
-                          <h2 className="font-serif-heading text-xl font-bold leading-tight tracking-[-0.02em] text-[#123523] transition-colors group-hover:text-[#28633e]">
+                          <h2 className="line-clamp-1 text-sm font-bold leading-tight text-[#123523] transition-colors group-hover:text-[#28633e]">
                             {product.name}
                           </h2>
                         </Link>
 
-                        {/* Description */}
-                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[#69736b]">
+                        <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[#69736b]">
                           {product.description ||
                             t(
                               "shop.default_card_desc",
@@ -534,26 +509,20 @@ export default function Products() {
                         </p>
                       </div>
 
-                      <div className="mt-5">
-                        <div className="mb-4 h-px bg-[#19472d]/10" />
-
-                        {/* Price Row */}
-                        <div className="flex items-baseline justify-between gap-2">
-                          <div className="flex items-baseline gap-2">
-                            <span className="font-serif-heading text-2xl font-bold text-[#123523]">
-                              ETB {displayPrice.toLocaleString()}
-                            </span>
-                            <span className="text-xs text-[#69736b]">
-                              / {product.unit}
-                            </span>
-                          </div>
-
-                          {hasDiscount && (
-                            <span className="text-xs text-gray-400 line-through">
-                              ETB {product.price.toLocaleString()}
-                            </span>
-                          )}
+                      <div className="mt-2.5 flex items-baseline justify-between gap-2">
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-base font-bold text-[#123523]">
+                            ETB {displayPrice.toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-[#69736b]">
+                            /{product.unit}
+                          </span>
                         </div>
+                        {hasDiscount && (
+                          <span className="text-[10px] text-gray-400 line-through">
+                            ETB {product.price.toLocaleString()}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -562,22 +531,19 @@ export default function Products() {
             </div>
           ) : (
             /* Empty State */
-            <div className="rounded-[2rem] border border-dashed border-[#19472d]/20 bg-white px-6 py-20 text-center shadow-sm">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#f6f3e9] text-[#28633e]">
-                <Search size={24} />
+            <div className="rounded-3xl border border-dashed border-[#19472d]/20 bg-white px-6 py-16 text-center shadow-sm">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#f6f3e9] text-[#28633e]">
+                <Search size={22} />
               </div>
-
-              <h3 className="font-serif-heading text-2xl font-bold text-[#123523]">
+              <h3 className="font-serif-heading text-xl font-bold text-[#123523]">
                 {t("shop.no_products_title", "No agricultural products found")}
               </h3>
-
               <p className="mx-auto mt-2 max-w-md text-xs leading-6 text-[#69736b]">
                 {t(
                   "shop.no_products_desc",
                   "We couldn't find any items matching your current filters. Try adjusting your search query or choosing another category."
                 )}
               </p>
-
               <button
                 type="button"
                 onClick={() => {

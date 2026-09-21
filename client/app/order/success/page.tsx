@@ -1,9 +1,25 @@
-// src/app/order/success/page.tsx
-import Link from 'next/link'
-import { prisma } from '@/lib/prisma'
-import { CheckCircle, Package, Truck, MapPin, Star, ArrowRight, ShoppingBag, Clock, Shield } from 'lucide-react'
+// src/app/order/success/OrderSuccessClient.tsx
+'use client'
 
-// Define the order types manually
+import Link from 'next/link'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import {
+  CheckCircle,
+  Package,
+  Truck,
+  MapPin,
+  Star,
+  ArrowRight,
+  ShoppingBag,
+  Clock,
+  Shield,
+  Loader2,
+} from 'lucide-react'
+
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                      */
+/* -------------------------------------------------------------------------- */
 type OrderItem = {
   id: string
   productId: string
@@ -30,16 +46,90 @@ type OrderWithDetails = {
 }
 
 type Props = {
-  searchParams?: {
-    session_id?: string
-  }
+  order: OrderWithDetails | null
+  sessionId: string | null
+  deliveryRange: string
 }
+
+// ✅ Changed from 40 → 60 seconds (1 minute)
+const REDIRECT_SECONDS = 60
 
 function fmtEUR(value: number) {
   return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(value)
 }
 
-/* ── Fallback: no session_id ── */
+/* -------------------------------------------------------------------------- */
+/*  Countdown hook — pure, proper cleanup, no cascading renders                */
+/* -------------------------------------------------------------------------- */
+function useCountdown(seconds: number, enabled: boolean) {
+  const [remaining, setRemaining] = useState(seconds)
+  const [paused, setPaused] = useState(false)
+
+  useEffect(() => {
+    if (!enabled || paused || remaining <= 0) return
+
+    const id = window.setInterval(() => {
+      setRemaining((r) => (r > 0 ? r - 1 : 0))
+    }, 1000)
+
+    return () => window.clearInterval(id)
+  }, [enabled, paused, remaining])
+
+  const cancel = () => setPaused(true)
+  const reset = () => {
+    setRemaining(seconds)
+    setPaused(false)
+  }
+
+  return { remaining, paused, cancel, reset }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Circular countdown ring — pure SVG, animated                               */
+/* -------------------------------------------------------------------------- */
+function CountdownRing({
+  remaining,
+  total,
+  size = 56,
+}: {
+  remaining: number
+  total: number
+  size?: number
+}) {
+  const r = (size - 6) / 2
+  const c = 2 * Math.PI * r
+  const progress = Math.max(0, Math.min(1, remaining / total))
+  const dashoffset = c * (1 - progress)
+
+  return (
+    <svg width={size} height={size} className="-rotate-90" aria-hidden="true">
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        stroke="rgba(255,255,255,0.25)"
+        strokeWidth="3"
+        fill="none"
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        stroke="#ffffff"
+        strokeWidth="3"
+        fill="none"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={dashoffset}
+        style={{ transition: 'stroke-dashoffset 1s linear' }}
+      />
+    </svg>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Fallback: no session_id                                                    */
+/* -------------------------------------------------------------------------- */
 function NoSession() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 flex items-center justify-center px-4 py-16">
@@ -72,8 +162,29 @@ function NoSession() {
   )
 }
 
-/* ── Fallback: order not found yet ── */
-function OrderPending() {
+/* -------------------------------------------------------------------------- */
+/*  Fallback: order not found yet — 60s auto-retry countdown                   */
+/* -------------------------------------------------------------------------- */
+function OrderPending({ sessionId }: { sessionId: string }) {
+  const router = useRouter()
+  const [retrying, setRetrying] = useState(false)
+  const { remaining, paused, cancel, reset } = useCountdown(REDIRECT_SECONDS, true)
+  const hasRetriedRef = useRef(false)
+
+  useEffect(() => {
+    if (remaining > 0 || paused || hasRetriedRef.current) return
+    hasRetriedRef.current = true
+    setRetrying(true)
+    router.refresh()
+  }, [remaining, paused, router])
+
+  // Format seconds as MM:SS for clarity when > 60
+  const mins = Math.floor(remaining / 60)
+  const secs = remaining % 60
+  const timeLabel = mins > 0
+    ? `${mins}:${secs.toString().padStart(2, '0')}`
+    : `${remaining}s`
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 flex items-center justify-center px-4 py-16">
       <div className="max-w-md w-full text-center">
@@ -81,12 +192,49 @@ function OrderPending() {
           <Clock className="w-10 h-10 text-emerald-600" />
         </div>
         <h1 className="text-2xl font-bold text-gray-900 mb-3">Order received</h1>
+
         <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-6 text-left">
           <p className="text-sm font-semibold text-emerald-800">Payment confirmed ✓</p>
           <p className="text-sm text-emerald-700 mt-1">
-            Your order is being processed. It may take a moment to appear. Check your inbox for a confirmation email.
+            Your order is being processed. It may take a moment to appear.
           </p>
         </div>
+
+        {/* Countdown block — 60s (1 minute) */}
+        <div className="mb-6 flex flex-col items-center gap-3">
+          <div className="relative">
+            <CountdownRing remaining={remaining} total={REDIRECT_SECONDS} size={64} />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-sm font-bold text-emerald-700">{timeLabel}</span>
+            </div>
+          </div>
+
+          {paused ? (
+            <button
+              type="button"
+              onClick={reset}
+              className="text-xs font-semibold text-emerald-700 hover:underline"
+            >
+              Resume auto-check
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={cancel}
+              className="text-xs font-semibold text-emerald-700 hover:underline"
+            >
+              Stop auto-check
+            </button>
+          )}
+
+          {retrying && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Checking again…
+            </span>
+          )}
+        </div>
+
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
             href="/account/orders"
@@ -103,58 +251,102 @@ function OrderPending() {
             Continue shopping
           </Link>
         </div>
+
+        {sessionId && (
+          <p className="mt-6 text-[11px] text-gray-400 font-mono break-all">
+            Ref: {sessionId}
+          </p>
+        )}
       </div>
     </div>
   )
 }
 
-// Define a type for the Prisma client with order model
-type PrismaClientWithModels = {
-  order: {
-    findFirst: (args: {
-      where: { paymentRef: string }
-      include: {
-        items: {
-          include: {
-            product: true
-          }
-        }
-        address: true
-      }
-    }) => Promise<unknown>
-  }
+/* -------------------------------------------------------------------------- */
+/*  Live status timeline — advances every 3 seconds                            */
+/* -------------------------------------------------------------------------- */
+const STATUS_STAGES = [
+  { key: 'placed', label: 'Order placed', sub: 'We received your order' },
+  { key: 'payment', label: 'Payment confirmed', sub: 'Transaction verified' },
+  { key: 'preparing', label: 'Preparing your order', sub: 'Packing items' },
+  { key: 'dispatched', label: 'Ready for dispatch', sub: 'Handing to courier' },
+] as const
+
+function StatusTimeline({ startStage = 0 }: { startStage?: number }) {
+  const [stage, setStage] = useState(startStage)
+
+  useEffect(() => {
+    if (stage >= STATUS_STAGES.length - 1) return
+    const id = window.setInterval(() => {
+      setStage((s) => Math.min(s + 1, STATUS_STAGES.length - 1))
+    }, 3000)
+    return () => window.clearInterval(id)
+  }, [stage])
+
+  return (
+    <div className="space-y-3">
+      {STATUS_STAGES.map((s, i) => {
+        const done = i < stage
+        const active = i === stage
+        return (
+          <div key={s.key} className="flex items-start gap-3">
+            <div className="flex flex-col items-center">
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all duration-500 ${
+                  done
+                    ? 'bg-emerald-500 text-white'
+                    : active
+                    ? 'bg-emerald-100 text-emerald-700 ring-2 ring-emerald-500'
+                    : 'bg-gray-100 text-gray-400'
+                }`}
+              >
+                {done ? '✓' : i + 1}
+              </div>
+              {i < STATUS_STAGES.length - 1 && (
+                <div
+                  className={`w-0.5 h-6 transition-colors duration-500 ${
+                    done ? 'bg-emerald-400' : 'bg-gray-200'
+                  }`}
+                />
+              )}
+            </div>
+            <div className="pt-0.5">
+              <p
+                className={`text-sm font-semibold transition-colors duration-500 ${
+                  done || active ? 'text-gray-900' : 'text-gray-400'
+                }`}
+              >
+                {s.label}
+                {active && (
+                  <Loader2 className="inline-block ml-1.5 w-3 h-3 animate-spin text-emerald-600" />
+                )}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">{s.sub}</p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
-/* ── Main success page ── */
-export default async function OrderSuccessPage({ searchParams }: Props) {
-  const sessionId = searchParams?.session_id ?? null
+/* -------------------------------------------------------------------------- */
+/*  Main success page                                                          */
+/* -------------------------------------------------------------------------- */
+export default function OrderSuccessClient({ order, sessionId, deliveryRange }: Props) {
+  const router = useRouter()
+  const [dismissed, setDismissed] = useState(false)
+
+  // 60-second (1 minute) auto-redirect countdown
+  const { remaining, paused, cancel } = useCountdown(REDIRECT_SECONDS, !!order && !dismissed)
+
+  useEffect(() => {
+    if (remaining > 0 || paused || !order) return
+    router.push('/account/orders')
+  }, [remaining, paused, order, router])
 
   if (!sessionId) return <NoSession />
-
-  // FIX: Cast prisma to the typed client instead of any
-  const prismaClient = prisma as unknown as PrismaClientWithModels
-  
-  let order: OrderWithDetails | null = null
-  
-  try {
-    const result = await prismaClient.order.findFirst({
-      where: { paymentRef: sessionId },
-      include: {
-        items: {
-          include: {
-            product: true
-          }
-        },
-        address: true,
-      },
-    })
-    order = result as OrderWithDetails | null
-  } catch (error) {
-    console.error('Error fetching order:', error)
-    return <OrderPending />
-  }
-
-  if (!order) return <OrderPending />
+  if (!order) return <OrderPending sessionId={sessionId} />
 
   const subtotal = order.items.reduce(
     (sum, it) => sum + Number(it.price) * it.quantity,
@@ -164,12 +356,12 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
   const shipping = Math.max(0, parseFloat((total - subtotal).toFixed(2)))
   const shortId = order.id.slice(-8).toUpperCase()
 
-  // Estimated delivery window
-  const deliveryStart = new Date()
-  deliveryStart.setDate(deliveryStart.getDate() + 3)
-  const deliveryEnd = new Date()
-  deliveryEnd.setDate(deliveryEnd.getDate() + 7)
-  const deliveryRange = `${deliveryStart.getDate()} ${deliveryStart.toLocaleString('default', { month: 'long' })} – ${deliveryEnd.getDate()} ${deliveryEnd.toLocaleString('default', { month: 'long' })}`
+  // Format countdown as MM:SS when >= 60s, else "Ns"
+  const mins = Math.floor(remaining / 60)
+  const secs = remaining % 60
+  const timeLabel = mins > 0
+    ? `${mins}:${secs.toString().padStart(2, '0')}`
+    : `${remaining}s`
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -181,16 +373,48 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
             <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
               <CheckCircle className="w-8 h-8 text-white" />
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="text-2xl sm:text-3xl font-bold leading-tight">
                 Thank you — your order is confirmed!
               </h1>
               <p className="text-emerald-100 mt-1 text-sm sm:text-base">
                 A confirmation email is on its way. Your order is being prepared.
               </p>
-              <div className="mt-3 inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-4 py-1.5">
-                <Package className="w-4 h-4" />
-                <span className="text-sm font-semibold tracking-wider">Order #{shortId}</span>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-4 py-1.5">
+                  <Package className="w-4 h-4" />
+                  <span className="text-sm font-semibold tracking-wider">Order #{shortId}</span>
+                </div>
+
+                {/* 60s countdown chip */}
+                {!dismissed && (
+                  <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full pl-2 pr-3 py-1">
+                    <div className="relative">
+                      <CountdownRing remaining={remaining} total={REDIRECT_SECONDS} size={28} />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-[10px] font-bold text-white leading-none">
+                          {remaining}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-xs text-emerald-50">
+                      {paused
+                        ? 'Auto-redirect paused'
+                        : `Redirecting to orders in ${timeLabel}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        cancel()
+                        setDismissed(true)
+                      }}
+                      className="text-[11px] font-semibold text-white/80 hover:text-white underline underline-offset-2"
+                    >
+                      Stay here
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -219,7 +443,6 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
                   const itemTotal = Number(it.price) * it.quantity
                   return (
                     <div key={it.id} className="flex gap-4 p-5 hover:bg-gray-50/50 transition-colors">
-                      {/* Product image */}
                       <div className="w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden border border-gray-100 bg-gray-50">
                         {it.product.images?.[0] ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -235,7 +458,6 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
                         )}
                       </div>
 
-                      {/* Product info */}
                       <div className="flex-1 min-w-0">
                         <Link
                           href={`/shop/${encodeURIComponent(it.product.slug)}`}
@@ -247,7 +469,6 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
                           Qty {it.quantity} × {fmtEUR(Number(it.price))}
                         </p>
 
-                        {/* Leave a review link */}
                         <Link
                           href={`/shop/${encodeURIComponent(it.product.slug)}#reviews`}
                           className="inline-flex items-center gap-1 mt-2 text-xs text-amber-600 hover:text-amber-700 font-medium transition-colors"
@@ -257,7 +478,6 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
                         </Link>
                       </div>
 
-                      {/* Item total */}
                       <div className="flex-shrink-0 text-right">
                         <p className="text-sm font-bold text-gray-900">{fmtEUR(itemTotal)}</p>
                       </div>
@@ -279,7 +499,13 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
                 </div>
                 <div className="flex justify-between text-sm text-gray-600">
                   <span>Shipping</span>
-                  <span>{shipping === 0 ? <span className="text-emerald-600 font-medium">Free</span> : fmtEUR(shipping)}</span>
+                  <span>
+                    {shipping === 0 ? (
+                      <span className="text-emerald-600 font-medium">Free</span>
+                    ) : (
+                      fmtEUR(shipping)
+                    )}
+                  </span>
                 </div>
                 <div className="border-t border-gray-100 pt-3 flex justify-between text-base font-bold text-gray-900">
                   <span>Order total</span>
@@ -309,7 +535,7 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
           {/* Right – Delivery + actions */}
           <div className="space-y-4">
 
-            {/* Delivery card */}
+            {/* Delivery card with LIVE timeline */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
                 <h3 className="font-bold text-gray-900 flex items-center gap-2">
@@ -321,7 +547,9 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
                 <div className="flex items-start gap-3">
                   <Clock className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Estimated arrival</p>
+                    <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                      Estimated arrival
+                    </p>
                     <p className="text-sm text-gray-900 font-medium mt-0.5">{deliveryRange}</p>
                   </div>
                 </div>
@@ -329,12 +557,18 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
                 <div className="flex items-start gap-3">
                   <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Shipping to</p>
+                    <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                      Shipping to
+                    </p>
                     {order.address ? (
                       <div className="text-sm text-gray-700 mt-0.5 space-y-0.5">
                         <p className="font-medium text-gray-900">{order.address.fullName ?? ''}</p>
                         <p>{order.address.street ?? ''}</p>
-                        <p>{[order.address.city, order.address.country].filter(Boolean).join(', ')}</p>
+                        <p>
+                          {[order.address.city, order.address.country]
+                            .filter(Boolean)
+                            .join(', ')}
+                        </p>
                       </div>
                     ) : (
                       <p className="text-sm text-gray-700 mt-0.5">No shipping address available.</p>
@@ -342,16 +576,11 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
                   </div>
                 </div>
 
-                {/* Delivery progress bar */}
-                <div className="pt-2">
-                  <div className="flex justify-between text-xs text-gray-400 mb-1.5">
-                    <span>Order placed</span>
-                    <span>Delivered</span>
-                  </div>
-                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full w-1/4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full" />
-                  </div>
-                  <p className="text-xs text-emerald-600 font-medium mt-1.5">Processing your order</p>
+                <div className="pt-3 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
+                    Live status
+                  </p>
+                  <StatusTimeline startStage={1} />
                 </div>
               </div>
             </div>
@@ -379,7 +608,7 @@ export default async function OrderSuccessPage({ searchParams }: Props) {
               <h4 className="text-sm font-bold text-amber-900 mb-1">Need help?</h4>
               <p className="text-xs text-amber-800 leading-relaxed">
                 Contact support with your order number{' '}
-                <span className="font-mono font-bold">#{shortId}</span> and well sort it out quickly.
+                <span className="font-mono font-bold">#{shortId}</span> and we&apos;ll sort it out quickly.
               </p>
               <Link
                 href="/support"

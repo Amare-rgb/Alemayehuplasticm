@@ -79,6 +79,8 @@ model User {
   articles           Article[]       @relation("ArticleAuthor")
   chatMessages       ChatMessage[]
 
+  @@index([role])
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -105,28 +107,28 @@ model ChatMessage {
 // UNIFIED PROFILE MODEL
 // ============================================
 model Profile {
-  id           String   @id @default(cuid())
-  userId       String   @unique
-  shopName     String?
-  shopDesc     String?
-  logo         String?
-  phone        String?
-  isVerified   Boolean  @default(false)
-  totalSales   Int      @default(0)
-  address      String?
-  banner       String?
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  shopName    String?
+  shopDesc    String?
+  logo        String?
+  phone       String?
+  isVerified  Boolean  @default(false)
+  totalSales  Int      @default(0)
+  address     String?
+  banner      String?
 
   // Admin-specific fields
-  isAdmin      Boolean  @default(false)
-  adminRole    String?
-  permissions  String[]
-  lastLogin    DateTime?
-  status       String   @default("active")
+  isAdmin     Boolean  @default(false)
+  adminRole   String?
+  permissions String[]
+  lastLogin   DateTime?
+  status      String   @default("active")
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("profiles")
 }
@@ -173,34 +175,34 @@ model Category {
 }
 
 model Product {
-  id                String             @id @default(cuid())
+  id                String            @id @default(cuid())
   name              String
-  slug              String             @unique
-  description       String             @db.Text
-  price             Decimal            @db.Decimal(10, 2)
-  discountPrice     Decimal?           @db.Decimal(10, 2)
-  stock             Int                @default(0)
-  sku               String             @unique
+  slug              String            @unique
+  description       String            @db.Text
+  price             Decimal           @db.Decimal(10, 2)
+  discountPrice     Decimal?          @db.Decimal(10, 2)
+  stock             Int               @default(0)
+  sku               String            @unique
   images            String[]
-  status            ProductStatus      @default(PENDING)
-  visibility        ProductVisibility  @default(VISIBLE)
+  status            ProductStatus     @default(PENDING)
+  visibility        ProductVisibility @default(VISIBLE)
   adminNote         String?
   categoryId        String
   subCategoryId     String?
   tags              String[]
   warranty          String?
   videoUrl          String?
-  unitOfMeasurement String             @default("pcs")
+  unitOfMeasurement String            @default("pcs")
   sizes             String?
   colors            String?
   brand             String?
   weight            Float?
   estimatedDelivery String?
   rejectionReason   String?
-  durationTime      String?            @default("1h")
-  pricePerUnit      Decimal?           @db.Decimal(10, 2)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  durationTime      String?           @default("1h")
+  pricePerUnit      Decimal?          @db.Decimal(10, 2)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   category    Category   @relation(fields: [categoryId], references: [id])
   subCategory Category?  @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
@@ -242,8 +244,9 @@ model CartItem {
 
 // ============================================
 // ORDER MODEL
-// ✅ `id` stays a cuid (primary key, internal use)
-// ✅ `orderNumber` is a SEQUENTIAL INTEGER (1, 2, 3, …) for display
+// ✅ `id` = cuid (Primary Key)
+// ✅ `orderNumber` = Unique Sequential Int
+// ✅ `paymentRef` = Indexed for Telebirr lookup
 // ============================================
 model Order {
   id              String        @id @default(cuid())
@@ -257,10 +260,9 @@ model Order {
 
   // Payment info persisted from checkout
   paymentMethod   String?
-  paymentRef      String?
+  paymentRef      String?       @unique
   paymentProof    String?       @db.Text
 
-  // Existing
   stripeSessionId String?
   notes           String?
   createdAt       DateTime      @default(now())
@@ -273,12 +275,15 @@ model Order {
   @@index([userId])
   @@index([status])
   @@index([paymentStatus])
+  @@index([paymentMethod])
+  @@index([paymentRef])
+  @@index([orderNumber])
+  @@index([createdAt])
   @@map("orders")
 }
 
 // ============================================
 // ORDER ITEM MODEL
-// ✅ orderId stays a String (matches Order.id)
 // ============================================
 model OrderItem {
   id        String  @id @default(cuid())
@@ -317,12 +322,13 @@ model Address {
   city      String
   state     String
   zip       String
-  country   String  @default("CA")
+  country   String  @default("Ethiopia")
   isDefault Boolean @default(false)
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   orders Order[]
 
+  @@index([userId])
   @@map("addresses")
 }
 
@@ -390,7 +396,7 @@ model Settings {
   storeEmail           String   @default("info@genesisagri.com")
   storePhone           String?  @default("+1 (555) 123-4567")
   storeAddress         String?  @default("123 Farm Road, Nairobi, Kenya")
-  currency             String   @default("KES")
+  currency             String   @default("ETB")
   taxRate              Float    @default(16)
   logo                 String?  @default("")
   favicon              String?  @default("")
