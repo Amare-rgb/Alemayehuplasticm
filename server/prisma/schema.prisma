@@ -244,9 +244,10 @@ model CartItem {
 
 // ============================================
 // ORDER MODEL
-// ✅ `id` = cuid (Primary Key)
-// ✅ `orderNumber` = Unique Sequential Int
-// ✅ `paymentRef` = Indexed for Telebirr lookup
+// ✅ `id`               = cuid (Primary Key)
+// ✅ `orderNumber`      = Unique Sequential Int
+// ✅ `paymentMethod`    = canonical string ("Cash on Delivery" | "Bank Transfer" | "Telebirr")
+// ✅ `(paymentMethod, paymentRef)` = composite UNIQUE — one ref per method
 // ============================================
 model Order {
   id              String        @id @default(cuid())
@@ -260,7 +261,7 @@ model Order {
 
   // Payment info persisted from checkout
   paymentMethod   String?
-  paymentRef      String?       @unique
+  paymentRef      String?
   paymentProof    String?       @db.Text
 
   stripeSessionId String?
@@ -271,6 +272,10 @@ model Order {
   user    User        @relation(fields: [userId], references: [id])
   address Address     @relation(fields: [addressId], references: [id])
   items   OrderItem[]
+
+  // ✅ Composite unique: same ref cannot exist twice for the SAME method.
+  //    Multiple rows with NULL ref are allowed (COD, pending Telebirr).
+  @@unique([paymentMethod, paymentRef], name: "uniq_payment_ref_per_method")
 
   @@index([userId])
   @@index([status])
