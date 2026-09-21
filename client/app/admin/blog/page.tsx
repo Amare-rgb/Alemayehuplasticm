@@ -26,8 +26,12 @@ import {
   Info,
   FileText,
   Film,
+  Link2,
 } from 'lucide-react';
 
+/* -------------------------------------------------------------------------- */
+/*  Axios instance                                                             */
+/* -------------------------------------------------------------------------- */
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 const api = axios.create({
@@ -59,6 +63,9 @@ api.interceptors.response.use(
   }
 );
 
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                      */
+/* -------------------------------------------------------------------------- */
 interface BlogPost {
   id: string;
   title: string;
@@ -154,7 +161,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
 };
 
 /* -------------------------------------------------------------------------- */
-/*  Video helpers                                                              */
+/*  Video / image helpers                                                      */
 /* -------------------------------------------------------------------------- */
 const YOUTUBE_ID_REGEX =
   /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
@@ -162,6 +169,7 @@ const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
 const DAILYMOTION_ID_REGEX =
   /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
 const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.gif', '.svg'];
 
 const getKnownPlatformEmbedUrl = (
   url: string | null | undefined
@@ -195,6 +203,23 @@ const getEmbedUrl = (url: string | null | undefined): string => {
   return getKnownPlatformEmbedUrl(url) ?? url;
 };
 
+/** Heuristic: does the URL look like an image we can safely send to next/image? */
+const looksLikeImage = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  const lower = url.toLowerCase().split('?')[0].split('#')[0];
+
+  // Explicit image extension
+  if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
+
+  // Backend uploads are images unless the extension says otherwise
+  if (lower.includes('/uploads/blog/') || lower.includes('/uploads/products/')) {
+    return !DIRECT_VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
+  }
+
+  return false;
+};
+
+/** Build a fully-qualified URL for an image/video path. */
 const buildFullUrl = (path: string | null | undefined): string => {
   if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
@@ -203,24 +228,27 @@ const buildFullUrl = (path: string | null | undefined): string => {
 };
 
 /* -------------------------------------------------------------------------- */
-/*  MediaRenderer                                                              */
+/*  MediaRenderer — safe for any URL, never crashes on weird input             */
 /* -------------------------------------------------------------------------- */
 const MediaRenderer: React.FC<{
   image: string | null;
   video: string | null;
   alt: string;
   className?: string;
-}> = ({ image, video, alt, className = '' }) => {
+  eager?: boolean;
+}> = ({ image, video, alt, className = '', eager = false }) => {
   const [error, setError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const currentMedia = video || image;
   const isVideo = currentMedia ? isVideoUrl(currentMedia) : false;
+  const isImage = currentMedia ? looksLikeImage(currentMedia) : false;
   const isKnownPlatformLink = currentMedia
     ? getKnownPlatformEmbedUrl(currentMedia) !== null
     : false;
   const embedUrl = getEmbedUrl(currentMedia);
 
+  // Render-time state adjustment — no cascading useEffect.
   const [prevMedia, setPrevMedia] = useState(currentMedia);
   if (currentMedia !== prevMedia) {
     setPrevMedia(currentMedia);
@@ -228,6 +256,7 @@ const MediaRenderer: React.FC<{
     setIsLoading(true);
   }
 
+  /* ---- No media ---- */
   if (!currentMedia) {
     return (
       <div
@@ -238,6 +267,7 @@ const MediaRenderer: React.FC<{
     );
   }
 
+  /* ---- Error state ---- */
   if (error) {
     return (
       <div
@@ -249,6 +279,7 @@ const MediaRenderer: React.FC<{
     );
   }
 
+  /* ---- Known platform video (YouTube / Vimeo / Dailymotion) ---- */
   if (isVideo && isKnownPlatformLink && embedUrl) {
     return (
       <div className={`relative w-full h-full bg-black ${className}`}>
@@ -277,6 +308,7 @@ const MediaRenderer: React.FC<{
     );
   }
 
+  /* ---- Direct video file (.mp4 / .webm / uploads) ---- */
   if (isVideo) {
     const fullUrl = buildFullUrl(currentMedia);
     return (
@@ -310,7 +342,25 @@ const MediaRenderer: React.FC<{
     );
   }
 
+  /* ---- Unknown media type (e.g. YouTube channel URL stored in `image`) ---- */
+  if (!isImage) {
+    return (
+      <div
+        className={`relative w-full h-full flex flex-col items-center justify-center bg-gray-100 ${className}`}
+      >
+        <Link2 className="w-10 h-10 text-gray-300" />
+        <span className="text-xs text-gray-400 mt-2 px-4 text-center line-clamp-2 break-all">
+          Unsupported media
+        </span>
+      </div>
+    );
+  }
+
+  /* ---- Image (safe path) ---- */
   const fullUrl = buildFullUrl(currentMedia);
+  const isLocalBackendImage =
+    fullUrl.startsWith(API_URL) && fullUrl.includes('/uploads/');
+
   return (
     <div className={`relative w-full h-full ${className}`}>
       {isLoading && (
@@ -318,21 +368,44 @@ const MediaRenderer: React.FC<{
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600" />
         </div>
       )}
-      <Image
-        key={currentMedia}
-        src={fullUrl}
-        alt={alt}
-        fill
-        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-        className={`object-cover transition-opacity duration-300 ${
-          isLoading ? 'opacity-0' : 'opacity-100'
-        }`}
-        onLoad={() => setIsLoading(false)}
-        onError={() => {
-          setError(true);
-          setIsLoading(false);
-        }}
-      />
+
+      {isLocalBackendImage ? (
+        <Image
+          key={currentMedia}
+          src={fullUrl}
+          alt={alt}
+          fill
+          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+          className={`object-cover transition-opacity duration-300 ${
+            isLoading ? 'opacity-0' : 'opacity-100'
+          }`}
+          onLoad={() => setIsLoading(false)}
+          onError={() => {
+            setError(true);
+            setIsLoading(false);
+          }}
+          loading={eager ? 'eager' : 'lazy'}
+          fetchPriority={eager ? 'high' : 'auto'}
+        />
+      ) : (
+        // External image — plain <img> avoids unconfigured-host errors.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={currentMedia}
+          src={fullUrl}
+          alt={alt}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+            isLoading ? 'opacity-0' : 'opacity-100'
+          }`}
+          onLoad={() => setIsLoading(false)}
+          onError={() => {
+            setError(true);
+            setIsLoading(false);
+          }}
+          loading={eager ? 'eager' : 'lazy'}
+          fetchPriority={eager ? 'high' : 'auto'}
+        />
+      )}
     </div>
   );
 };
@@ -388,8 +461,8 @@ const BlogPage: React.FC = () => {
 
   /**
    * Fetch blog posts.
-   * @param opts.silent — if true, skip setLoading(true) (used for refreshes
-   *                      and background updates so the UI doesn't flash).
+   * @param opts.silent — if true, skip setLoading(true). Used for refreshes
+   *                      and background updates.
    */
   const fetchPosts = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -488,10 +561,8 @@ const BlogPage: React.FC = () => {
   );
 
   /**
-   * ✅ Deferred fetch inside effect.
-   * The setTimeout(…, 0) moves fetchPosts() OUT of the synchronous effect
-   * body, which avoids the "Calling setState synchronously within an effect"
-   * lint error. Cleanup clears the timer to prevent orphaned fetches.
+   * ✅ Deferred fetch — avoids "setState synchronously in effect" lint error.
+   * Cleanup clears the timer so no orphan fetches fire.
    */
   useEffect(() => {
     isMounted.current = true;
@@ -727,7 +798,7 @@ const BlogPage: React.FC = () => {
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {posts.length > 0 ? (
-          posts.map((post) => {
+          posts.map((post, index) => {
             const hasVideo = !!post.video;
             const imageIsVideo = post.image ? isVideoUrl(post.image) : false;
             const isVideoPost = hasVideo || imageIsVideo;
@@ -742,6 +813,7 @@ const BlogPage: React.FC = () => {
                     image={post.image}
                     video={post.video}
                     alt={post.title}
+                    eager={index < 2}
                   />
                   <div className="absolute top-3 right-3">
                     <span
