@@ -23,11 +23,7 @@ import {
 } from "@/data/blog";
 import { useLanguage } from "@/context/LanguageContext";
 
-// ✅ NEW: same regex-based video detection used across the admin panel and
-// the backend, so this public page renders videos the same way they were
-// saved. `BlogPost` needs a `video: string | null` field for this to work —
-// add it in @/data/blog.ts if it isn't there yet, mirroring what the API
-// already returns.
+// ✅ Regex-based video detection — same across admin panel and backend
 const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
 const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
 const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
@@ -65,9 +61,6 @@ export default function BlogPage() {
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-  // ✅ NEW: resolves a post's media into either a video (with a ready-to-use
-  // embed URL for known platforms) or an image, so both render spots below
-  // can share the same decision instead of duplicating it.
   const getPostMedia = (post: BlogPost) => {
     const video = (post as { video?: string | null }).video;
     const media = video || post.image;
@@ -85,7 +78,6 @@ export default function BlogPage() {
     return { type: 'image' as const, url: formatBlogImage(post.image) };
   };
 
-  // Helper for category label
   const getCategoryLabel = (cat: string) => {
     const lower = (cat || "").toLowerCase().trim();
     if (lower === "all") return t("blog.cat_all", "All");
@@ -97,7 +89,6 @@ export default function BlogPage() {
     return cat;
   };
 
-  // Fetch blog posts from backend
   useEffect(() => {
     let isMounted = true;
 
@@ -120,7 +111,6 @@ export default function BlogPage() {
           if (data && Array.isArray(data.posts) && data.posts.length > 0) {
             setPosts(data.posts);
           } else {
-            // Keep fallback posts if backend has no posts yet
             setPosts(FALLBACK_BLOG_POSTS);
           }
         }
@@ -145,7 +135,6 @@ export default function BlogPage() {
     };
   }, [apiBaseUrl]);
 
-  // Extract unique categories dynamically from loaded posts
   const categories = useMemo(() => {
     const cats = new Set<string>();
     cats.add("All");
@@ -157,7 +146,6 @@ export default function BlogPage() {
     return Array.from(cats);
   }, [posts]);
 
-  // Filter posts by category and search term
   const filteredPosts = useMemo(() => {
     return posts.filter((post) => {
       const matchesCategory =
@@ -176,13 +164,11 @@ export default function BlogPage() {
     });
   }, [posts, activeCategory, searchQuery]);
 
-  // Determine featured post
   const featuredPost = useMemo(() => {
     if (filteredPosts.length === 0) return null;
     return filteredPosts.find((p) => p.featured) || filteredPosts[0];
   }, [filteredPosts]);
 
-  // Regular posts (excluding the featured one)
   const regularPosts = useMemo(() => {
     if (!featuredPost) return filteredPosts;
     return filteredPosts.filter((p) => (p.id ? p.id !== featuredPost.id : p.slug !== featuredPost.slug));
@@ -194,12 +180,10 @@ export default function BlogPage() {
           BLOG HERO SECTION
       ========================================================= */}
       <section className="relative overflow-hidden bg-[var(--green-950)] text-white">
-        {/* Decorative ambient glows */}
         <div className="absolute -right-40 -top-40 h-[520px] w-[520px] rounded-full bg-[var(--green-800)] opacity-40 blur-3xl" />
         <div className="absolute bottom-[-180px] left-[-120px] h-[400px] w-[400px] rounded-full bg-[var(--lime)] opacity-10 blur-3xl" />
 
         <div className="relative mx-auto w-[min(1180px,calc(100%-48px))]">
-          {/* Breadcrumb */}
           <div className="flex items-center gap-2 pt-32 sm:pt-36 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
             <Link href="/" className="transition hover:text-[var(--lime)]">
               {t("blog.breadcrumb_home", "Genesis")}
@@ -261,17 +245,12 @@ export default function BlogPage() {
             href={`/blog/${encodeURIComponent(featuredPost.slug)}`}
             className="group grid overflow-hidden rounded-[2.5rem] bg-[#071a11] shadow-[0_20px_60px_rgba(18,53,35,.12)] lg:grid-cols-[1.2fr_0.8fr]"
           >
-            {/* Featured Media - image or video */}
             <div className="relative min-h-[380px] overflow-hidden lg:min-h-[480px]">
               {(() => {
                 const media = getPostMedia(featuredPost);
                 if (media.type === 'iframe') {
                   return (
                     <>
-                      {/* Iframes can't sit inside a <Link>'s click target cleanly,
-                          so we disable pointer events on it — clicking the
-                          featured block still navigates to the article, and
-                          the video is playable from the article page itself. */}
                       <iframe
                         src={media.url}
                         className="absolute inset-0 h-full w-full pointer-events-none"
@@ -324,7 +303,6 @@ export default function BlogPage() {
               </span>
             </div>
 
-            {/* Featured Content */}
             <div className="flex flex-col justify-between p-8 text-white sm:p-10 lg:p-12">
               <div>
                 <div className="mb-8 flex items-center gap-4 text-[9px] uppercase tracking-[0.13em] text-white/50">
@@ -357,16 +335,8 @@ export default function BlogPage() {
                 </p>
               </div>
 
-              <div className="mt-8 flex items-center justify-between border-t border-white/10 pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] font-bold text-xs">
-                    {featuredPost.author?.name ? featuredPost.author.name.charAt(0).toUpperCase() : "G"}
-                  </div>
-                  <span className="text-xs font-semibold text-white/90">
-                    {featuredPost.author?.name || "Genesis Farm Team"}
-                  </span>
-                </div>
-
+              {/* ✅ Author REMOVED — only Read Article link remains */}
+              <div className="mt-8 flex items-center justify-end border-t border-white/10 pt-6">
                 <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--lime)] group-hover:translate-x-1 transition-transform">
                   {t("blog.read_article", "Read Article")}
                   <ArrowRight size={15} />
@@ -383,7 +353,6 @@ export default function BlogPage() {
       <section className="border-y border-[#19472d]/10 bg-white py-6">
         <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
-            {/* Category Pills */}
             <div className="flex flex-wrap items-center gap-2">
               {categories.map((cat) => {
                 const isActive = activeCategory.toLowerCase() === cat.toLowerCase();
@@ -404,7 +373,6 @@ export default function BlogPage() {
               })}
             </div>
 
-            {/* Search Input Box */}
             <div className="relative min-w-[260px] max-w-sm">
               <Search
                 size={16}
@@ -436,7 +404,6 @@ export default function BlogPage() {
       ========================================================= */}
       <section className="mx-auto w-[min(1180px,calc(100%-48px))] py-16 sm:py-20">
         {loading ? (
-          /* Loading Skeletons */
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
             {[1, 2, 3, 4, 5, 6].map((idx) => (
               <div
@@ -453,7 +420,6 @@ export default function BlogPage() {
             ))}
           </div>
         ) : filteredPosts.length === 0 ? (
-          /* Empty Search Result */
           <div className="rounded-[2.5rem] border border-[rgba(20,33,25,.08)] bg-white p-12 text-center shadow-sm">
             <Leaf size={36} className="mx-auto mb-4 text-[#28633e]" />
             <h3 className="font-serif-heading text-2xl font-bold text-[#123523]">
@@ -475,7 +441,6 @@ export default function BlogPage() {
             </button>
           </div>
         ) : (
-          /* Posts Grid */
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
             {regularPosts.map((post) => {
               const media = getPostMedia(post);
@@ -485,7 +450,6 @@ export default function BlogPage() {
                   className="group flex flex-col justify-between overflow-hidden rounded-[2rem] border border-[rgba(20,33,25,.08)] bg-white shadow-[0_10px_30px_rgba(18,53,35,.04)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(18,53,35,.09)]"
                 >
                   <div>
-                    {/* Article Thumbnail - image or video */}
                     <Link
                       href={`/blog/${encodeURIComponent(post.slug)}`}
                       className="relative block aspect-[16/10] overflow-hidden bg-[#071a11]"
@@ -537,7 +501,6 @@ export default function BlogPage() {
                       </span>
                     </Link>
 
-                    {/* Body Info */}
                     <div className="p-6">
                       <div className="mb-3 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-wider text-[#69736b]">
                         <span className="flex items-center gap-1">
@@ -563,17 +526,8 @@ export default function BlogPage() {
                     </div>
                   </div>
 
-                  {/* Footer Author & Action */}
-                  <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] text-[10px] font-bold">
-                        {post.author?.name ? post.author.name.charAt(0).toUpperCase() : "G"}
-                      </div>
-                      <span className="text-[11px] font-medium text-[#123523] truncate max-w-[110px]">
-                        {post.author?.name || "Genesis Farm"}
-                      </span>
-                    </div>
-
+                  {/* ✅ Author REMOVED — only Read link remains */}
+                  <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
                     <Link
                       href={`/blog/${encodeURIComponent(post.slug)}`}
                       className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#28633e] group-hover:text-[#123523] transition-colors"
