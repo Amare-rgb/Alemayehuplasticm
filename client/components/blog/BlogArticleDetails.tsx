@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowLeft,
   ArrowRight,
@@ -24,10 +25,7 @@ interface BlogArticleDetailsProps {
   relatedPosts: BlogPost[];
 }
 
-// ✅ NEW: same regex-based video detection used across the admin panel, the
-// backend, and the blog list page — kept consistent everywhere a post's
-// media gets rendered. Assumes `BlogPost` has (or will have) a
-// `video: string | null` field matching what the API returns.
+// ✅ Regex-based video detection — same across admin panel, backend, blog pages
 const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
 const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
 const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
@@ -57,8 +55,6 @@ const isVideoUrl = (url: string | null | undefined): boolean => {
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-// Resolves a post's media into iframe / video / image, mirroring the same
-// helper used on the blog list page so both views agree.
 function getPostMedia(post: BlogPost) {
   const video = (post as { video?: string | null }).video;
   const media = video || post.image;
@@ -85,7 +81,6 @@ function FormattedArticleContent({ content }: { content: string }) {
         const trimmed = block.trim();
         if (!trimmed) return null;
 
-        // Heading 3 / ###
         if (trimmed.startsWith("### ")) {
           return (
             <h3
@@ -97,7 +92,6 @@ function FormattedArticleContent({ content }: { content: string }) {
           );
         }
 
-        // Heading 2 / ##
         if (trimmed.startsWith("## ")) {
           return (
             <h2
@@ -109,7 +103,6 @@ function FormattedArticleContent({ content }: { content: string }) {
           );
         }
 
-        // Blockquote / >
         if (trimmed.startsWith(">")) {
           return (
             <blockquote
@@ -121,7 +114,6 @@ function FormattedArticleContent({ content }: { content: string }) {
           );
         }
 
-        // Regular Paragraph
         return (
           <p key={idx} className="text-[#3c4a40]">
             {trimmed}
@@ -135,7 +127,6 @@ function FormattedArticleContent({ content }: { content: string }) {
 export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDetailsProps) {
   const { t } = useLanguage();
 
-  // Helper for category label
   const getCategoryLabel = (cat: string) => {
     const lower = (cat || "").toLowerCase().trim();
     if (lower === "all") return t("blog.cat_all", "All");
@@ -190,12 +181,10 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
           ARTICLE HERO HEADER
       ========================================================= */}
       <section className="relative overflow-hidden bg-[var(--green-950)] pt-32 pb-24 text-white">
-        {/* Decorative ambient background glows */}
         <div className="absolute -right-32 -top-32 h-[450px] w-[450px] rounded-full bg-[var(--green-800)] opacity-40 blur-3xl" />
         <div className="absolute -bottom-20 -left-20 h-[350px] w-[350px] rounded-full bg-[var(--lime)] opacity-10 blur-3xl" />
 
         <div className="relative mx-auto w-[min(960px,calc(100%-48px))]">
-          {/* Breadcrumb Navigation */}
           <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
             <Link href="/" className="transition hover:text-[var(--lime)]">
               {t("blog.breadcrumb_home", "Genesis")}
@@ -208,7 +197,6 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
             <span className="truncate text-white/80">{getCategoryLabel(post.category)}</span>
           </div>
 
-          {/* Category Pill */}
           <div className="mt-8 flex items-center gap-3">
             <span className="h-2 w-2 rounded-full bg-[var(--lime)]" />
             <span className="rounded-full bg-white/10 px-3.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--lime)] backdrop-blur-md">
@@ -216,19 +204,17 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
             </span>
           </div>
 
-          {/* Article Title */}
           <h1 className="mt-6 font-serif-heading text-[clamp(36px,5.5vw,72px)] font-medium leading-[1.05] tracking-[-0.045em] text-white">
             {post.title}
           </h1>
 
-          {/* Excerpt Lead */}
           {post.excerpt && (
             <p className="mt-6 max-w-[760px] text-sm sm:text-base leading-[1.8] text-white/75 font-normal">
               {post.excerpt}
             </p>
           )}
 
-          {/* Article Metadata Bar */}
+          {/* ✅ Author block REMOVED from metadata bar */}
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-white/15 pt-6 text-[10px] uppercase tracking-[0.12em] text-white/60">
             <div className="flex items-center gap-1.5">
               <CalendarDays size={13} className="text-[var(--lime)]" />
@@ -251,23 +237,12 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
                 </div>
               </>
             )}
-
-            <span className="h-3 w-px bg-white/20 max-sm:hidden" />
-
-            <div className="flex items-center gap-2">
-              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)] text-[9px] font-bold">
-                {post.author?.name ? post.author.name.charAt(0).toUpperCase() : "G"}
-              </div>
-              <span className="text-white font-semibold">
-                {t("blog.by", "By")} {post.author?.name || "Genesis Farm Team"}
-              </span>
-            </div>
           </div>
         </div>
       </section>
 
       {/* =========================================================
-          HERO COVER MEDIA - image or video
+          HERO COVER MEDIA
       ========================================================= */}
       <section className="mx-auto w-[min(1080px,calc(100%-48px))] -mt-10 sm:-mt-14 relative z-10">
         <div className="relative aspect-[16/9] sm:aspect-[16/8] overflow-hidden rounded-[2.5rem] bg-[#071a11] shadow-[0_25px_70px_rgba(18,53,35,.16)] border border-white/10">
@@ -291,16 +266,18 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
               Your browser does not support the video tag.
             </video>
           ) : (
-            <img
+            /* ✅ Next.js Image replaces <img> */
+            <Image
               src={heroMedia.url}
               alt={post.title}
-              className="h-full w-full object-cover"
+              fill
+              className="object-cover"
+              sizes="(max-width: 1080px) 100vw, 1080px"
+              priority
+              unoptimized
             />
           )}
 
-          {/* Gradient + badge only make sense over a static image; an
-              iframe/video already has its own controls and a gradient
-              overlay on top would block clicks on them. */}
           {heroMedia.type === 'image' && (
             <>
               <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
@@ -325,34 +302,15 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
       <article className="mx-auto w-[min(780px,calc(100%-48px))] py-16 sm:py-20">
         <FormattedArticleContent content={post.content || post.excerpt || ""} />
 
-        {/* Article Author Footer Card */}
-        <div className="mt-16 rounded-3xl bg-white p-6 sm:p-8 border border-[rgba(20,33,25,.08)] shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
-            <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[var(--lime)] text-[var(--green-950)] font-serif-heading text-xl font-bold shadow-sm">
-                {post.author?.name ? post.author.name.charAt(0).toUpperCase() : "G"}
-              </div>
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#28633e]">
-                  {t("blog.published_author", "Published Author")}
-                </span>
-                <h4 className="font-serif-heading text-lg font-bold text-[#123523]">
-                  {post.author?.name || "Genesis Farm Agronomy Team"}
-                </h4>
-                <p className="text-xs text-[#69736b] mt-0.5">
-                  {t("blog.author_desc", "Agronomy, agricultural research & fresh food supply.")}
-                </p>
-              </div>
-            </div>
-
-            <Link
-              href="/blog"
-              className="inline-flex items-center gap-2 self-start sm:self-auto rounded-full bg-[#f6f3e9] px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-[#123523] hover:bg-[#123523] hover:text-white transition"
-            >
-              <ArrowLeft size={13} />
-              {t("blog.all_articles", "All Articles")}
-            </Link>
-          </div>
+        {/* ✅ Author footer card REMOVED — replaced with a simple Back to Journal button */}
+        <div className="mt-16 flex justify-center">
+          <Link
+            href="/blog"
+            className="inline-flex items-center gap-2 rounded-full bg-[#f6f3e9] px-6 py-3 text-xs font-bold uppercase tracking-wider text-[#123523] hover:bg-[#123523] hover:text-white transition"
+          >
+            <ArrowLeft size={13} />
+            {t("blog.all_articles", "All Articles")}
+          </Link>
         </div>
       </article>
 
@@ -423,10 +381,14 @@ export default function BlogArticleDetails({ post, relatedPosts }: BlogArticleDe
                           </span>
                         </>
                       ) : (
-                        <img
+                        /* ✅ Next.js Image replaces <img> */
+                        <Image
                           src={relatedMedia.url}
                           alt={related.title}
-                          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                          fill
+                          className="object-cover transition-transform duration-700 group-hover:scale-105"
+                          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                          unoptimized
                         />
                       )}
                       <span className="absolute left-3 top-3 rounded-full bg-[#123523]/90 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--lime)]">

@@ -4,8 +4,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -107,28 +108,28 @@ model ChatMessage {
 // UNIFIED PROFILE MODEL
 // ============================================
 model Profile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
+  id          String    @id @default(cuid())
+  userId      String    @unique
   shopName    String?
   shopDesc    String?
   logo        String?
   phone       String?
-  isVerified  Boolean  @default(false)
-  totalSales  Int      @default(0)
+  isVerified  Boolean   @default(false)
+  totalSales  Int       @default(0)
   address     String?
   banner      String?
 
   // Admin-specific fields
-  isAdmin     Boolean  @default(false)
+  isAdmin     Boolean   @default(false)
   adminRole   String?
   permissions String[]
   lastLogin   DateTime?
-  status      String   @default("active")
+  status      String    @default("active")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("profiles")
 }
@@ -244,10 +245,6 @@ model CartItem {
 
 // ============================================
 // ORDER MODEL
-// ✅ `id`               = cuid (Primary Key)
-// ✅ `orderNumber`      = Unique Sequential Int
-// ✅ `paymentMethod`    = canonical string ("Cash on Delivery" | "Bank Transfer" | "Telebirr")
-// ✅ `(paymentMethod, paymentRef)` = composite UNIQUE — one ref per method
 // ============================================
 model Order {
   id              String        @id @default(cuid())
@@ -273,8 +270,6 @@ model Order {
   address Address     @relation(fields: [addressId], references: [id])
   items   OrderItem[]
 
-  // ✅ Composite unique: same ref cannot exist twice for the SAME method.
-  //    Multiple rows with NULL ref are allowed (COD, pending Telebirr).
   @@unique([paymentMethod, paymentRef], name: "uniq_payment_ref_per_method")
 
   @@index([userId])
@@ -360,27 +355,27 @@ model BlogPost {
 }
 
 model Article {
-  id            String        @id @default(cuid())
-  title         String
-  author        String
-  summary       String?
-  content       String        @db.Text
-  note          String?       @db.Text
+  id           String        @id @default(cuid())
+  title        String
+  author       String
+  summary      String?
+  content      String        @db.Text
+  note         String?       @db.Text
 
-  pdfUrl        String?
-  pdfFileName   String?
-  pdfFileSize   Int?
+  pdfUrl       String?
+  pdfFileName  String?
+  pdfFileSize  Int?
 
-  status        ArticleStatus @default(PUBLISHED)
-  views         Int           @default(0)
-  downloads     Int           @default(0)
-  tags          String[]
-  createdBy     String?
-  publishedAt   DateTime      @default(now())
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  status       ArticleStatus @default(PUBLISHED)
+  views        Int           @default(0)
+  downloads    Int           @default(0)
+  tags         String[]
+  createdBy    String?
+  publishedAt  DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
-  authorUser    User?         @relation("ArticleAuthor", fields: [createdBy], references: [id])
+  authorUser   User?         @relation("ArticleAuthor", fields: [createdBy], references: [id])
 
   @@index([status, createdAt])
   @@index([author])
