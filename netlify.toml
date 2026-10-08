@@ -1,7 +1,7 @@
 [build]
-  base = "server"
-  command = "npx prisma generate && npx prisma migrate deploy"
-  publish = "public"
+  command   = "npm install && npx prisma generate"
+  publish   = "public"
+  functions = "netlify/functions"
 
 [functions]
   node_bundler = "esbuild"
@@ -9,22 +9,17 @@
   included_files = [
     "prisma/**",
     "node_modules/.prisma/**",
-    "node_modules/@prisma/client/**",
-    "routes/**",
-    "lib/**",
-    "middleware/**",
-    "controllers/**",
-    "utils/**"
+    "node_modules/@prisma/client/**"
   ]
 
-# Send /api/* to the single serverless function
 [[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
+  from   = "/api/*"
+  to     = "/.netlify/functions/api/:splat"
   status = 200
-  force = true
+  force  = true
 
 [[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/api"
+  from   = "/"
+  to     = "/.netlify/functions/api"
   status = 200
+  force  = true
