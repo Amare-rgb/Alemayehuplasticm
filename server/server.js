@@ -2,19 +2,18 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
 const http = require('http');
 
 // ✅ Shared Prisma client (singleton)
 const prisma = require('./lib/prisma');
+const { UPLOAD_ROOT, ensureDir, isVercel } = require('./lib/uploadPaths');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
 // ═══════════════════════════════════════════════════════════
-// TRUST PROXY (Render / Railway / nginx / ngrok)
+// TRUST PROXY (Vercel / Render / Railway / nginx / ngrok)
 // ═══════════════════════════════════════════════════════════
 app.set('trust proxy', 1);
 
@@ -39,19 +38,9 @@ const chatbotRoutes = require('./routes/chatbot.routes');
 const telebirrRoutes = require('./routes/telebirr.routes');
 
 // ═══════════════════════════════════════════════════════════
-// ENSURE UPLOAD DIRECTORIES EXIST
+// UPLOAD DIRECTORIES (safe: never throws on read-only disks)
 // ═══════════════════════════════════════════════════════════
-const uploadsDir = path.join(__dirname, 'uploads');
-const productsDir = path.join(uploadsDir, 'products');
-const settingsDir = path.join(uploadsDir, 'settings');
-const pdfsDir = path.join(uploadsDir, 'pdfs');
-
-[uploadsDir, productsDir, settingsDir, pdfsDir].forEach((dir) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log('✅ Created directory:', dir);
-  }
-});
+['products', 'settings', 'pdfs', 'avatars'].forEach((d) => ensureDir(d));
 
 // ═══════════════════════════════════════════════════════════
 // CORS — localhost + Vercel + ngrok + custom origins
@@ -64,17 +53,19 @@ const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
   .map((o) => o.trim())
   .filter(Boolean);
 
-const rawOrigins = [
-  process.env.CLIENT_URL,
-  process.env.FRONTEND_URL,
-  process.env.NEXT_PUBLIC_SITE_URL,
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3000',
-  ...extraOrigins,
-].filter(Boolean);
-
-const allowedOrigins = new Set(rawOrigins.map(stripSlash));
+const allowedOrigins = new Set(
+  [
+    process.env.CLIENT_URL,
+    process.env.FRONTEND_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3000',
+    ...extraOrigins,
+  ]
+    .filter(Boolean)
+    .map(stripSlash)
+);
 
 // Any Vercel deployment (production + preview URLs)
 const VERCEL_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.vercel\.app$/i;
@@ -98,31 +89,30 @@ function isOriginAllowed(origin) {
   return false;
 }
 
-const corsOptions = {
-  origin(origin, callback) {
-    if (isOriginAllowed(origin)) return callback(null, true);
-    // Do NOT throw an Error here (that caused the 403 on preflight)
-    console.warn(`⚠️ CORS blocked for origin: ${origin}`);
-    return callback(null, false);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'Accept',
-    'Origin',
-    'X-Requested-With',
-    'ngrok-skip-browser-warning',
-  ],
-  exposedHeaders: ['Content-Disposition'],
-  optionsSuccessStatus: 204,
-  maxAge: 86400,
-};
-
-// The cors middleware answers OPTIONS preflight automatically,
-// so there is no need for app.options('*', ...)
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (isOriginAllowed(origin)) return callback(null, true);
+      // Do NOT throw an Error here (that caused the 403 on preflight)
+      console.warn(`⚠️ CORS blocked for origin: ${origin}`);
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+      'ngrok-skip-browser-warning',
+    ],
+    exposedHeaders: ['Content-Disposition'],
+    optionsSuccessStatus: 204,
+    maxAge: 86400,
+  })
+);
+// cors() answers OPTIONS preflight automatically; no app.options('*') needed.
 
 // ═══════════════════════════════════════════════════════════
 // BODY PARSERS
@@ -131,14 +121,14 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ═══════════════════════════════════════════════════════════
-// STATIC FILES
+// STATIC FILES (local/VPS only; on Vercel use Cloudinary)
 // ═══════════════════════════════════════════════════════════
 app.use(
   '/uploads',
-  express.static(uploadsDir, {
+  express.static(UPLOAD_ROOT, {
     setHeaders: (res, filePath) => {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-      if (filePath.match(/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i)) {
+      if (/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i.test(filePath)) {
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       } else {
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -146,33 +136,6 @@ app.use(
     },
   })
 );
-
-console.log('✅ Serving static files from:', uploadsDir);
-
-// ═══════════════════════════════════════════════════════════
-// DATABASE CONNECTION
-// ═══════════════════════════════════════════════════════════
-async function connectDatabase() {
-  try {
-    await prisma.$connect();
-    console.log('✅ Database connected successfully');
-
-    const userCount = await prisma.user.count();
-    console.log(`📊 Database contains ${userCount} users`);
-
-    const adminUser = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
-    if (adminUser) {
-      console.log('👤 Admin user exists:', adminUser.email);
-    } else {
-      console.log('⚠️ No admin user found. Please create one.');
-    }
-    return true;
-  } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    console.error('Please check your DATABASE_URL in .env file');
-    return false;
-  }
-}
 
 // ═══════════════════════════════════════════════════════════
 // ROUTES
@@ -206,8 +169,7 @@ app.get('/api/health', async (req, res) => {
       status: 'OK',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
-      uptime: process.uptime(),
-      backendUrl: process.env.BACKEND_URL || `http://localhost:${PORT}`,
+      platform: isVercel ? 'vercel' : 'node',
       database: { connected: true, userCount },
     });
   } catch (error) {
@@ -215,7 +177,6 @@ app.get('/api/health', async (req, res) => {
       status: 'ERROR',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
-      uptime: process.uptime(),
       database: { connected: false, error: error.message },
     });
   }
@@ -274,7 +235,7 @@ app.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({
       success: false,
-      error: 'Payment proof file is too large. Please upload a file under 10 MB.',
+      error: 'File is too large. Please upload a file under 10 MB.',
     });
   }
 
@@ -286,47 +247,61 @@ app.use((err, req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// SERVER STARTUP + GRACEFUL SHUTDOWN
+// STARTUP — only when NOT on Vercel.
+// On Vercel the exported `app` is used as the request handler.
 // ═══════════════════════════════════════════════════════════
-let server;
+if (!isVercel) {
+  let server;
 
-async function gracefulShutdown(signal) {
-  console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
-  try {
-    if (server) {
-      await new Promise((resolve) => server.close(resolve));
-      console.log('✅ HTTP server closed');
+  const gracefulShutdown = async (signal) => {
+    console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+    try {
+      if (server) {
+        await new Promise((resolve) => server.close(resolve));
+        console.log('✅ HTTP server closed');
+      }
+      await prisma.$disconnect();
+      console.log('✅ Database disconnected');
+      process.exit(0);
+    } catch (err) {
+      console.error('❌ Error during shutdown:', err);
+      process.exit(1);
     }
-    await prisma.$disconnect();
-    console.log('✅ Database disconnected');
-    process.exit(0);
-  } catch (err) {
-    console.error('❌ Error during shutdown:', err);
-    process.exit(1);
-  }
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  (async () => {
+    let dbConnected = false;
+    try {
+      await prisma.$connect();
+      dbConnected = true;
+      const userCount = await prisma.user.count();
+      console.log(`✅ Database connected (${userCount} users)`);
+
+      const adminUser = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+      console.log(
+        adminUser
+          ? `👤 Admin user exists: ${adminUser.email}`
+          : '⚠️ No admin user found. Run: npm run create-admin'
+      );
+    } catch (error) {
+      console.error('❌ Database connection failed:', error.message);
+      console.error('Please check your DATABASE_URL in .env file');
+    }
+
+    server = http.createServer(app);
+    server.listen(PORT, '0.0.0.0', () => {
+      const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+      console.log('\n🌱 Genesis Agri Server running on ' + backendUrl);
+      console.log('🌍 Environment: ' + (process.env.NODE_ENV || 'development'));
+      console.log('💾 Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
+      console.log('🔓 Allowed CORS origins:');
+      allowedOrigins.forEach((o) => console.log('   - ' + o));
+      console.log('   - *.vercel.app');
+    });
+  })();
 }
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-async function startServer() {
-  const dbConnected = await connectDatabase();
-  if (!dbConnected) {
-    console.log('⚠️ Server starting without database connection.');
-  }
-
-  server = http.createServer(app);
-  server.listen(PORT, '0.0.0.0', () => {
-    const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
-    console.log('\n🌱 Genesis Agri Server running on ' + backendUrl);
-    console.log('🌍 Environment: ' + (process.env.NODE_ENV || 'development'));
-    console.log('💾 Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
-    console.log('🔓 Allowed CORS origins:');
-    allowedOrigins.forEach((o) => console.log('   - ' + o));
-    console.log('   - *.vercel.app');
-  });
-}
-
-startServer();
 
 module.exports = app;
