@@ -1,0 +1,30 @@
+[build]
+  command = "npx prisma generate && npx prisma migrate deploy"
+  functions = "netlify/functions"
+  publish = "public"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["@prisma/client", "prisma", "bcrypt", "sharp"]
+  included_files = [
+    "prisma/**",
+    "node_modules/.prisma/**",
+    "node_modules/@prisma/client/**",
+    "routes/**",
+    "lib/**",
+    "middleware/**",
+    "controllers/**",
+    "utils/**"
+  ]
+
+# Send /api/* to the single function
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/"
+  to = "/.netlify/functions/api"
+  status = 200

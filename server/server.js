@@ -6,14 +6,20 @@ const http = require('http');
 
 // ✅ Shared Prisma client (singleton)
 const prisma = require('./lib/prisma');
-const { UPLOAD_ROOT, ensureDir, isVercel } = require('./lib/uploadPaths');
+const { UPLOAD_ROOT, ensureDir } = require('./lib/uploadPaths');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
+// ✅ Detect ANY serverless platform (Netlify, Vercel, AWS Lambda)
+const isNetlify = !!(process.env.NETLIFY || process.env.NETLIFY_LOCAL);
+const isVercel = !!process.env.VERCEL;
+const isServerless =
+  isNetlify || isVercel || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+
 // ═══════════════════════════════════════════════════════════
-// TRUST PROXY (Vercel / Render / Railway / nginx / ngrok)
+// TRUST PROXY
 // ═══════════════════════════════════════════════════════════
 app.set('trust proxy', 1);
 
@@ -38,16 +44,17 @@ const chatbotRoutes = require('./routes/chatbot.routes');
 const telebirrRoutes = require('./routes/telebirr.routes');
 
 // ═══════════════════════════════════════════════════════════
-// UPLOAD DIRECTORIES (safe: never throws on read-only disks)
+// UPLOAD DIRECTORIES (skip entirely on serverless: read-only disk)
 // ═══════════════════════════════════════════════════════════
-['products', 'settings', 'pdfs', 'avatars'].forEach((d) => ensureDir(d));
+if (!isServerless) {
+  ['products', 'settings', 'pdfs', 'avatars'].forEach((d) => ensureDir(d));
+}
 
 // ═══════════════════════════════════════════════════════════
-// CORS — localhost + Vercel + ngrok + custom origins
+// CORS — localhost + Vercel + Netlify + ngrok + custom origins
 // ═══════════════════════════════════════════════════════════
 const stripSlash = (o) => String(o).trim().replace(/\/+$/, '');
 
-// Comma-separated extra origins: ALLOWED_ORIGINS=https://a.com,https://b.com
 const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
@@ -58,8 +65,11 @@ const allowedOrigins = new Set(
     process.env.CLIENT_URL,
     process.env.FRONTEND_URL,
     process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.URL, // Netlify: main site URL (auto-set)
+    process.env.DEPLOY_PRIME_URL, // Netlify: current deploy URL (auto-set)
     'http://localhost:3000',
     'http://localhost:3001',
+    'http://localhost:8888', // netlify dev
     'http://127.0.0.1:3000',
     ...extraOrigins,
   ]
@@ -67,11 +77,9 @@ const allowedOrigins = new Set(
     .map(stripSlash)
 );
 
-// Any Vercel deployment (production + preview URLs)
 const VERCEL_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.vercel\.app$/i;
-// ngrok (old + new domains), dev only
+const NETLIFY_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.netlify\.app$/i;
 const NGROK_REGEX = /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.ngrok(-free)?\.(io|app|dev)$/i;
-// Local network, dev only
 const LAN_REGEX =
   /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
 
@@ -81,6 +89,7 @@ function isOriginAllowed(origin) {
 
   if (allowedOrigins.has(cleaned)) return true;
   if (VERCEL_REGEX.test(cleaned)) return true;
+  if (NETLIFY_REGEX.test(cleaned)) return true;
 
   if (!isProd) {
     if (NGROK_REGEX.test(cleaned)) return true;
@@ -93,7 +102,6 @@ app.use(
   cors({
     origin(origin, callback) {
       if (isOriginAllowed(origin)) return callback(null, true);
-      // Do NOT throw an Error here (that caused the 403 on preflight)
       console.warn(`⚠️ CORS blocked for origin: ${origin}`);
       return callback(null, false);
     },
@@ -112,55 +120,60 @@ app.use(
     maxAge: 86400,
   })
 );
-// cors() answers OPTIONS preflight automatically; no app.options('*') needed.
 
 // ═══════════════════════════════════════════════════════════
 // BODY PARSERS
+// NOTE: Netlify Functions have a ~6 MB request payload limit.
+// Use direct-to-Cloudinary uploads for anything larger.
 // ═══════════════════════════════════════════════════════════
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // ═══════════════════════════════════════════════════════════
-// STATIC FILES (local/VPS only; on Vercel use Cloudinary)
+// STATIC FILES (local/VPS only; serverless disk is not persistent)
 // ═══════════════════════════════════════════════════════════
-app.use(
-  '/uploads',
-  express.static(UPLOAD_ROOT, {
-    setHeaders: (res, filePath) => {
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-      if (/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i.test(filePath)) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      } else {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      }
-    },
-  })
-);
+if (!isServerless) {
+  app.use(
+    '/uploads',
+    express.static(UPLOAD_ROOT, {
+      setHeaders: (res, filePath) => {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        if (/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i.test(filePath)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    })
+  );
+}
 
 // ═══════════════════════════════════════════════════════════
 // ROUTES
 // ═══════════════════════════════════════════════════════════
-app.use('/api/auth', authRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/admin/dashboard', adminDashboardRoutes);
-app.use('/api/blog', blogRoutes);
-app.use('/api/cart', cartRoutes);
-app.use('/api/categories', categoriesRoutes);
-app.use('/api/checkout', checkoutRoutes);
-app.use('/api/orders', ordersRoutes);
-app.use('/api/products', productsRoutes);
-app.use('/api/upload', uploadRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/admin/settings', settingsRoutes);
-app.use('/api/profile', profileRoutes);
-app.use('/api/articles', articlesRoutes);
-app.use('/api/chatbot', chatbotRoutes);
-app.use('/api/telebirr', telebirrRoutes);
+const apiRouter = express.Router();
+
+apiRouter.use('/auth', authRoutes);
+apiRouter.use('/admin/dashboard', adminDashboardRoutes); // more specific first
+apiRouter.use('/admin/settings', settingsRoutes);
+apiRouter.use('/admin', adminRoutes);
+apiRouter.use('/blog', blogRoutes);
+apiRouter.use('/cart', cartRoutes);
+apiRouter.use('/categories', categoriesRoutes);
+apiRouter.use('/checkout', checkoutRoutes);
+apiRouter.use('/orders', ordersRoutes);
+apiRouter.use('/products', productsRoutes);
+apiRouter.use('/upload', uploadRoutes);
+apiRouter.use('/users', usersRoutes);
+apiRouter.use('/profile', profileRoutes);
+apiRouter.use('/articles', articlesRoutes);
+apiRouter.use('/chatbot', chatbotRoutes);
+apiRouter.use('/telebirr', telebirrRoutes);
 
 // ═══════════════════════════════════════════════════════════
 // HEALTH CHECK
 // ═══════════════════════════════════════════════════════════
-app.get('/api/health', async (req, res) => {
+apiRouter.get('/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     const userCount = await prisma.user.count();
@@ -169,7 +182,7 @@ app.get('/api/health', async (req, res) => {
       status: 'OK',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
-      platform: isVercel ? 'vercel' : 'node',
+      platform: isNetlify ? 'netlify' : isVercel ? 'vercel' : 'node',
       database: { connected: true, userCount },
     });
   } catch (error) {
@@ -182,14 +195,19 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Mount the SAME router at /api (normal) and at the Netlify function path
+app.use('/api', apiRouter);
+app.use('/.netlify/functions/api', apiRouter);
+
 // ═══════════════════════════════════════════════════════════
 // ROOT ROUTE
 // ═══════════════════════════════════════════════════════════
-app.get('/', (req, res) => {
+const rootInfo = (req, res) => {
   res.json({
     name: 'Genesis Agri API Server',
     version: '1.0.0',
     status: 'Running',
+    platform: isNetlify ? 'netlify' : isVercel ? 'vercel' : 'node',
     endpoints: {
       auth: '/api/auth',
       admin: '/api/admin',
@@ -211,7 +229,9 @@ app.get('/', (req, res) => {
       telebirrReturn: '/api/telebirr/return',
     },
   });
-});
+};
+app.get('/', rootInfo);
+app.get('/api', rootInfo);
 
 // ═══════════════════════════════════════════════════════════
 // 404 HANDLER
@@ -235,7 +255,7 @@ app.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({
       success: false,
-      error: 'File is too large. Please upload a file under 10 MB.',
+      error: 'File is too large. Please upload a file under 5 MB.',
     });
   }
 
@@ -247,10 +267,10 @@ app.use((err, req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// STARTUP — only when NOT on Vercel.
-// On Vercel the exported `app` is used as the request handler.
+// STARTUP — only when NOT serverless.
+// On Netlify, netlify/functions/api.js wraps the exported `app`.
 // ═══════════════════════════════════════════════════════════
-if (!isVercel) {
+if (!isServerless) {
   let server;
 
   const gracefulShutdown = async (signal) => {
@@ -300,6 +320,7 @@ if (!isVercel) {
       console.log('🔓 Allowed CORS origins:');
       allowedOrigins.forEach((o) => console.log('   - ' + o));
       console.log('   - *.vercel.app');
+      console.log('   - *.netlify.app');
     });
   })();
 }

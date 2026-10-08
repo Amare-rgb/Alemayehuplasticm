@@ -1,12 +1,21 @@
 // lib/uploadPaths.js
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 
 const isVercel = !!process.env.VERCEL;
+const isNetlify = !!(process.env.NETLIFY || process.env.NETLIFY_LOCAL);
+const isLambda = !!(
+  process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT
+);
 
-// Vercel: only /tmp is writable. Local / VPS: normal uploads folder.
-const UPLOAD_ROOT = isVercel
-  ? path.join('/tmp', 'uploads')
+// Netlify Functions run on AWS Lambda, so they are serverless too
+const isServerless = isVercel || isNetlify || isLambda;
+
+// Serverless: only the OS temp dir (/tmp) is writable, and it is NOT persistent.
+// Local / VPS: normal uploads folder.
+const UPLOAD_ROOT = isServerless
+  ? path.join(os.tmpdir(), 'uploads')
   : path.join(__dirname, '..', 'uploads');
 
 function ensureDir(...parts) {
@@ -20,4 +29,10 @@ function ensureDir(...parts) {
   return dir;
 }
 
-module.exports = { UPLOAD_ROOT, ensureDir, isVercel };
+module.exports = {
+  UPLOAD_ROOT,
+  ensureDir,
+  isVercel,
+  isNetlify,
+  isServerless,
+};

@@ -1,7 +1,7 @@
 // prisma/schema.prisma
 generator client {
   provider      = "prisma-client-js"
-  // "native" = your computer, "rhel-openssl-3.0.x" = Vercel serverless
+  // "native" = your computer, "rhel-openssl-3.0.x" = Netlify Functions / Vercel / AWS Lambda
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
