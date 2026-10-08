@@ -1,6 +1,6 @@
 [build]
+  base = "server"
   command = "npx prisma generate && npx prisma migrate deploy"
-  functions = "netlify/functions"
   publish = "public"
 
 [functions]
@@ -17,7 +17,7 @@
     "utils/**"
   ]
 
-# Send /api/* to the single function
+# Send /api/* to the single serverless function
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
@@ -25,6 +25,6 @@
   force = true
 
 [[redirects]]
-  from = "/"
+  from = "/*"
   to = "/.netlify/functions/api"
   status = 200
