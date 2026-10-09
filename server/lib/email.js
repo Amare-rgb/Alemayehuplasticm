@@ -1,6 +1,28 @@
-// server/lib/email.js
+// lib/email.js
+//
+// Email sender that works on Railway.
+//
+// Railway blocks outgoing SMTP (ports 25 / 465 / 587), so Gmail + nodemailer
+// hangs until it times out. This file sends email over HTTPS using the
+// Resend API instead (no extra npm package needed: it uses Node's built-in
+// fetch, Node 18+).
+//
+// Railway variables:
+//   RESEND_API_KEY   = re_xxxxxxxxx            (from resend.com → API Keys)
+//   RESEND_FROM      = Genesis Agri <noreply@your-verified-domain.com>
+//   SITE_URL         = https://your-app.vercel.app   (used for links in emails)
+//   SUPPORT_EMAIL    = support@your-domain.com       (optional, shown in email)
+//
+// If RESEND_API_KEY is not set, it falls back to SMTP (works on your own
+// computer, NOT on Railway) using EMAIL_HOST / EMAIL_PORT / EMAIL_USER /
+// EMAIL_PASSWORD, with short timeouts so it fails fast instead of hanging.
+
 const nodemailer = require('nodemailer');
 
+// ------------------------------------------------------------
+// SMTP fallback transporter (local development only)
+// Short timeouts → fails in seconds, not minutes.
+// ------------------------------------------------------------
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp.gmail.com',
   port: parseInt(process.env.EMAIL_PORT || '587', 10),
@@ -9,22 +31,120 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
   },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
 });
+
+const stripSlash = (s) => String(s || '').trim().replace(/\/+$/, '');
 
 const BRAND = {
   name: 'Genesis Agri Business',
   shortName: 'Genesis Agri',
   tagline: 'Fresh from Ethiopian farms to your table',
-  supportEmail: process.env.EMAIL_FROM || 'noreply@genesisagri.com',
-  website: process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000',
-  year: new Date().getFullYear(),
+  supportEmail:
+    process.env.SUPPORT_EMAIL ||
+    process.env.EMAIL_FROM ||
+    'noreply@genesisagri.com',
+  website:
+    stripSlash(
+      process.env.SITE_URL ||
+        process.env.FRONTEND_URL ||
+        process.env.CLIENT_URL ||
+        process.env.NEXT_PUBLIC_SITE_URL
+    ) || 'http://localhost:3000',
 };
+
+// Escape user-provided text before putting it inside HTML
+const escapeHtml = (value) =>
+  String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+// ============================================================
+// sendEmail — one generic function used by all emails
+// ============================================================
+async function sendEmail({ to, subject, html, text }) {
+  if (!to) throw new Error('sendEmail: "to" is required');
+
+  const resendKey = process.env.RESEND_API_KEY;
+
+  // ---------- Option 1: Resend over HTTPS (use this on Railway) ----------
+  if (resendKey) {
+    if (typeof fetch !== 'function') {
+      throw new Error('Global fetch is not available. Use Node.js 18 or newer.');
+    }
+
+    const from =
+      process.env.RESEND_FROM || `${BRAND.shortName} <onboarding@resend.dev>`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${resendKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from,
+          to: [to],
+          subject,
+          html,
+          text,
+        }),
+        signal: controller.signal,
+      });
+
+      const body = await response.text();
+
+      if (!response.ok) {
+        throw new Error(`Resend API error ${response.status}: ${body}`);
+      }
+
+      try {
+        return JSON.parse(body);
+      } catch {
+        return { ok: true };
+      }
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        throw new Error('Resend API request timed out after 15s');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // ---------- Option 2: SMTP fallback (local development) ----------
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+    throw new Error(
+      'No email provider configured. Set RESEND_API_KEY (recommended) or EMAIL_USER and EMAIL_PASSWORD.'
+    );
+  }
+
+  return transporter.sendMail({
+    from: `"${BRAND.name}" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    text,
+    html,
+  });
+}
 
 // ============================================================
 // sendWelcomeEmail — welcome notification, no verification needed
 // ============================================================
 async function sendWelcomeEmail(email, name) {
   const shopUrl = `${BRAND.website}/shop`;
+  const year = new Date().getFullYear();
+  const safeName = escapeHtml(name || 'there');
 
   const html = `
     <!DOCTYPE html>
@@ -62,7 +182,7 @@ async function sendWelcomeEmail(email, name) {
           </div>
 
           <div class="content">
-            <h2>Welcome aboard, ${name}! 🎉</h2>
+            <h2>Welcome aboard, ${safeName}! 🎉</h2>
 
             <p>
               Thank you for creating an account with
@@ -104,7 +224,7 @@ async function sendWelcomeEmail(email, name) {
         </div>
 
         <div class="footer">
-          <p>© ${BRAND.year} ${BRAND.name}. All rights reserved.</p>
+          <p>© ${year} ${BRAND.name}. All rights reserved.</p>
           <p style="margin-top:8px;">
             This is an automated message — please do not reply directly.
           </p>
@@ -115,7 +235,7 @@ async function sendWelcomeEmail(email, name) {
   `;
 
   const text = `
-Welcome aboard, ${name}!
+Welcome aboard, ${name || 'there'}!
 
 Thank you for creating an account with ${BRAND.name} — Ethiopia's
 marketplace for fresh farm produce, agricultural supplies, and trusted
@@ -133,11 +253,10 @@ What you can do now:
 Need help? Contact us at ${BRAND.supportEmail}.
 
 — The ${BRAND.name} Team
-© ${BRAND.year} ${BRAND.name}
+© ${year} ${BRAND.name}
   `.trim();
 
-  await transporter.sendMail({
-    from: `"${BRAND.name}" <${BRAND.supportEmail}>`,
+  return sendEmail({
     to: email,
     subject: `Welcome to ${BRAND.name} 🌱`,
     text,
@@ -147,5 +266,6 @@ Need help? Contact us at ${BRAND.supportEmail}.
 
 module.exports = {
   sendWelcomeEmail,
+  sendEmail,
   transporter,
 };

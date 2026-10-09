@@ -1,4 +1,5 @@
 // routes/auth.routes.js
+const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const router = express.Router();
@@ -8,22 +9,89 @@ const { requireAuth } = require('../middleware/auth');
 const { sendWelcomeEmail } = require('../lib/email');
 
 // ============================================
-// REGISTER — creates the user, sends welcome email
+// HELPERS & CONSTANTS
+// ============================================
+
+// ✅ 10 rounds is the standard balance of security and speed.
+// 12+ is very slow on small Railway CPUs with bcryptjs (pure JS).
+// Existing hashes keep working because the cost is stored inside each hash.
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 10;
+
+// ✅ Roles a visitor may pick for themselves at registration.
+// NEVER include 'ADMIN' here. Add other roles (e.g. 'SELLER') only if
+// your Prisma Role enum has them and they should be self-service.
+const SELF_SERVICE_ROLES = ['USER'];
+
+const RESERVED_ACCOUNTS = ['adminpa@gmail.com'];
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Safe against non-string input (numbers, objects) that would crash .toLowerCase()
+const normalizeEmail = (value) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : '';
+
+// Matches the rules shown on the register form:
+// at least 8 characters and at least one number.
+const passwordError = (pw) => {
+  if (typeof pw !== 'string' || pw.length < 8) {
+    return 'Password must be at least 8 characters';
+  }
+  if (pw.length > 128) {
+    return 'Password is too long (maximum 128 characters)';
+  }
+  if (!/\d/.test(pw)) {
+    return 'Password must contain at least one number';
+  }
+  return null;
+};
+
+// ✅ Run slow side-jobs (like email) AFTER the response is sent.
+// Errors are logged but never block or fail the request.
+const runInBackground = (label, fn) => {
+  Promise.resolve()
+    .then(fn)
+    .catch((err) =>
+      console.error(`⚠️  ${label} failed:`, err && err.message ? err.message : err)
+    );
+};
+
+// Timing-safe string comparison (for secret keys)
+const safeEqual = (a, b) => {
+  const bufA = Buffer.from(String(a || ''));
+  const bufB = Buffer.from(String(b || ''));
+  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+};
+
+// ============================================
+// REGISTER — creates the user, sends welcome email in the background
 // POST /api/auth/register
 // ============================================
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, phone, role = 'USER' } = req.body;
+    const { name, password, phone, role } = req.body || {};
+    const email = normalizeEmail(req.body && req.body.email);
+    const cleanName = typeof name === 'string' ? name.trim() : '';
 
-    if (!name || !email || !password) {
+    if (!cleanName || !email || !password) {
       return res.status(400).json({
         success: false,
         error: 'Name, email, and password are required',
       });
     }
 
-    const RESERVED_ACCOUNTS = ['adminpa@gmail.com'];
-    if (RESERVED_ACCOUNTS.includes(email.toLowerCase())) {
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please enter a valid email address',
+      });
+    }
+
+    const pwErr = passwordError(password);
+    if (pwErr) {
+      return res.status(400).json({ success: false, error: pwErr });
+    }
+
+    if (RESERVED_ACCOUNTS.includes(email)) {
       return res.status(403).json({
         success: false,
         error: 'This email is reserved. Please contact an administrator.',
@@ -31,7 +99,7 @@ router.post('/register', async (req, res) => {
     }
 
     const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email },
     });
 
     if (existingUser) {
@@ -41,15 +109,22 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+    // ✅ SECURITY: never trust the role sent by the browser.
+    // Before, anyone could register with role "ADMIN".
+    const requestedRole = String(role || 'USER').toUpperCase();
+    const finalRole = SELF_SERVICE_ROLES.includes(requestedRole)
+      ? requestedRole
+      : 'USER';
+
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const user = await prisma.user.create({
       data: {
-        name,
-        email: email.toLowerCase(),
+        name: cleanName,
+        email,
         password: hashedPassword,
-        phone: phone || null,
-        role: role.toUpperCase(),
+        phone: typeof phone === 'string' && phone.trim() ? phone.trim() : null,
+        role: finalRole,
       },
       select: {
         id: true,
@@ -64,20 +139,28 @@ router.post('/register', async (req, res) => {
       },
     });
 
-    // ✅ Send welcome notification (do not fail registration if email fails)
-    try {
-      await sendWelcomeEmail(user.email, user.name);
-    } catch (emailErr) {
-      console.error('⚠️  Welcome email failed to send:', emailErr);
-    }
+    // ✅ FIX: do NOT await the email.
+    // On Railway, SMTP connections time out (~120s), which made
+    // register hang. Now the user gets a response immediately and the
+    // email is attempted in the background.
+    runInBackground('Welcome email', () =>
+      sendWelcomeEmail(user.email, user.name)
+    );
 
     res.status(201).json({
       success: true,
-      message:
-        'Account created successfully. Check your inbox for a welcome email.',
+      message: 'Account created successfully.',
       user,
     });
   } catch (error) {
+    // Two requests registering the same email at the same moment
+    if (error && error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        error: 'Email already registered',
+      });
+    }
+
     console.error('❌ Registration error:', error);
     res.status(500).json({
       success: false,
@@ -94,20 +177,25 @@ router.post('/register', async (req, res) => {
 // ============================================
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body && req.body.email);
+    const password = req.body && req.body.password;
 
-    if (!email || !password) {
+    if (!email || !password || typeof password !== 'string') {
       return res.status(400).json({
         success: false,
         error: 'Email and password are required',
       });
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        email: { equals: email.toLowerCase(), mode: 'insensitive' },
-      },
-    });
+    // ✅ Fast indexed lookup first (new users are stored lowercase).
+    // Fall back to a case-insensitive search for older accounts.
+    let user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+      });
+    }
 
     if (!user) {
       return res.status(401).json({
@@ -225,13 +313,18 @@ router.post('/logout', async (req, res) => {
 router.post('/change-password', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body || {};
 
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
         success: false,
         error: 'Current password and new password are required',
       });
+    }
+
+    const pwErr = passwordError(newPassword);
+    if (pwErr) {
+      return res.status(400).json({ success: false, error: pwErr });
     }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -250,7 +343,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await prisma.user.update({
       where: { id: userId },
       data: { password: hashedPassword },
@@ -272,7 +365,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
 router.patch('/profile', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, phone, address, bio, avatar } = req.body;
+    const { name, phone, address, bio, avatar } = req.body || {};
 
     const data = {};
     if (name !== undefined) data.name = name;
@@ -327,16 +420,14 @@ router.patch('/profile', requireAuth, async (req, res) => {
 // ============================================
 router.post('/forgot-password', async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmail(req.body && req.body.email);
     if (!email) {
       return res
         .status(400)
         .json({ success: false, error: 'Email is required' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-    });
+    const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
       return res
@@ -361,10 +452,17 @@ router.post('/forgot-password', async (req, res) => {
 // ============================================
 // RESET PASSWORD
 // POST /api/auth/reset-password
+//
+// ⚠️ SECURITY WARNING: this route has NO proof that the caller owns the
+// email (no emailed token). Anyone who knows an email can change that
+// account's password. Replace it with a token-based flow as soon as email
+// sending works (see notes). As a minimum protection, ADMIN accounts
+// cannot be reset through this route.
 // ============================================
 router.post('/reset-password', async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
+    const email = normalizeEmail(req.body && req.body.email);
+    const newPassword = req.body && req.body.newPassword;
 
     if (!email || !newPassword) {
       return res.status(400).json({
@@ -373,9 +471,12 @@ router.post('/reset-password', async (req, res) => {
       });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-    });
+    const pwErr = passwordError(newPassword);
+    if (pwErr) {
+      return res.status(400).json({ success: false, error: pwErr });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
       return res
@@ -383,7 +484,14 @@ router.post('/reset-password', async (req, res) => {
         .json({ success: false, error: 'User not found' });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    if (user.role === 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin passwords must be reset by a system administrator.',
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await prisma.user.update({
       where: { id: user.id },
       data: { password: hashedPassword },
@@ -401,10 +509,25 @@ router.post('/reset-password', async (req, res) => {
 // ============================================
 // ADMIN: Create admin user
 // POST /api/auth/create-admin
+//
+// ✅ SECURITY: this route used to be open to everyone. It now requires
+// the header  x-admin-setup-key  to equal the ADMIN_SETUP_KEY variable.
+// If ADMIN_SETUP_KEY is not set in Railway, the route is disabled.
+// (You can also keep using:  npm run create-admin)
 // ============================================
 router.post('/create-admin', async (req, res) => {
   try {
-    const { email, password, name = 'Admin User' } = req.body;
+    const setupKey = process.env.ADMIN_SETUP_KEY;
+
+    if (!setupKey || !safeEqual(req.get('x-admin-setup-key'), setupKey)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+      });
+    }
+
+    const { password, name = 'Admin User' } = req.body || {};
+    const email = normalizeEmail(req.body && req.body.email);
 
     if (!email || !password) {
       return res.status(400).json({
@@ -413,9 +536,12 @@ router.post('/create-admin', async (req, res) => {
       });
     }
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-    });
+    const pwErr = passwordError(password);
+    if (pwErr) {
+      return res.status(400).json({ success: false, error: pwErr });
+    }
+
+    const existingUser = await prisma.user.findUnique({ where: { email } });
 
     if (existingUser) {
       return res
@@ -423,11 +549,11 @@ router.post('/create-admin', async (req, res) => {
         .json({ success: false, error: 'User already exists' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const user = await prisma.user.create({
       data: {
         name,
-        email: email.toLowerCase(),
+        email,
         password: hashedPassword,
         role: 'ADMIN',
       },
