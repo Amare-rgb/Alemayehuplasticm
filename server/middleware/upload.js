@@ -12,9 +12,9 @@
 //   handleUpload     → error-handling wrapper
 //
 // IMPORTANT: after a successful upload, use  req.file.url  (or
-// req.files[i].url) as the image address. In production it is a permanent
+// req.files[i].url) as the image address. It is a permanent
 // https://res.cloudinary.com/... link. Do NOT build "/uploads/..." paths
-// from file.filename any more.
+// from file.filename anymore.
 //
 // Railway variables:
 //   CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
@@ -22,16 +22,10 @@
 
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 const { v2: cloudinary } = require('cloudinary');
-const { ensureDir } = require('../lib/uploadPaths');
 
-const isProd = process.env.NODE_ENV === 'production';
-
-// ============================================
-// Cloudinary setup
-// ============================================
+// ── Cloudinary setup ────────────────────────────────────────────────────
 const hasCloudinary = !!(
   process.env.CLOUDINARY_URL ||
   (process.env.CLOUDINARY_CLOUD_NAME &&
@@ -54,15 +48,19 @@ if (hasCloudinary) {
       secure: true,
     });
   }
+} else {
+  console.error(
+    '❌ middleware/upload.js: Cloudinary is NOT configured.\n' +
+      '   Set CLOUDINARY_URL OR CLOUDINARY_CLOUD_NAME + CLOUDINARY_API_KEY + CLOUDINARY_API_SECRET.\n' +
+      '   All uploads through this middleware will fail with 503.'
+  );
 }
 
-// ============================================
-// Helpers
-// ============================================
+// ── Helpers ─────────────────────────────────────────────────────────────
 const makeError = (code, message) =>
   Object.assign(new Error(message), { code });
 
-// File filter - only allow images
+// File filter — only images
 const fileFilter = (req, file, cb) => {
   const validTypes = [
     'image/jpeg',
@@ -105,6 +103,7 @@ const uploadBufferToCloudinary = (buffer, { folder, publicId }) =>
         public_id: publicId,
         resource_type: 'image',
         overwrite: false,
+        invalidate: true,
       },
       (error, result) => {
         if (error) return reject(error);
@@ -124,9 +123,16 @@ const collectFiles = (req) => {
   return [];
 };
 
-// Send one file (held in memory) to permanent storage
-// and add  url / path / filename / publicId  to the multer file object.
+// Send one file (held in memory) to Cloudinary and add
+// url / path / filename / publicId to the multer file object.
 const storeFile = async (file) => {
+  if (!hasCloudinary) {
+    throw makeError(
+      'STORAGE_NOT_CONFIGURED',
+      'Image storage is not configured on the server.'
+    );
+  }
+
   const isAvatar = file.fieldname === 'avatar';
   const folder = isAvatar ? 'avatars' : 'products';
   const prefix = isAvatar ? 'avatar' : 'product';
@@ -134,43 +140,25 @@ const storeFile = async (file) => {
     .randomBytes(6)
     .toString('hex')}`;
 
-  if (hasCloudinary) {
-    try {
-      const result = await uploadBufferToCloudinary(file.buffer, {
-        folder: `${CLOUD_FOLDER}/${folder}`,
-        publicId: baseName,
-      });
-      file.url = result.secure_url;
-      file.path = result.secure_url;
-      file.publicId = result.public_id;
-      file.filename = baseName;
-      return;
-    } catch (err) {
-      console.error(
-        '❌ Cloudinary upload failed:',
-        err && err.message ? err.message : err
-      );
-      throw makeError('STORAGE_FAILED', 'Failed to store the image.');
-    }
+  try {
+    const result = await uploadBufferToCloudinary(file.buffer, {
+      folder: `${CLOUD_FOLDER}/${folder}`,
+      publicId: baseName,
+    });
+    // Overwrite the multer file fields with Cloudinary values
+    file.url = result.secure_url;
+    file.path = result.secure_url;
+    file.publicId = result.public_id;
+    file.public_id = result.public_id;
+    file.filename = baseName;
+    file.location = result.secure_url;
+  } catch (err) {
+    console.error(
+      '❌ Cloudinary upload failed:',
+      err && err.message ? err.message : err
+    );
+    throw makeError('STORAGE_FAILED', 'Failed to store the image.');
   }
-
-  if (!isProd) {
-    // Development fallback: local disk
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    const dir = ensureDir(folder);
-    const filename = `${baseName}${ext}`;
-    await fs.promises.writeFile(path.join(dir, filename), file.buffer);
-    file.url = `/uploads/${folder}/${filename}`;
-    file.path = path.join(dir, filename);
-    file.publicId = null;
-    file.filename = filename;
-    return;
-  }
-
-  throw makeError(
-    'STORAGE_NOT_CONFIGURED',
-    'Image storage is not configured on the server.'
-  );
 };
 
 // multer (memory) + storeFile → one normal (req, res, next) middleware
@@ -189,13 +177,11 @@ const withStorage = (multerMiddleware) => (req, res, next) => {
   });
 };
 
-// ============================================
-// Multer instances (files are kept in memory first)
-// ============================================
+// ── Multer instances (files are kept in memory first) ───────────────────
 const memoryProducts = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
+    fileSize: 10 * 1024 * 1024, // 10 MB
     files: 1,
   },
   fileFilter,
@@ -204,30 +190,27 @@ const memoryProducts = multer({
 const memoryAvatars = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB for avatars
+    fileSize: 5 * 1024 * 1024, // 5 MB
     files: 1,
   },
   fileFilter,
 });
 
-// Several files at once (previously limited to 1 by mistake)
 const memoryMultiple = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB each
+    fileSize: 10 * 1024 * 1024, // 10 MB each
     files: 5,
   },
   fileFilter,
 });
 
-// ============================================
-// Exported middlewares
-// ============================================
+// ── Exported middlewares ────────────────────────────────────────────────
 
-// Products — expects field name 'image'
+// Products — field name 'image'
 const uploadSingle = withStorage(memoryProducts.single('image'));
 
-// Avatars — expects field name 'avatar'
+// Avatars — field name 'avatar'
 const uploadAvatar = withStorage(memoryAvatars.single('avatar'));
 
 // Multiple documents
@@ -236,7 +219,7 @@ const uploadDocuments = withStorage(memoryMultiple.array('documents', 5));
 // Multiple images
 const uploadMultiple = withStorage(memoryMultiple.array('images', 5));
 
-// Backward compatible "upload" object: upload.single('x'), upload.array('x', 3), ...
+// Backward-compatible "upload" object
 const upload = {
   single: (field) => withStorage(memoryProducts.single(field)),
   array: (field, max) => withStorage(memoryMultiple.array(field, max)),
@@ -244,15 +227,13 @@ const upload = {
   any: () => withStorage(memoryMultiple.any()),
 };
 
-// ============================================
-// Error-handling wrapper
-// ============================================
+// ── Error-handling wrapper ──────────────────────────────────────────────
 const handleUpload = (uploadMiddleware) => {
   return (req, res, next) => {
     uploadMiddleware(req, res, (err) => {
       if (err) {
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({
+          return res.status(413).json({
             error: 'File too large. Maximum size is 10MB.',
             code: 'FILE_TOO_LARGE',
           });
@@ -299,9 +280,9 @@ const handleUpload = (uploadMiddleware) => {
 };
 
 module.exports = {
-  upload, // kept for backward compatibility (.single / .array / .fields / .any)
-  uploadSingle, // products — field name 'image'
-  uploadAvatar, // avatars — field name 'avatar'
+  upload,
+  uploadSingle,
+  uploadAvatar,
   uploadDocuments,
   uploadMultiple,
   handleUpload,

@@ -43,6 +43,17 @@ interface ValueItem {
 }
 
 // ============================================================
+// API base — strip trailing slash
+// ============================================================
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:5000";
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
+
+const DEFAULT_IMAGE = "/placeholder.svg";
+
+// ============================================================
 // Mounted detection (server-safe)
 // ============================================================
 const subscribe = () => () => {};
@@ -54,28 +65,39 @@ function useMounted() {
 }
 
 // ============================================================
-// Normalize an image path so the browser can always load it.
-//   - http(s) and data URLs pass through unchanged
-//   - "/uploads/..." keeps its leading slash (proxied by next.config.ts)
-//   - "uploads/..." gets a leading slash added
+// Image resolver — same rule used everywhere else in the app
+//   - absolute URL (Cloudinary, Unsplash, S3) → keep
+//   - res.cloudinary.com/...  → prepend https://
+//   - /uploads/...            → prepend API origin
+//   - bare filename           → assume category image
+//   - empty                   → placeholder
 // ============================================================
-function normalizeImageUrl(src?: string | null): string {
-  if (!src) return "";
-  const trimmed = src.trim();
-  if (!trimmed) return "";
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    return trimmed;
+function resolveImage(raw?: string | null): string {
+  if (!raw) return DEFAULT_IMAGE;
+  const s = String(raw).trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("data:")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  if (s.startsWith("/uploads/")) return `${API_BASE_URL}${s}`;
+  if (s.startsWith("uploads/")) return `${API_BASE_URL}/${s}`;
+
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_BASE_URL}/uploads/categories/${s}`;
   }
-  if (trimmed.startsWith("data:")) return trimmed;
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+
+  return DEFAULT_IMAGE;
 }
 
 // ============================================================
-// ProductCard — renders the real admin-uploaded category image
+// ProductCard
 // ============================================================
 function ProductCard({ product }: { product: CategoryItem }) {
   const { t } = useLanguage();
-  const imageUrl = normalizeImageUrl(product.image);
+  const imageUrl = resolveImage(product.image);
+  const hasImage = imageUrl !== DEFAULT_IMAGE;
 
   return (
     <Link
@@ -85,7 +107,7 @@ function ProductCard({ product }: { product: CategoryItem }) {
       className="group relative block h-[260px] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl"
     >
       <div className="relative h-full w-full">
-        {imageUrl ? (
+        {hasImage ? (
           <Image
             src={imageUrl}
             alt={product.title}
@@ -94,9 +116,7 @@ function ProductCard({ product }: { product: CategoryItem }) {
             className="object-cover transition-transform duration-300 ease-out group-hover:scale-[101%]"
             priority={false}
             loading="lazy"
-            // Bypass the Next.js optimizer for backend-served /uploads/*
-            // images so requests hit the /uploads rewrite directly.
-            unoptimized={!imageUrl.startsWith("http")}
+            unoptimized={imageUrl.startsWith("/") || imageUrl.includes("images.unsplash.com")}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-[#0b2419] text-4xl text-[#b9d873]/40">
@@ -132,7 +152,7 @@ function ProductCard({ product }: { product: CategoryItem }) {
 }
 
 // ============================================================
-// ProductCards — fetches categories from the backend, no mock data
+// ProductCards — fetches categories from the backend
 // ============================================================
 function ProductCards() {
   const { t } = useLanguage();
@@ -146,10 +166,10 @@ function ProductCards() {
     const fetchCategories = async () => {
       try {
         setLoading(true);
-        const apiBaseUrl =
-          process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-        const res = await fetch(`${apiBaseUrl}/api/categories/public`);
+        const res = await fetch(`${API_BASE_URL}/api/categories/public`, {
+          cache: "no-store",
+        });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -164,7 +184,6 @@ function ProductCards() {
         const top = raw.filter((c) => !c.parentId);
         const toMap = top.length > 0 ? top : raw;
 
-        // Map to card items. No fallback images — use exactly what the admin set.
         const mapped: CategoryItem[] = toMap.map((cat, i) => ({
           number: String(i + 1).padStart(2, "0"),
           title: cat.name,
@@ -174,6 +193,7 @@ function ProductCards() {
               "home.cat_default_desc",
               "Fresh, quality produce from our farms."
             ),
+          // Keep the RAW value — resolveImage handles it during render
           image: cat.image || "",
           category: cat.slug || cat.id || String(i),
           slug: cat.slug || undefined,
@@ -394,9 +414,7 @@ export default function HomePage() {
 
   return (
     <main className="overflow-hidden bg-[var(--cream)] text-[var(--ink)]">
-      {/* =========================================================
-          HERO
-      ========================================================= */}
+      {/* HERO */}
       <section
         id="home"
         className="relative flex min-h-[760px] items-center bg-cover bg-center text-white"
@@ -476,7 +494,6 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Hero floating card */}
           <div className="w-[300px] shrink-0 bg-white/95 text-[var(--ink)] shadow-[0_25px_60px_rgba(18,53,35,.12)] backdrop-blur-md max-lg:hidden">
             <div className="border-b border-[var(--line)] px-[18px] py-[15px] text-[9px] font-bold tracking-[0.12em]">
               <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#6aa94c] shadow-[0_0_0_4px_rgba(106,169,76,.12)]" />
@@ -511,9 +528,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* =========================================================
-          INTRO
-      ========================================================= */}
+      {/* INTRO */}
       <section className="bg-white py-[105px]">
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[1.15fr_.85fr] items-end gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
           <div>
@@ -548,14 +563,10 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* =========================================================
-          PRODUCTS CARDS SECTION
-      ========================================================= */}
+      {/* PRODUCTS CARDS */}
       <ProductCards />
 
-      {/* =========================================================
-          TANA FARM
-      ========================================================= */}
+      {/* TANA FARM */}
       <section id="tana-farm" className="scroll-mt-20 bg-white py-[105px]">
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[.95fr_1.05fr] items-center gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
           <div className="relative h-[500px] w-full max-lg:h-[400px]">
@@ -567,6 +578,7 @@ export default function HomePage() {
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-contain"
                 priority={false}
+                unoptimized
               />
               <span className="absolute right-5 top-5 z-10 rounded-md bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] shadow-md">
                 {t("home.tana_badge", "A SISTER COMPANY")}
@@ -662,9 +674,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* =========================================================
-          VALUES
-      ========================================================= */}
+      {/* VALUES */}
       <section
         id="about"
         className="scroll-mt-20 bg-[var(--green-800)] py-[105px] text-white"
@@ -733,9 +743,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* =========================================================
-          CONTACT CTA
-      ========================================================= */}
+      {/* CONTACT CTA */}
       <section
         id="contact"
         className="relative overflow-hidden bg-[var(--green-800)] py-[105px] text-white"
@@ -780,9 +788,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* =========================================================
-          BACK TO TOP
-      ========================================================= */}
+      {/* BACK TO TOP */}
       <button
         type="button"
         aria-label={t("home.back_to_top", "Back to top")}

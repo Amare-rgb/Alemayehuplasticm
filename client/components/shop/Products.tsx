@@ -35,22 +35,71 @@ interface ApiProduct {
   images?: string[] | null;
 }
 
-const API_BASE_URL =
+/* -------------------------------------------------------------------------- */
+/*  API BASE URL                                                              */
+/*  – strips trailing slash so `${API_BASE_URL}${path}` never double-slashes  */
+/*  – falls back to localhost only when nothing is configured                 */
+/* -------------------------------------------------------------------------- */
+const RAW_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "http://localhost:5000";
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-const DEFAULT_IMAGE = "/placeholder.png";
+/* Local placeholder that MUST exist in /public/placeholder.svg               */
+const DEFAULT_IMAGE = "/placeholder.svg";
+
+/* Last-resort remote fallback if the local placeholder ever 404s             */
 const FALLBACK_REMOTE_IMAGE =
   "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
 
 /* -------------------------------------------------------------------------- */
-/*  STABLE PRODUCT IMAGE                                                       */
-/*  - Square box provided by parent (aspect-square) → no layout shift          */
-/*  - fill + object-cover + object-center → no distortion                      */
-/*  - Error → swaps src, box stays the same size                               */
-/*  - No useEffect: state adjusted during render (React-recommended pattern)   */
-/*  - LCP: above-the-fold images use loading="eager" + fetchPriority="high"    */
+/*  Image URL resolver                                                        */
+/*  Priority:                                                                 */
+/*    1. Absolute http(s) URL    → used as-is (Cloudinary, S3, Unsplash, …)   */
+/*    2. Cloudinary path w/o proto → prepend https://                         */
+/*    3. Legacy /uploads/...     → prepend backend origin (will 404 if not    */
+/*                                 migrated — that's expected, it makes the   */
+/*                                 problem visible instead of hiding it)      */
+/*    4. Bare filename           → assume it's a product image                */
+/*    5. Anything else           → DEFAULT_IMAGE                              */
+/* -------------------------------------------------------------------------- */
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== "string") return DEFAULT_IMAGE;
+  const s = raw.trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  // 1. Already absolute
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+
+  // 2. Cloudinary host without protocol
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  // 3. Legacy local uploads — keep pointing at the backend so that IF you
+  //    add back a temporary static route it will work; otherwise it 404s
+  //    cleanly and ProductImage swaps to the placeholder.
+  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
+    const clean = s.startsWith("/") ? s : `/${s}`;
+    return `${API_BASE_URL}${clean}`;
+  }
+
+  // 4. Bare filename (e.g. "1791567294493-a0bb.jpeg")
+  //    Some legacy rows store only the filename.
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_BASE_URL}/uploads/products/${s}`;
+  }
+
+  // 5. Anything else — bail to placeholder
+  return DEFAULT_IMAGE;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  STABLE PRODUCT IMAGE                                                      */
+/*  – Square box from parent (aspect-square) → zero layout shift              */
+/*  – fill + object-cover + object-center → no distortion                     */
+/*  – Local assets (placeholder) skip Next.js optimizer via `unoptimized`     */
+/*  – On error: placeholder → remote fallback → give up (renders broken img)  */
+/*  – State adjusted during render (React-recommended pattern, no useEffect)  */
 /* -------------------------------------------------------------------------- */
 const ProductImage: React.FC<{
   src: string;
@@ -59,41 +108,53 @@ const ProductImage: React.FC<{
 }> = ({ src, alt, priority = false }) => {
   const [prevSrc, setPrevSrc] = useState(src);
   const [imgSrc, setImgSrc] = useState(src);
-  const [errored, setErrored] = useState(false);
+  const [stage, setStage] = useState<"primary" | "placeholder" | "remote" | "dead">(
+    "primary"
+  );
 
-  // ✅ Adjust state during render when `src` prop changes.
-  // React discards the current render output and re-renders immediately —
-  // no cascading render, no stale image flash.
+  // Reset when the parent passes a new src
   if (src !== prevSrc) {
     setPrevSrc(src);
     setImgSrc(src);
-    setErrored(false);
+    setStage("primary");
   }
 
   const handleError = () => {
-    if (errored) return;
-    setErrored(true);
-    setImgSrc((prev) =>
-      prev === DEFAULT_IMAGE ? FALLBACK_REMOTE_IMAGE : DEFAULT_IMAGE
-    );
+    if (stage === "primary") {
+      setStage("placeholder");
+      setImgSrc(DEFAULT_IMAGE);
+    } else if (stage === "placeholder") {
+      setStage("remote");
+      setImgSrc(FALLBACK_REMOTE_IMAGE);
+    } else {
+      // Remote also failed — stop retrying
+      setStage("dead");
+    }
   };
+
+  // Local public assets and the Unsplash fallback should bypass Next.js's
+  // image optimizer — otherwise /_next/image tries to fetch them and 500s.
+  const isLocalAsset = imgSrc.startsWith("/");
+  const isUnsplash = imgSrc.includes("images.unsplash.com");
 
   return (
     <Image
       src={imgSrc}
       alt={alt}
       fill
+      unoptimized={isLocalAsset || isUnsplash}
       className="object-cover object-center transition-transform duration-500 ease-out group-hover:scale-[1.04]"
       onError={handleError}
       sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-      // ✅ `priority` prop is deprecated in Next.js 16.
-      // Use `loading` + `fetchPriority` for LCP images instead.
       loading={priority ? "eager" : "lazy"}
       fetchPriority={priority ? "high" : "auto"}
     />
   );
 };
 
+/* -------------------------------------------------------------------------- */
+/*  MAIN COMPONENT                                                            */
+/* -------------------------------------------------------------------------- */
 export default function Products() {
   const { t } = useLanguage();
   const searchParams = useSearchParams();
@@ -176,47 +237,39 @@ export default function Products() {
           ? (data as { products?: unknown }).products
           : [];
 
-        if (isMounted) {
-          if (Array.isArray(rawProducts) && rawProducts.length > 0) {
-            const mapped: Product[] = (rawProducts as ApiProduct[]).map((p) => {
-              const categoryName = p.category?.name || "Produce";
+        if (!isMounted) return;
 
-              let imageList: string[] = [];
-              if (Array.isArray(p.images) && p.images.length > 0) {
-                imageList = p.images.map((img: string) => {
-                  if (!img) return DEFAULT_IMAGE;
-                  if (img.startsWith("http://") || img.startsWith("https://")) return img;
-                  if (img.startsWith("/uploads/")) return `${API_BASE_URL}${img}`;
-                  if (img.startsWith("uploads/")) return `${API_BASE_URL}/${img}`;
-                  return `${API_BASE_URL}/uploads/products/${img}`;
-                });
-              } else {
-                imageList = [DEFAULT_IMAGE];
-              }
+        if (Array.isArray(rawProducts) && rawProducts.length > 0) {
+          const mapped: Product[] = (rawProducts as ApiProduct[]).map((p) => {
+            const categoryName = p.category?.name || "Produce";
 
-              const price = Number(p.price) || 0;
-              const discountPrice = p.discountPrice ? Number(p.discountPrice) : null;
-              const stock = typeof p.stock === "number" ? p.stock : 0;
+            const imageList: string[] =
+              Array.isArray(p.images) && p.images.length > 0
+                ? p.images.map(resolveImage)
+                : [DEFAULT_IMAGE];
 
-              return {
-                id: p.id,
-                slug: p.slug || p.id,
-                name: p.name,
-                category: categoryName,
-                description: p.description || "",
-                price,
-                discountPrice,
-                unit: p.unitOfMeasurement || "kg",
-                stock,
-                featured: Boolean(discountPrice || p.isFeatured),
-                badge: discountPrice ? "Special Offer" : undefined,
-                images: imageList,
-              };
-            });
-            setProducts(mapped);
-          } else {
-            setProducts(fallbackProducts || []);
-          }
+            const price = Number(p.price) || 0;
+            const discountPrice = p.discountPrice ? Number(p.discountPrice) : null;
+            const stock = typeof p.stock === "number" ? p.stock : 0;
+
+            return {
+              id: p.id,
+              slug: p.slug || p.id,
+              name: p.name,
+              category: categoryName,
+              description: p.description || "",
+              price,
+              discountPrice,
+              unit: p.unitOfMeasurement || "kg",
+              stock,
+              featured: Boolean(discountPrice || p.isFeatured),
+              badge: discountPrice ? "Special Offer" : undefined,
+              images: imageList,
+            };
+          });
+          setProducts(mapped);
+        } else {
+          setProducts(fallbackProducts || []);
         }
       } catch (err) {
         console.warn("Backend products fetch error, using fallback products:", err);
@@ -269,10 +322,14 @@ export default function Products() {
       const priceA = a.discountPrice ?? a.price;
       const priceB = b.discountPrice ?? b.price;
       switch (sort) {
-        case "price-low":  return priceA - priceB;
-        case "price-high": return priceB - priceA;
-        case "name":       return a.name.localeCompare(b.name);
-        default:           return Number(b.featured) - Number(a.featured);
+        case "price-low":
+          return priceA - priceB;
+        case "price-high":
+          return priceB - priceA;
+        case "name":
+          return a.name.localeCompare(b.name);
+        default:
+          return Number(b.featured) - Number(a.featured);
       }
     });
   }, [products, selectedCategory, search, sort]);
@@ -426,8 +483,6 @@ export default function Products() {
           ) : filteredProducts.length > 0 ? (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {filteredProducts.map((product, index) => {
-                // ✅ Only the first 2 cards (top row on mobile) load eagerly.
-                // Everything else stays lazy → fast LCP, low bandwidth.
                 const isAboveTheFold = index < 2;
 
                 const hasDiscount =
@@ -450,7 +505,6 @@ export default function Products() {
                     key={product.id}
                     className="group flex flex-col overflow-hidden rounded-2xl border border-[rgba(20,33,25,.09)] bg-white shadow-[0_8px_24px_rgba(18,53,35,.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_40px_rgba(18,53,35,.12)]"
                   >
-                    {/* STABLE SQUARE IMAGE */}
                     <Link
                       href={`/shop/${encodeURIComponent(product.slug)}`}
                       className="relative block aspect-square w-full overflow-hidden bg-[#0b2419]"
@@ -463,7 +517,6 @@ export default function Products() {
 
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b2419]/55 via-transparent to-transparent" />
 
-                      {/* Badges */}
                       <div className="absolute left-2 top-2 flex flex-wrap gap-1">
                         <span className="rounded-full bg-white/95 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#123523] shadow-sm backdrop-blur">
                           {getCategoryLabel(product.category)}
@@ -475,20 +528,17 @@ export default function Products() {
                         )}
                       </div>
 
-                      {/* Stock badge */}
                       <span className="absolute bottom-2 left-2 rounded-full bg-[#123523]/85 px-2 py-0.5 text-[9px] font-medium text-white backdrop-blur">
                         {isAvailable
                           ? `${t("shop.in_stock", "In Stock")} (${product.stock})`
                           : t("shop.out_of_stock", "Out of stock")}
                       </span>
 
-                      {/* Arrow */}
                       <span className="absolute bottom-2 right-2 flex h-7 w-7 translate-y-2 items-center justify-center rounded-full bg-[var(--lime)] text-[#123523] opacity-0 shadow-md transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
                         <ArrowUpRight size={14} strokeWidth={2.4} />
                       </span>
                     </Link>
 
-                    {/* CONTENT — compact */}
                     <div className="flex flex-1 flex-col justify-between p-3 sm:p-3.5">
                       <div>
                         <Link
@@ -530,7 +580,6 @@ export default function Products() {
               })}
             </div>
           ) : (
-            /* Empty State */
             <div className="rounded-3xl border border-dashed border-[#19472d]/20 bg-white px-6 py-16 text-center shadow-sm">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#f6f3e9] text-[#28633e]">
                 <Search size={22} />

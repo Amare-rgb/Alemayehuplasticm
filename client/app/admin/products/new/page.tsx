@@ -29,21 +29,55 @@ import {
 import { api, uploadApi } from '@/lib/api';
 
 // ============================================================
+// API base — strip trailing slash so `${base}${path}` never double-slashes
+// ============================================================
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  'http://localhost:5000';
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, '');
+
+const DEFAULT_IMAGE = '/placeholder.svg';
+
+// ============================================================
 // Normalize an image path so the browser can load it.
-//   - http(s) and data URLs pass through unchanged
-//   - "/uploads/..." keeps its leading slash (proxied by next.config.ts)
-//   - "uploads/..." gets a leading slash added
-//   - empty → placeholder
+//   - http(s) / data URLs pass through unchanged
+//   - Cloudinary host without protocol → prepend https://
+//   - "/uploads/..." → keep as-is (backend origin prepended)
+//   - "uploads/..."  → prepend leading slash + backend origin
+//   - empty          → local placeholder
 // ============================================================
 function normalizeImageUrl(src?: string | null): string {
-  if (!src) return '/placeholder-image.png';
-  const trimmed = src.trim();
-  if (!trimmed) return '/placeholder-image.png';
+  if (!src) return DEFAULT_IMAGE;
+  const trimmed = String(src).trim();
+  if (!trimmed) return DEFAULT_IMAGE;
+
+  // Absolute URLs
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     return trimmed;
   }
   if (trimmed.startsWith('data:')) return trimmed;
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+
+  // Cloudinary host without protocol
+  if (trimmed.startsWith('res.cloudinary.com/')) {
+    return `https://${trimmed}`;
+  }
+
+  // Legacy /uploads/... — point at the backend origin
+  if (trimmed.startsWith('/uploads/')) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+  if (trimmed.startsWith('uploads/')) {
+    return `${API_BASE_URL}/${trimmed}`;
+  }
+
+  // Bare filename (e.g. "1791567294493-a0bb.jpeg")
+  if (!trimmed.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(trimmed)) {
+    return `${API_BASE_URL}/uploads/products/${trimmed}`;
+  }
+
+  // Default fallback
+  return DEFAULT_IMAGE;
 }
 
 // ============================================================
@@ -736,7 +770,10 @@ const NewProductPage: React.FC = () => {
         subCategoryId: formData.subCategoryId || undefined,
         status: formData.status,
         tags: formData.tags,
-        images: formData.images.length > 0 ? formData.images : ['/banners/images.jpeg'],
+        // ✅ FIXED: Only send real images; if none, send empty array.
+        //    The backend should accept empty arrays and the storefront
+        //    will display the placeholder.
+        images: formData.images,
         brand: null,
         weight: formData.weight ? parseFloat(formData.weight) : null,
         unitOfMeasurement: formData.unitOfMeasurement || 'pcs',
@@ -824,7 +861,9 @@ const NewProductPage: React.FC = () => {
           onError={() => setHasError(true)}
           sizes="(max-width: 768px) 100vw, 50vw"
           priority={index === 0}
-          unoptimized={!normalized.startsWith('http')}
+          // Skip optimizer for local placeholder (Next.js can't optimize it
+          // through /_next/image if it's a public asset)
+          unoptimized={normalized.startsWith('/')}
         />
         <button
           type="button"

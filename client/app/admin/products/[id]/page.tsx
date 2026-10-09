@@ -24,38 +24,71 @@ import {
   Eye,
   Clock,
   Truck,
-  Star
+  Star,
 } from 'lucide-react';
 
-// Create axios instance
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+// ============================================================
+// API base — strip trailing slash so `${base}${path}` never double-slashes
+// ============================================================
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  'http://localhost:5000';
+const API_URL = RAW_API_BASE.replace(/\/+$/, '');
 
+const DEFAULT_IMAGE = '/placeholder.svg';
+
+// ============================================================
+// Image resolver — same logic as Products.tsx / ProductDetails.tsx
+// ============================================================
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_IMAGE;
+  const s = raw.trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  // 1. Absolute URL (Cloudinary, S3, Unsplash, …)
+  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+
+  // 2. Cloudinary host without protocol
+  if (s.startsWith('res.cloudinary.com/')) return `https://${s}`;
+
+  // 3. Legacy /uploads/... — points at backend origin (will 404 until DB is cleaned)
+  if (s.startsWith('/uploads/') || s.startsWith('uploads/')) {
+    const clean = s.startsWith('/') ? s : `/${s}`;
+    return `${API_URL}${clean}`;
+  }
+
+  // 4. Bare filename
+  if (!s.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_URL}/uploads/products/${s}`;
+  }
+
+  return DEFAULT_IMAGE;
+}
+
+// ============================================================
+// Axios instance
+// ============================================================
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 });
 
-// Add token to requests - FIXED: Use consistent token key
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token') || 
-                sessionStorage.getItem('token') ||
-                localStorage.getItem('authToken') ||
-                sessionStorage.getItem('authToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  const token =
+    localStorage.getItem('token') ||
+    sessionStorage.getItem('token') ||
+    localStorage.getItem('authToken') ||
+    sessionStorage.getItem('authToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Add response interceptor for handling 401 errors globally - FIXED: Use consistent redirect path
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Clear all auth tokens
       localStorage.removeItem('token');
       localStorage.removeItem('authToken');
       sessionStorage.removeItem('token');
@@ -63,13 +96,16 @@ api.interceptors.response.use(
       localStorage.removeItem('user');
       sessionStorage.removeItem('user');
       if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+        window.location.href = '/auth/signin';
       }
     }
     return Promise.reject(error);
   }
 );
 
+// ============================================================
+// Types
+// ============================================================
 interface Product {
   id: string;
   name: string;
@@ -107,12 +143,12 @@ interface Product {
 }
 
 interface DetailPageProps {
-  params: Promise<{
-    id: string;
-  }>;
+  params: Promise<{ id: string }>;
 }
 
-// Notification Component
+// ============================================================
+// Notification
+// ============================================================
 interface NotificationProps {
   type: 'success' | 'error' | 'info' | 'warning';
   message: string;
@@ -127,7 +163,6 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
       setIsVisible(false);
       setTimeout(onClose, 300);
     }, 5000);
-
     return () => clearTimeout(timer);
   }, [onClose]);
 
@@ -158,8 +193,14 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   };
 
   return (
-    <div className={`fixed top-4 right-4 z-50 transition-all duration-300 ${isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'}`}>
-      <div className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${getColors()}`}>
+    <div
+      className={`fixed top-4 right-4 z-50 transition-all duration-300 ${
+        isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'
+      }`}
+    >
+      <div
+        className={`flex items-center space-x-3 px-4 py-3 rounded-lg border shadow-lg max-w-md ${getColors()}`}
+      >
         {getIcon()}
         <p className="text-sm font-medium flex-1">{message}</p>
         <button
@@ -176,48 +217,69 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
-// Helper function to check if user is authenticated
+// ============================================================
+// Helpers
+// ============================================================
 const isAuthenticated = (): boolean => {
   if (typeof window === 'undefined') return false;
-  const token = localStorage.getItem('token') || 
-                sessionStorage.getItem('token') ||
-                localStorage.getItem('authToken') || 
-                sessionStorage.getItem('authToken');
+  const token =
+    localStorage.getItem('token') ||
+    sessionStorage.getItem('token') ||
+    localStorage.getItem('authToken') ||
+    sessionStorage.getItem('authToken');
   return !!token;
 };
 
-// Helper function to get token
 const getToken = (): string | null => {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('token') || 
-         sessionStorage.getItem('token') ||
-         localStorage.getItem('authToken') || 
-         sessionStorage.getItem('authToken');
+  return (
+    localStorage.getItem('token') ||
+    sessionStorage.getItem('token') ||
+    localStorage.getItem('authToken') ||
+    sessionStorage.getItem('authToken')
+  );
 };
 
-// Helper function to redirect to login - FIXED: Properly typed router
 const redirectToLogin = (router: ReturnType<typeof useRouter>) => {
-  // Clear all auth tokens
   localStorage.removeItem('token');
   localStorage.removeItem('authToken');
   sessionStorage.removeItem('token');
   sessionStorage.removeItem('authToken');
   localStorage.removeItem('user');
   sessionStorage.removeItem('user');
-  // Use router.push for client-side navigation
-  router.push('/login');
+  // ✅ FIXED: consistent with the rest of the app
+  router.push('/auth/signin');
 };
 
-// Image component with proper Next.js Image optimization
-const ProductImage: React.FC<{ 
-  src: string | null; 
-  alt: string; 
+// ============================================================
+// ProductImage — 3-stage fallback: primary → placeholder → dead
+// ============================================================
+const ProductImage: React.FC<{
+  src: string | null;
+  alt: string;
   className?: string;
   priority?: boolean;
 }> = ({ src, alt, className = '', priority = false }) => {
-  const [error, setError] = useState(false);
+  const [prevSrc, setPrevSrc] = useState(src);
+  const [imgSrc, setImgSrc] = useState(src);
+  const [stage, setStage] = useState<'primary' | 'placeholder' | 'dead'>('primary');
 
-  if (!src || error) {
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setImgSrc(src);
+    setStage('primary');
+  }
+
+  const handleError = () => {
+    if (stage === 'primary') {
+      setStage('placeholder');
+      setImgSrc(DEFAULT_IMAGE);
+    } else {
+      setStage('dead');
+    }
+  };
+
+  if (!imgSrc || stage === 'dead') {
     return (
       <div className={`flex items-center justify-center bg-gray-100 ${className}`}>
         <Package className="w-8 h-8 text-gray-400" />
@@ -227,34 +289,37 @@ const ProductImage: React.FC<{
 
   return (
     <Image
-      src={src}
+      src={imgSrc}
       alt={alt}
       width={400}
       height={400}
       className={`object-cover ${className}`}
-      onError={() => setError(true)}
+      onError={handleError}
       priority={priority}
-      unoptimized={src.startsWith('http')}
+      unoptimized={imgSrc.startsWith('/') || imgSrc.includes('images.unsplash.com')}
     />
   );
 };
 
+// ============================================================
+// Main component
+// ============================================================
 const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; message: string } | null>(null);
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error' | 'info' | 'warning';
+    message: string;
+  } | null>(null);
   const [productId, setProductId] = useState<string | null>(null);
 
-  // Use refs to track state
   const hasSetProductId = useRef(false);
   const hasFetchedProduct = useRef(false);
 
-  // Unwrap params for Next.js 15
   const unwrappedParams = React.use(params);
 
-  // Set productId from unwrapped params
   useEffect(() => {
     if (unwrappedParams && unwrappedParams.id && !hasSetProductId.current) {
       hasSetProductId.current = true;
@@ -262,55 +327,33 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
     }
   }, [unwrappedParams]);
 
-  // Check authentication on mount
   useEffect(() => {
     if (!isAuthenticated()) {
       redirectToLogin(router);
     }
   }, [router]);
 
-  // Show notification helper
-  const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
-    setNotification({ type, message });
-  };
+  const showNotification = (
+    type: 'success' | 'error' | 'info' | 'warning',
+    message: string
+  ) => setNotification({ type, message });
 
-  // Clear notification
-  const clearNotification = () => {
-    setNotification(null);
-  };
+  const clearNotification = () => setNotification(null);
 
-  // Helper function to get image URL
-  const getImageUrl = (imagePath: string) => {
+  // ✅ FIXED: single helper, same rule as everything else in the app
+  const getImageUrl = (imagePath: string | null | undefined): string | null => {
     if (!imagePath) return null;
-    
-    // If it's already a full URL, return as is
-    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-      return imagePath;
-    }
-    
-    // If it starts with /uploads/, prepend the API URL
-    if (imagePath.startsWith('/uploads/')) {
-      return `${API_URL}${imagePath}`;
-    }
-    
-    // If it starts with uploads/ (no leading slash), add slash and prepend API URL
-    if (imagePath.startsWith('uploads/')) {
-      return `${API_URL}/${imagePath}`;
-    }
-    
-    // Otherwise, assume it's a relative path from uploads
-    return `${API_URL}/uploads/products/${imagePath}`;
+    const resolved = resolveImage(imagePath);
+    return resolved === DEFAULT_IMAGE ? null : resolved;
   };
 
-  // Fetch product - wrapped in useCallback
   const fetchProduct = useCallback(async () => {
     if (!productId) return;
-    
+
     try {
       setLoading(true);
       setError(null);
-      
-      // Check authentication before making request
+
       if (!isAuthenticated()) {
         redirectToLogin(router);
         return;
@@ -318,11 +361,9 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
 
       const token = getToken();
       const response = await api.get(`/api/products/${productId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       let productData = response.data;
       if (response.data && response.data.product) {
         productData = response.data.product;
@@ -340,15 +381,12 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
       console.error('Error fetching product:', err);
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 401) {
-          // Handle 401 error - redirect to login
           localStorage.removeItem('token');
           localStorage.removeItem('authToken');
           sessionStorage.removeItem('token');
           sessionStorage.removeItem('authToken');
           showNotification('error', 'Session expired. Please login again.');
-          setTimeout(() => {
-            router.push('/login');
-          }, 1500);
+          setTimeout(() => router.push('/auth/signin'), 1500);
         } else if (err.response?.status === 404) {
           setError('Product not found');
         } else {
@@ -362,7 +400,6 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
     }
   }, [productId, router]);
 
-  // Fetch product when productId changes
   useEffect(() => {
     if (productId && !hasFetchedProduct.current) {
       hasFetchedProduct.current = true;
@@ -373,9 +410,8 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
   const handleDelete = async () => {
     if (!productId) return;
     if (!confirm('Are you sure you want to delete this product?')) return;
-    
+
     try {
-      // Check authentication
       if (!isAuthenticated()) {
         redirectToLogin(router);
         return;
@@ -383,16 +419,12 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
 
       const token = getToken();
       const response = await api.delete(`/api/products/${productId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       if (response.data.success) {
         showNotification('success', 'Product deleted successfully!');
-        setTimeout(() => {
-          router.push('/admin/products');
-        }, 1500);
+        setTimeout(() => router.push('/admin/products'), 1500);
       } else {
         showNotification('error', response.data.error || 'Failed to delete product');
       }
@@ -400,17 +432,17 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
       console.error('Error deleting product:', err);
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 401) {
-          // Clear all auth tokens
           localStorage.removeItem('token');
           localStorage.removeItem('authToken');
           sessionStorage.removeItem('token');
           sessionStorage.removeItem('authToken');
           showNotification('error', 'Session expired. Please login again.');
-          setTimeout(() => {
-            router.push('/login');
-          }, 1500);
+          setTimeout(() => router.push('/auth/signin'), 1500);
         } else {
-          showNotification('error', err.response?.data?.error || 'Failed to delete product');
+          showNotification(
+            'error',
+            err.response?.data?.error || 'Failed to delete product'
+          );
         }
       } else {
         showNotification('error', 'An unexpected error occurred');
@@ -418,14 +450,13 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'ETB',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount || 0);
-  };
 
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
@@ -434,7 +465,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
       day: 'numeric',
       year: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
@@ -490,7 +521,6 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
 
   return (
     <div className="space-y-6">
-      {/* Notification */}
       {notification && (
         <Notification
           type={notification.type}
@@ -514,7 +544,6 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
           </div>
         </div>
         <div className="flex items-center space-x-3">
-          {/* ✅ FIXED: Edit button changed to smooth green */}
           <Link
             href={`/admin/products/${product.id}/edit`}
             className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors"
@@ -532,14 +561,15 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
         </div>
       </div>
 
-      {/* Product Details Grid */}
+      {/* Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Info */}
         <div className="lg:col-span-2 space-y-6">
           {/* Status Badge */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center space-x-4">
-              <div className={`flex items-center space-x-2 px-4 py-2 rounded-full ${getStatusColor(product.status)}`}>
+              <div
+                className={`flex items-center space-x-2 px-4 py-2 rounded-full ${getStatusColor(product.status)}`}
+              >
                 {getStatusIcon(product.status)}
                 <span className="text-sm font-medium">{product.status}</span>
               </div>
@@ -550,16 +580,19 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
             </div>
           </div>
 
-          {/* Product Images - FIXED: Using Next.js Image component */}
+          {/* Images */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 text-sm mb-3">Product Images</h3>
             {product.images && product.images.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {product.images.map((img, index) => {
                   const imageUrl = getImageUrl(img);
-                  
+
                   return (
-                    <div key={index} className="aspect-square bg-gray-100 rounded-lg overflow-hidden relative group">
+                    <div
+                      key={index}
+                      className="aspect-square bg-gray-100 rounded-lg overflow-hidden relative group"
+                    >
                       <ProductImage
                         src={imageUrl}
                         alt={`${product.name} - ${index + 1}`}
@@ -584,7 +617,9 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
           {/* Description */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 text-sm mb-2">Description</h3>
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{product.description}</p>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">
+              {product.description}
+            </p>
           </div>
 
           {/* Product Details */}
@@ -594,23 +629,31 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
               <div className="flex items-center space-x-2">
                 <Tag className="w-4 h-4 text-gray-400" />
                 <span className="text-sm text-gray-600">SKU:</span>
-                <span className="text-sm font-medium text-gray-900">{product.sku || 'N/A'}</span>
+                <span className="text-sm font-medium text-gray-900">
+                  {product.sku || 'N/A'}
+                </span>
               </div>
               <div className="flex items-center space-x-2">
                 <Package className="w-4 h-4 text-gray-400" />
                 <span className="text-sm text-gray-600">Condition:</span>
-                <span className="text-sm font-medium text-gray-900 capitalize">{product.condition?.toLowerCase()}</span>
+                <span className="text-sm font-medium text-gray-900 capitalize">
+                  {product.condition?.toLowerCase()}
+                </span>
               </div>
               {product.brand && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">Brand:</span>
-                  <span className="text-sm font-medium text-gray-900">{product.brand}</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {product.brand}
+                  </span>
                 </div>
               )}
               {product.weight && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">Weight:</span>
-                  <span className="text-sm font-medium text-gray-900">{product.weight} {product.unitOfMeasurement || 'kg'}</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {product.weight} {product.unitOfMeasurement || 'kg'}
+                  </span>
                 </div>
               )}
               {product.tags && product.tags.length > 0 && (
@@ -618,7 +661,10 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
                   <span className="text-sm text-gray-600">Tags:</span>
                   <div className="flex flex-wrap gap-1">
                     {product.tags.map((tag, index) => (
-                      <span key={index} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs rounded-full">
+                      <span
+                        key={index}
+                        className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs rounded-full"
+                      >
                         {tag}
                       </span>
                     ))}
@@ -631,41 +677,57 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Pricing Card */}
+          {/* Pricing */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 text-sm mb-3">Pricing</h3>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600">Original Price</span>
-                <span className="text-lg font-bold text-gray-900">{formatCurrency(product.price)}</span>
+                <span className="text-lg font-bold text-gray-900">
+                  {formatCurrency(product.price)}
+                </span>
               </div>
               {product.discountPrice && product.discountPrice < product.price && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Discounted Price</span>
-                  <span className="text-lg font-bold text-emerald-600">{formatCurrency(product.discountPrice)}</span>
-                </div>
-              )}
-              {product.discountPrice && product.discountPrice < product.price && (
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-emerald-600">You Save</span>
-                  <span className="text-emerald-600 font-medium">{formatCurrency(product.price - product.discountPrice)}</span>
-                </div>
+                <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Discounted Price</span>
+                    <span className="text-lg font-bold text-emerald-600">
+                      {formatCurrency(product.discountPrice)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-emerald-600">You Save</span>
+                    <span className="text-emerald-600 font-medium">
+                      {formatCurrency(product.price - product.discountPrice)}
+                    </span>
+                  </div>
+                </>
               )}
               {product.discountPrice && product.discountPrice >= product.price && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-red-500">Invalid discount price</span>
-                  <span className="text-sm text-red-500 line-through">{formatCurrency(product.discountPrice)}</span>
+                  <span className="text-sm text-red-500 line-through">
+                    {formatCurrency(product.discountPrice)}
+                  </span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Stock Card */}
+          {/* Inventory */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 text-sm mb-3">Inventory</h3>
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">Stock Available</span>
-              <span className={`text-lg font-bold ${product.stock === 0 ? 'text-red-600' : product.stock < 10 ? 'text-yellow-600' : 'text-gray-900'}`}>
+              <span
+                className={`text-lg font-bold ${
+                  product.stock === 0
+                    ? 'text-red-600'
+                    : product.stock < 10
+                    ? 'text-yellow-600'
+                    : 'text-gray-900'
+                }`}
+              >
                 {product.stock || 0}
               </span>
             </div>
@@ -677,19 +739,25 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
             )}
           </div>
 
-          {/* Seller Info */}
+          {/* Seller */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="font-semibold text-gray-900 text-sm mb-3">Seller Information</h3>
+            <h3 className="font-semibold text-gray-900 text-sm mb-3">
+              Seller Information
+            </h3>
             {product.seller ? (
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
                   <User className="w-4 h-4 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-900">{product.seller.shopName}</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {product.seller.shopName}
+                  </span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle className="w-4 h-4 text-emerald-500" />
                   <span className="text-sm text-gray-600">
-                    {product.seller.isVerified ? 'Verified Seller' : 'Unverified Seller'}
+                    {product.seller.isVerified
+                      ? 'Verified Seller'
+                      : 'Unverified Seller'}
                   </span>
                 </div>
               </div>
@@ -698,23 +766,31 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
             )}
           </div>
 
-          {/* Reviews Summary */}
+          {/* Reviews */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 text-sm mb-3">Reviews</h3>
             <div className="flex items-center space-x-4">
               <div className="flex items-center">
-                <span className="text-2xl font-bold text-gray-900">{product.averageRating?.toFixed(1) || '0'}</span>
+                <span className="text-2xl font-bold text-gray-900">
+                  {product.averageRating?.toFixed(1) || '0'}
+                </span>
                 <span className="text-sm text-gray-500 ml-1">/ 5</span>
               </div>
               <div className="flex items-center">
                 {[...Array(5)].map((_, i) => (
                   <Star
                     key={i}
-                    className={`w-4 h-4 ${i < Math.round(product.averageRating || 0) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
+                    className={`w-4 h-4 ${
+                      i < Math.round(product.averageRating || 0)
+                        ? 'text-yellow-400 fill-yellow-400'
+                        : 'text-gray-300'
+                    }`}
                   />
                 ))}
               </div>
-              <span className="text-sm text-gray-500">({product.reviewCount || 0} reviews)</span>
+              <span className="text-sm text-gray-500">
+                ({product.reviewCount || 0} reviews)
+              </span>
             </div>
           </div>
         </div>

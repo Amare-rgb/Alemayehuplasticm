@@ -35,6 +35,41 @@ import {
 import { useAuth } from "@/app/providers";
 import { useLanguage } from "@/context/LanguageContext";
 
+// ─── API base (strips trailing slash) ──────────────────────────────────────
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:5000";
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
+
+const DEFAULT_AVATAR = ""; // empty string → the initials block renders
+
+// ─── Resolve any stored avatar path to a usable URL ────────────────────────
+function resolveAvatar(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const s = raw.trim();
+  if (!s) return "";
+
+  // Absolute URL (Cloudinary, S3, etc.)
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("data:")) return s;
+
+  // Cloudinary host without protocol
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  // Legacy /uploads/... → backend origin (will 404 until DB cleaned, but at
+  // least the URL is correct and won't point at the frontend origin)
+  if (s.startsWith("/uploads/")) return `${API_BASE_URL}${s}`;
+  if (s.startsWith("uploads/")) return `${API_BASE_URL}/${s}`;
+
+  // Bare filename → assume avatar folder
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_BASE_URL}/uploads/avatars/${s}`;
+  }
+
+  return "";
+}
+
 // ─── Mock data for display ─────────────────────────────────────────────────
 const MOCK_STATS = {
   totalOrders: 24,
@@ -103,6 +138,46 @@ function buildStatusConfig(
   };
 }
 
+// ─── Avatar with fallback ───────────────────────────────────────────────────
+const AvatarImage: React.FC<{
+  src: string;
+  alt: string;
+  initials: string;
+}> = ({ src, alt, initials }) => {
+  const [prevSrc, setPrevSrc] = useState(src);
+  const [imgSrc, setImgSrc] = useState(src);
+  const [failed, setFailed] = useState(false);
+
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setImgSrc(src);
+    setFailed(false);
+  }
+
+  if (!imgSrc || failed) {
+    return (
+      <div className="w-full h-full bg-gradient-to-br from-genesis-500 to-genesis-lime flex items-center justify-center">
+        <span className="text-3xl sm:text-4xl font-bold text-white font-serif">
+          {initials}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={imgSrc}
+      alt={alt}
+      fill
+      className="object-cover"
+      sizes="(max-width: 640px) 112px, 128px"
+      priority
+      onError={() => setFailed(true)}
+      unoptimized={imgSrc.startsWith("/") || imgSrc.includes("images.unsplash.com")}
+    />
+  );
+};
+
 export default function ProfilePage() {
   const { user, status, logout, updateProfile, uploadAvatar } = useAuth();
   const router = useRouter();
@@ -126,32 +201,30 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
-
-  // ✅ Track logout-in-progress so we don't bounce the user to /auth/login
   const [loggingOut, setLoggingOut] = useState(false);
 
-  useEffect(() => {
-    if (!isEditing && user) {
-      queueMicrotask(() => {
-        setFormData({
-          name: user.name || "",
-          phone: user.phone || "",
-          address: user.address || "",
-          bio: user.bio || "",
-        });
-      });
-    }
-  }, [user?.id, isEditing, user]);
+  // ✅ Sync form data when the user changes AND we are not editing.
+  //    Uses the "adjust state during render" pattern to avoid the
+  //    "setState in useEffect" warning. React re-renders immediately.
+  const [prevUserId, setPrevUserId] = useState(user?.id);
+  if (user?.id !== prevUserId) {
+    setPrevUserId(user?.id);
+    setFormData({
+      name: user?.name || "",
+      phone: user?.phone || "",
+      address: user?.address || "",
+      bio: user?.bio || "",
+    });
+  }
 
-  // ✅ Redirect only when NOT actively logging out.
-  //    Send unauthenticated visitors to HOME (/), not /auth/login (which 404s).
+  // Redirect only when NOT actively logging out.
+  // Send unauthenticated visitors to HOME, not /auth/login.
   useEffect(() => {
     if (status === "unauthenticated" && !loggingOut) {
       router.replace("/");
     }
   }, [status, router, loggingOut]);
 
-  // ✅ Explicit logout handler → clear session, then go to home page.
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
@@ -160,7 +233,6 @@ export default function ProfilePage() {
       console.error("Logout error:", err);
     } finally {
       router.replace("/");
-      // Hard fallback in case the SPA router is stuck on the profile route.
       if (typeof window !== "undefined") {
         window.location.href = "/";
       }
@@ -172,7 +244,9 @@ export default function ProfilePage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      setSaveError(t("profile.error_image_size", "Image must be smaller than 5 MB"));
+      setSaveError(
+        t("profile.error_image_size", "Image must be smaller than 5 MB")
+      );
       setTimeout(() => setSaveError(null), 4000);
       return;
     }
@@ -268,7 +342,14 @@ export default function ProfilePage() {
       .join("")
       .toUpperCase() || "U";
 
-  const avatarSrc = user.avatar || avatarUrl || "";
+  // ✅ Resolve whatever the DB/context gives us:
+  //    - local blob URL from the current upload preview → use as-is
+  //    - Cloudinary / absolute URL                   → use as-is
+  //    - legacy /uploads/...                          → prepend API origin
+  //    - empty                                        → render initials block
+  const resolvedAvatar = avatarUrl
+    ? avatarUrl // blob preview, always safe
+    : resolveAvatar(user.avatar);
 
   const STATUS_CONFIG = buildStatusConfig(t);
 
@@ -291,22 +372,11 @@ export default function ProfilePage() {
             {/* Circular avatar */}
             <div className="relative group">
               <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-white/20 shadow-2xl transition-transform duration-300 group-hover:scale-[1.02] relative">
-                {avatarSrc ? (
-                  <Image
-                    src={avatarSrc}
-                    alt={user.name || "Profile"}
-                    fill
-                    className="object-cover"
-                    sizes="(max-width: 640px) 112px, 128px"
-                    priority
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-genesis-500 to-genesis-lime flex items-center justify-center">
-                    <span className="text-3xl sm:text-4xl font-bold text-white font-serif">
-                      {userInitials}
-                    </span>
-                  </div>
-                )}
+                <AvatarImage
+                  src={resolvedAvatar}
+                  alt={user.name || "Profile"}
+                  initials={userInitials}
+                />
               </div>
 
               <button
@@ -411,7 +481,6 @@ export default function ProfilePage() {
 
       {/* MAIN CONTENT */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        {/* Success toast */}
         {saveSuccess && (
           <div className="animate-fade-in-up fixed top-20 right-4 sm:right-8 z-50 flex items-center gap-3 px-5 py-3 bg-genesis-900 text-genesis-lime rounded-xl shadow-2xl border border-genesis-700">
             <Check size={18} />
@@ -421,7 +490,6 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Error toast */}
         {saveError && (
           <div className="animate-fade-in-up fixed top-20 right-4 sm:right-8 z-50 flex items-center gap-3 px-5 py-3 bg-red-600 text-white rounded-xl shadow-2xl border border-red-700">
             <X size={18} />
@@ -842,7 +910,6 @@ export default function ProfilePage() {
                   />
                 </Link>
 
-                {/* ✅ Uses the new handleLogout → routes to home, no 404 */}
                 <button
                   onClick={handleLogout}
                   disabled={loggingOut}

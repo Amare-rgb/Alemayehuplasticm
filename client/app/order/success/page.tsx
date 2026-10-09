@@ -18,6 +18,41 @@ import {
 } from 'lucide-react'
 
 /* -------------------------------------------------------------------------- */
+/*  API base + image resolver — same rule used everywhere else in the app       */
+/* -------------------------------------------------------------------------- */
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  'http://localhost:5000'
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, '')
+
+const DEFAULT_IMAGE = '/placeholder.svg'
+
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_IMAGE
+  const s = raw.trim()
+  if (!s) return DEFAULT_IMAGE
+
+  // Absolute URL (Cloudinary, S3, Unsplash, …)
+  if (s.startsWith('http://') || s.startsWith('https://')) return s
+  if (s.startsWith('data:')) return s
+
+  // Cloudinary host without protocol
+  if (s.startsWith('res.cloudinary.com/')) return `https://${s}`
+
+  // Legacy /uploads/... → backend origin
+  if (s.startsWith('/uploads/')) return `${API_BASE_URL}${s}`
+  if (s.startsWith('uploads/')) return `${API_BASE_URL}/${s}`
+
+  // Bare filename
+  if (!s.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_BASE_URL}/uploads/products/${s}`
+  }
+
+  return DEFAULT_IMAGE
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
 /* -------------------------------------------------------------------------- */
 type OrderItem = {
@@ -51,15 +86,19 @@ type Props = {
   deliveryRange: string
 }
 
-// ✅ Changed from 40 → 60 seconds (1 minute)
+/* 60-second (1 minute) auto-redirect */
 const REDIRECT_SECONDS = 60
 
-function fmtEUR(value: number) {
-  return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(value)
+/* ✅ ETB currency — matches the rest of the store */
+function fmtETB(value: number) {
+  return `ETB ${Number(value || 0).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Countdown hook — pure, proper cleanup, no cascading renders                */
+/*  Countdown hook                                                             */
 /* -------------------------------------------------------------------------- */
 function useCountdown(seconds: number, enabled: boolean) {
   const [remaining, setRemaining] = useState(seconds)
@@ -85,7 +124,7 @@ function useCountdown(seconds: number, enabled: boolean) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Circular countdown ring — pure SVG, animated                               */
+/*  Circular countdown ring                                                    */
 /* -------------------------------------------------------------------------- */
 function CountdownRing({
   remaining,
@@ -128,6 +167,39 @@ function CountdownRing({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Order item thumbnail with fallback                                         */
+/* -------------------------------------------------------------------------- */
+function OrderItemImage({ src, alt }: { src: string; alt: string }) {
+  const [prevSrc, setPrevSrc] = useState(src)
+  const [imgSrc, setImgSrc] = useState(src)
+  const [failed, setFailed] = useState(false)
+
+  if (src !== prevSrc) {
+    setPrevSrc(src)
+    setImgSrc(src)
+    setFailed(false)
+  }
+
+  if (!imgSrc || failed) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-gray-300">
+        <Package className="w-8 h-8" />
+      </div>
+    )
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={imgSrc}
+      alt={alt}
+      className="w-full h-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Fallback: no session_id                                                    */
 /* -------------------------------------------------------------------------- */
 function NoSession() {
@@ -143,7 +215,7 @@ function NoSession() {
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
-            href="/account/orders"
+            href="/orders"
             className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-full transition-all shadow-sm"
           >
             View your orders
@@ -163,7 +235,7 @@ function NoSession() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Fallback: order not found yet — 60s auto-retry countdown                   */
+/*  Fallback: order not found yet — 60s auto-retry                             */
 /* -------------------------------------------------------------------------- */
 function OrderPending({ sessionId }: { sessionId: string }) {
   const router = useRouter()
@@ -178,12 +250,10 @@ function OrderPending({ sessionId }: { sessionId: string }) {
     router.refresh()
   }, [remaining, paused, router])
 
-  // Format seconds as MM:SS for clarity when > 60
   const mins = Math.floor(remaining / 60)
   const secs = remaining % 60
-  const timeLabel = mins > 0
-    ? `${mins}:${secs.toString().padStart(2, '0')}`
-    : `${remaining}s`
+  const timeLabel =
+    mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${remaining}s`
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 flex items-center justify-center px-4 py-16">
@@ -200,7 +270,6 @@ function OrderPending({ sessionId }: { sessionId: string }) {
           </p>
         </div>
 
-        {/* Countdown block — 60s (1 minute) */}
         <div className="mb-6 flex flex-col items-center gap-3">
           <div className="relative">
             <CountdownRing remaining={remaining} total={REDIRECT_SECONDS} size={64} />
@@ -237,7 +306,7 @@ function OrderPending({ sessionId }: { sessionId: string }) {
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
-            href="/account/orders"
+            href="/orders"
             className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-full transition-all shadow-sm"
           >
             View your orders
@@ -263,7 +332,7 @@ function OrderPending({ sessionId }: { sessionId: string }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Live status timeline — advances every 3 seconds                            */
+/*  Live status timeline                                                       */
 /* -------------------------------------------------------------------------- */
 const STATUS_STAGES = [
   { key: 'placed', label: 'Order placed', sub: 'We received your order' },
@@ -337,12 +406,14 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
   const router = useRouter()
   const [dismissed, setDismissed] = useState(false)
 
-  // 60-second (1 minute) auto-redirect countdown
-  const { remaining, paused, cancel } = useCountdown(REDIRECT_SECONDS, !!order && !dismissed)
+  const { remaining, paused, cancel } = useCountdown(
+    REDIRECT_SECONDS,
+    !!order && !dismissed
+  )
 
   useEffect(() => {
     if (remaining > 0 || paused || !order) return
-    router.push('/account/orders')
+    router.push('/orders')
   }, [remaining, paused, order, router])
 
   if (!sessionId) return <NoSession />
@@ -356,18 +427,15 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
   const shipping = Math.max(0, parseFloat((total - subtotal).toFixed(2)))
   const shortId = order.id.slice(-8).toUpperCase()
 
-  // Format countdown as MM:SS when >= 60s, else "Ns"
   const mins = Math.floor(remaining / 60)
   const secs = remaining % 60
-  const timeLabel = mins > 0
-    ? `${mins}:${secs.toString().padStart(2, '0')}`
-    : `${remaining}s`
+  const timeLabel =
+    mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${remaining}s`
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
-
-        {/* ── Success Hero Banner ── */}
+        {/* Success Hero Banner */}
         <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 sm:p-8 mb-8 text-white shadow-lg">
           <div className="flex items-start gap-5">
             <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
@@ -384,10 +452,11 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-4 py-1.5">
                   <Package className="w-4 h-4" />
-                  <span className="text-sm font-semibold tracking-wider">Order #{shortId}</span>
+                  <span className="text-sm font-semibold tracking-wider">
+                    Order #{shortId}
+                  </span>
                 </div>
 
-                {/* 60s countdown chip */}
                 {!dismissed && (
                   <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full pl-2 pr-3 py-1">
                     <div className="relative">
@@ -420,12 +489,10 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
           </div>
         </div>
 
-        {/* ── Main grid ── */}
+        {/* Main grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-          {/* Left – Order items + totals */}
+          {/* Left */}
           <div className="lg:col-span-2 space-y-4">
-
             {/* Order items */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
@@ -441,21 +508,15 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
               <div className="divide-y divide-gray-50">
                 {order.items.map((it) => {
                   const itemTotal = Number(it.price) * it.quantity
+                  const resolvedImg = resolveImage(it.product.images?.[0])
+
                   return (
-                    <div key={it.id} className="flex gap-4 p-5 hover:bg-gray-50/50 transition-colors">
+                    <div
+                      key={it.id}
+                      className="flex gap-4 p-5 hover:bg-gray-50/50 transition-colors"
+                    >
                       <div className="w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden border border-gray-100 bg-gray-50">
-                        {it.product.images?.[0] ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={it.product.images[0]}
-                            alt={it.product.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-300">
-                            <Package className="w-8 h-8" />
-                          </div>
-                        )}
+                        <OrderItemImage src={resolvedImg} alt={it.product.name} />
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -466,7 +527,7 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
                           {it.product.name}
                         </Link>
                         <p className="text-xs text-gray-500 mt-1">
-                          Qty {it.quantity} × {fmtEUR(Number(it.price))}
+                          Qty {it.quantity} × {fmtETB(Number(it.price))}
                         </p>
 
                         <Link
@@ -479,7 +540,9 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
                       </div>
 
                       <div className="flex-shrink-0 text-right">
-                        <p className="text-sm font-bold text-gray-900">{fmtEUR(itemTotal)}</p>
+                        <p className="text-sm font-bold text-gray-900">
+                          {fmtETB(itemTotal)}
+                        </p>
                       </div>
                     </div>
                   )
@@ -495,7 +558,7 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
               <div className="p-6 space-y-3">
                 <div className="flex justify-between text-sm text-gray-600">
                   <span>Subtotal ({order.items.length} items)</span>
-                  <span>{fmtEUR(subtotal)}</span>
+                  <span>{fmtETB(subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm text-gray-600">
                   <span>Shipping</span>
@@ -503,13 +566,13 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
                     {shipping === 0 ? (
                       <span className="text-emerald-600 font-medium">Free</span>
                     ) : (
-                      fmtEUR(shipping)
+                      fmtETB(shipping)
                     )}
                   </span>
                 </div>
                 <div className="border-t border-gray-100 pt-3 flex justify-between text-base font-bold text-gray-900">
                   <span>Order total</span>
-                  <span className="text-lg">{fmtEUR(total)}</span>
+                  <span className="text-lg">{fmtETB(total)}</span>
                 </div>
               </div>
             </div>
@@ -521,7 +584,10 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
                 { icon: Truck, label: 'Fast delivery', sub: deliveryRange },
                 { icon: Star, label: 'Quality assured', sub: 'Verified sellers only' },
               ].map(({ icon: Icon, label, sub }) => (
-                <div key={label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-center">
+                <div
+                  key={label}
+                  className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-center"
+                >
                   <div className="w-9 h-9 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-2">
                     <Icon className="w-4 h-4 text-emerald-600" />
                   </div>
@@ -532,10 +598,9 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
             </div>
           </div>
 
-          {/* Right – Delivery + actions */}
+          {/* Right */}
           <div className="space-y-4">
-
-            {/* Delivery card with LIVE timeline */}
+            {/* Delivery card with live timeline */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
                 <h3 className="font-bold text-gray-900 flex items-center gap-2">
@@ -550,7 +615,9 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
                     <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
                       Estimated arrival
                     </p>
-                    <p className="text-sm text-gray-900 font-medium mt-0.5">{deliveryRange}</p>
+                    <p className="text-sm text-gray-900 font-medium mt-0.5">
+                      {deliveryRange}
+                    </p>
                   </div>
                 </div>
 
@@ -562,7 +629,9 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
                     </p>
                     {order.address ? (
                       <div className="text-sm text-gray-700 mt-0.5 space-y-0.5">
-                        <p className="font-medium text-gray-900">{order.address.fullName ?? ''}</p>
+                        <p className="font-medium text-gray-900">
+                          {order.address.fullName ?? ''}
+                        </p>
                         <p>{order.address.street ?? ''}</p>
                         <p>
                           {[order.address.city, order.address.country]
@@ -571,7 +640,9 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
                         </p>
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-700 mt-0.5">No shipping address available.</p>
+                      <p className="text-sm text-gray-700 mt-0.5">
+                        No shipping address available.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -588,7 +659,7 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
             {/* Action buttons */}
             <div className="space-y-2.5">
               <Link
-                href="/account/orders"
+                href="/orders"
                 className="flex items-center justify-center gap-2 w-full px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-full transition-all shadow-sm"
               >
                 View order details
@@ -608,10 +679,11 @@ export default function OrderSuccessClient({ order, sessionId, deliveryRange }: 
               <h4 className="text-sm font-bold text-amber-900 mb-1">Need help?</h4>
               <p className="text-xs text-amber-800 leading-relaxed">
                 Contact support with your order number{' '}
-                <span className="font-mono font-bold">#{shortId}</span> and we&apos;ll sort it out quickly.
+                <span className="font-mono font-bold">#{shortId}</span> and we&apos;ll
+                sort it out quickly.
               </p>
               <Link
-                href="/support"
+                href="/contact"
                 className="inline-flex items-center gap-1 mt-2 text-xs text-amber-700 hover:text-amber-900 font-semibold transition-colors"
               >
                 Contact support

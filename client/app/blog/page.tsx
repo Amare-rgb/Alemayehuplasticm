@@ -23,24 +23,35 @@ import {
 } from "@/data/blog";
 import { useLanguage } from "@/context/LanguageContext";
 
-// ✅ Regex-based video detection — same across admin panel and backend
-const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+/* ────────────────────────────────────────────────────────────
+   API base — strip trailing slash so `${base}${path}` never double-slashes
+   ──────────────────────────────────────────────────────────── */
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:5000";
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
+
+const DEFAULT_IMAGE = "/placeholder.svg";
+
+/* ────────────────────────────────────────────────────────────
+   Video URL detection (unchanged from your original)
+   ──────────────────────────────────────────────────────────── */
+const YOUTUBE_ID_REGEX =
+  /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
 const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
-const DAILYMOTION_ID_REGEX = /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
-const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+const DAILYMOTION_ID_REGEX =
+  /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
+const DIRECT_VIDEO_EXTENSIONS = [".mp4", ".webm", ".ogg", ".mov", ".avi", ".mkv"];
 
 const getKnownPlatformEmbedUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
-
   const yt = url.match(YOUTUBE_ID_REGEX);
   if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
-
   const vm = url.match(VIMEO_ID_REGEX);
   if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
-
   const dm = url.match(DAILYMOTION_ID_REGEX);
   if (dm) return `https://www.dailymotion.com/embed/video/${dm[1]}`;
-
   return null;
 };
 
@@ -48,8 +59,28 @@ const isVideoUrl = (url: string | null | undefined): boolean => {
   if (!url) return false;
   if (getKnownPlatformEmbedUrl(url)) return true;
   const lowerUrl = url.toLowerCase();
-  return DIRECT_VIDEO_EXTENSIONS.some(ext => lowerUrl.includes(ext));
+  return DIRECT_VIDEO_EXTENSIONS.some((ext) => lowerUrl.includes(ext));
 };
+
+/* ────────────────────────────────────────────────────────────
+   Resolve any media (image or video) to a usable URL
+   ──────────────────────────────────────────────────────────── */
+function resolveMediaUrl(raw: string | null | undefined): string {
+  if (!raw) return DEFAULT_IMAGE;
+  const s = String(raw).trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
+    const clean = s.startsWith("/") ? s : `/${s}`;
+    return `${API_BASE_URL}${clean}`;
+  }
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg|mp4|webm|mov)$/i.test(s)) {
+    return `${API_BASE_URL}/uploads/blog/${s}`;
+  }
+  return DEFAULT_IMAGE;
+}
 
 export default function BlogPage() {
   const { t } = useLanguage();
@@ -59,8 +90,6 @@ export default function BlogPage() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-
   const getPostMedia = (post: BlogPost) => {
     const video = (post as { video?: string | null }).video;
     const media = video || post.image;
@@ -69,13 +98,13 @@ export default function BlogPage() {
     if (isVideo && media) {
       const knownEmbed = getKnownPlatformEmbedUrl(media);
       if (knownEmbed) {
-        return { type: 'iframe' as const, url: knownEmbed };
+        return { type: "iframe" as const, url: knownEmbed };
       }
-      const fullUrl = media.startsWith('http') ? media : `${apiBaseUrl}${media}`;
-      return { type: 'video' as const, url: fullUrl };
+      return { type: "video" as const, url: resolveMediaUrl(media) };
     }
 
-    return { type: 'image' as const, url: formatBlogImage(post.image) };
+    // Image path — use the shared helper so URLs are handled identically
+    return { type: "image" as const, url: formatBlogImage(post.image) };
   };
 
   const getCategoryLabel = (cat: string) => {
@@ -83,8 +112,10 @@ export default function BlogPage() {
     if (lower === "all") return t("blog.cat_all", "All");
     if (lower === "farming") return t("blog.cat_farming", "Farming");
     if (lower === "sustainability") return t("blog.cat_sustainability", "Sustainability");
-    if (lower === "fresh produce" || lower === "produce") return t("blog.cat_fresh_produce", "Fresh Produce");
-    if (lower === "our farm" || lower === "farm") return t("blog.cat_our_farm", "Our Farm");
+    if (lower === "fresh produce" || lower === "produce")
+      return t("blog.cat_fresh_produce", "Fresh Produce");
+    if (lower === "our farm" || lower === "farm")
+      return t("blog.cat_our_farm", "Our Farm");
     if (lower === "stories" || lower === "story") return t("blog.cat_stories", "Stories");
     return cat;
   };
@@ -96,48 +127,39 @@ export default function BlogPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${apiBaseUrl}/api/blog?published=true&limit=50`, {
-          headers: {
-            Accept: "application/json",
-          },
-        });
+        const res = await fetch(
+          `${API_BASE_URL}/api/blog?published=true&limit=50`,
+          { headers: { Accept: "application/json" }, cache: "no-store" }
+        );
 
-        if (!res.ok) {
-          throw new Error(`Failed to load blog posts (Status: ${res.status})`);
-        }
+        if (!res.ok) throw new Error(`Failed to load blog posts (Status: ${res.status})`);
 
         const data = await res.json();
-        if (isMounted) {
-          if (data && Array.isArray(data.posts) && data.posts.length > 0) {
-            setPosts(data.posts);
-          } else {
-            setPosts(FALLBACK_BLOG_POSTS);
-          }
+        if (!isMounted) return;
+
+        if (data && Array.isArray(data.posts) && data.posts.length > 0) {
+          setPosts(data.posts);
+        } else {
+          setPosts(FALLBACK_BLOG_POSTS);
         }
       } catch (err) {
-        const error = err as Error;
-        console.warn("Backend blog fetch error, using fallback posts:", error.message);
+        const e = err as Error;
+        console.warn("Backend blog fetch error, using fallback posts:", e.message);
         if (isMounted) {
           setPosts(FALLBACK_BLOG_POSTS);
           setError("Using cached journal articles (backend connecting...)");
         }
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchPosts();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [apiBaseUrl]);
+    return () => { isMounted = false; };
+  }, []);
 
   const categories = useMemo(() => {
-    const cats = new Set<string>();
-    cats.add("All");
+    const cats = new Set<string>(["All"]);
     posts.forEach((p) => {
       if (p.category && typeof p.category === "string" && p.category.trim() !== "") {
         cats.add(p.category.trim());
@@ -171,14 +193,14 @@ export default function BlogPage() {
 
   const regularPosts = useMemo(() => {
     if (!featuredPost) return filteredPosts;
-    return filteredPosts.filter((p) => (p.id ? p.id !== featuredPost.id : p.slug !== featuredPost.slug));
+    return filteredPosts.filter((p) =>
+      p.id ? p.id !== featuredPost.id : p.slug !== featuredPost.slug
+    );
   }, [filteredPosts, featuredPost]);
 
   return (
     <main className="min-h-screen bg-[var(--cream)] text-[var(--ink)]">
-      {/* =========================================================
-          BLOG HERO SECTION
-      ========================================================= */}
+      {/* HERO — unchanged */}
       <section className="relative overflow-hidden bg-[var(--green-950)] text-white">
         <div className="absolute -right-40 -top-40 h-[520px] w-[520px] rounded-full bg-[var(--green-800)] opacity-40 blur-3xl" />
         <div className="absolute bottom-[-180px] left-[-120px] h-[400px] w-[400px] rounded-full bg-[var(--lime)] opacity-10 blur-3xl" />
@@ -224,9 +246,7 @@ export default function BlogPage() {
         </div>
       </section>
 
-      {/* =========================================================
-          FEATURED ARTICLE
-      ========================================================= */}
+      {/* FEATURED */}
       {featuredPost && (
         <section className="relative mx-auto w-[min(1180px,calc(100%-48px))] py-16 sm:py-20">
           <div className="mb-6 flex items-center justify-between">
@@ -248,7 +268,7 @@ export default function BlogPage() {
             <div className="relative min-h-[380px] overflow-hidden lg:min-h-[480px]">
               {(() => {
                 const media = getPostMedia(featuredPost);
-                if (media.type === 'iframe') {
+                if (media.type === "iframe") {
                   return (
                     <>
                       <iframe
@@ -264,7 +284,7 @@ export default function BlogPage() {
                     </>
                   );
                 }
-                if (media.type === 'video') {
+                if (media.type === "video") {
                   return (
                     <>
                       <video
@@ -287,12 +307,11 @@ export default function BlogPage() {
                     src={media.url}
                     alt={featuredPost.title}
                     fill
+                    unoptimized={media.url.startsWith("/")}
                     className="object-cover transition-transform duration-700 group-hover:scale-105"
                     sizes="(max-width: 1024px) 100vw, 50vw"
                     onError={(e) => {
-                      const target = e.currentTarget;
-                      target.src =
-                        "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=90";
+                      e.currentTarget.src = DEFAULT_IMAGE;
                     }}
                   />
                 );
@@ -335,7 +354,6 @@ export default function BlogPage() {
                 </p>
               </div>
 
-              {/* ✅ Author REMOVED — only Read Article link remains */}
               <div className="mt-8 flex items-center justify-end border-t border-white/10 pt-6">
                 <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--lime)] group-hover:translate-x-1 transition-transform">
                   {t("blog.read_article", "Read Article")}
@@ -347,9 +365,7 @@ export default function BlogPage() {
         </section>
       )}
 
-      {/* =========================================================
-          CONTROLS: SEARCH & CATEGORY FILTER TABS
-      ========================================================= */}
+      {/* CONTROLS — unchanged */}
       <section className="border-y border-[#19472d]/10 bg-white py-6">
         <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
@@ -374,10 +390,7 @@ export default function BlogPage() {
             </div>
 
             <div className="relative min-w-[260px] max-w-sm">
-              <Search
-                size={16}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#69736b]"
-              />
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#69736b]" />
               <input
                 type="text"
                 value={searchQuery}
@@ -399,9 +412,7 @@ export default function BlogPage() {
         </div>
       </section>
 
-      {/* =========================================================
-          ARTICLE GRID SECTION
-      ========================================================= */}
+      {/* GRID */}
       <section className="mx-auto w-[min(1180px,calc(100%-48px))] py-16 sm:py-20">
         {loading ? (
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
@@ -454,7 +465,7 @@ export default function BlogPage() {
                       href={`/blog/${encodeURIComponent(post.slug)}`}
                       className="relative block aspect-[16/10] overflow-hidden bg-[#071a11]"
                     >
-                      {media.type === 'iframe' ? (
+                      {media.type === "iframe" ? (
                         <>
                           <iframe
                             src={media.url}
@@ -467,7 +478,7 @@ export default function BlogPage() {
                             {t("blog.video_badge", "Video")}
                           </span>
                         </>
-                      ) : media.type === 'video' ? (
+                      ) : media.type === "video" ? (
                         <>
                           <video
                             src={media.url}
@@ -487,12 +498,11 @@ export default function BlogPage() {
                           src={media.url}
                           alt={post.title}
                           fill
+                          unoptimized={media.url.startsWith("/")}
                           className="object-cover transition-transform duration-700 group-hover:scale-105"
                           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                           onError={(e) => {
-                            const target = e.currentTarget;
-                            target.src =
-                              "https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1200&q=85";
+                            e.currentTarget.src = DEFAULT_IMAGE;
                           }}
                         />
                       )}
@@ -526,7 +536,6 @@ export default function BlogPage() {
                     </div>
                   </div>
 
-                  {/* ✅ Author REMOVED — only Read link remains */}
                   <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
                     <Link
                       href={`/blog/${encodeURIComponent(post.slug)}`}
@@ -543,9 +552,7 @@ export default function BlogPage() {
         )}
       </section>
 
-      {/* =========================================================
-          NEWSLETTER / STAY CONNECTED CTA
-      ========================================================= */}
+      {/* CTA — unchanged */}
       <section className="bg-[var(--green-950)] px-6 py-20 text-center text-white">
         <div className="mx-auto max-w-[700px]">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--lime)] text-[var(--green-950)]">

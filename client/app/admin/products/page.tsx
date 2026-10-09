@@ -25,10 +25,47 @@ import {
 } from 'lucide-react';
 
 // ============================================================
-// Axios instance (unchanged)
+// API base — strip trailing slash so `${base}${path}` never double-slashes
 // ============================================================
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  'http://localhost:5000';
+const API_URL = RAW_API_BASE.replace(/\/+$/, '');
 
+// ============================================================
+// Image URL resolver — same logic as Products.tsx / ProductDetails.tsx
+// ============================================================
+const DEFAULT_IMAGE = '/placeholder.svg';
+
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_IMAGE;
+  const s = raw.trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  // 1. Absolute URL (Cloudinary, S3, Unsplash, …)
+  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+
+  // 2. Cloudinary host without protocol
+  if (s.startsWith('res.cloudinary.com/')) return `https://${s}`;
+
+  // 3. Legacy /uploads/... — will 404 until DB is cleaned
+  if (s.startsWith('/uploads/') || s.startsWith('uploads/')) {
+    const clean = s.startsWith('/') ? s : `/${s}`;
+    return `${API_URL}${clean}`;
+  }
+
+  // 4. Bare filename
+  if (!s.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_URL}/uploads/products/${s}`;
+  }
+
+  return DEFAULT_IMAGE;
+}
+
+// ============================================================
+// Axios instance
+// ============================================================
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
@@ -110,7 +147,7 @@ interface NotificationProps {
 }
 
 // ============================================================
-// Notification (unchanged)
+// Notification
 // ============================================================
 const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) => {
   const [isVisible, setIsVisible] = useState(true);
@@ -175,7 +212,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
 };
 
 // ============================================================
-// Product thumbnail with fallback (unchanged)
+// Product thumbnail with fallback
 // ============================================================
 const ProductImage: React.FC<{
   src: string | null;
@@ -183,6 +220,12 @@ const ProductImage: React.FC<{
   className?: string;
 }> = ({ src, alt, className = '' }) => {
   const [error, setError] = useState(false);
+  const [prevSrc, setPrevSrc] = useState(src);
+
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setError(false);
+  }
 
   if (!src || error) {
     return (
@@ -200,7 +243,7 @@ const ProductImage: React.FC<{
       height={48}
       className={`object-cover ${className}`}
       onError={() => setError(true)}
-      unoptimized={src.startsWith('http')}
+      unoptimized={src.startsWith('/') || src.includes('images.unsplash.com')}
     />
   );
 };
@@ -217,9 +260,9 @@ const ProductsPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
 
-  // Loading flags — split into two so the table never blanks
-  const [initialLoading, setInitialLoading] = useState(true); // full-page spinner only on first load
-  const [refreshing, setRefreshing] = useState(false);        // small overlay during refetches
+  // Loading flags
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Notification
   const [notification, setNotification] = useState<{
@@ -244,7 +287,7 @@ const ProductsPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(10);
 
-  // ---------- Refs (all the "run once" / "skip first" guards) ----------
+  // Refs
   const isMounted = useRef(true);
   const hasFetchedInitial = useRef(false);
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -252,7 +295,7 @@ const ProductsPage: React.FC = () => {
   const firstPageRun = useRef(true);
   const firstSearchRun = useRef(true);
 
-  // ---------- Helpers ----------
+  // Helpers
   const showNotification = (
     type: 'success' | 'error' | 'info' | 'warning',
     message: string
@@ -266,7 +309,7 @@ const ProductsPage: React.FC = () => {
     localStorage.getItem('authToken') ||
     sessionStorage.getItem('authToken');
 
-  // ---------- Fetch categories (runs once) ----------
+  // Fetch categories (once)
   const fetchCategories = useCallback(async () => {
     try {
       const response = await api.get('/api/categories/admin/all');
@@ -279,9 +322,7 @@ const ProductsPage: React.FC = () => {
     }
   }, []);
 
-  // ---------- Fetch products ----------
-  // This is the core of the fix: the fetch is a stable function. It reads
-  // current state from refs so it doesn't need to be in a dependency array.
+  // Fetch products
   const fetchProducts = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent ?? false;
@@ -313,7 +354,6 @@ const ProductsPage: React.FC = () => {
         setTotal(response.data?.total ?? list.length);
         setPages(response.data?.pages ?? 1);
 
-        // Derived flags (no extra fetch needed)
         const visibleCount = list.filter((p) => p.visibility === 'VISIBLE').length;
         setAllProductsVisible(visibleCount === list.length && list.length > 0);
 
@@ -349,14 +389,11 @@ const ProductsPage: React.FC = () => {
         }
       }
     },
-    // ✅ IMPORTANT: only the *inputs* to the request are dependencies.
-    //    selectedCategoryForBulk is deliberately NOT here — it's used for
-    //    derived state only and shouldn't trigger a fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [currentPage, pageSize, searchQuery, selectedCategory, selectedStatus, selectedVisibility, router]
   );
 
-  // ---------- Mount: initial auth check + first fetch ----------
+  // Mount
   useEffect(() => {
     isMounted.current = true;
 
@@ -369,7 +406,6 @@ const ProductsPage: React.FC = () => {
         return;
       }
 
-      // Fetch categories and products once, in parallel
       (async () => {
         await Promise.all([fetchCategories(), fetchProducts()]);
       })();
@@ -382,7 +418,7 @@ const ProductsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---------- Search debounce (skip first render) ----------
+  // Search debounce
   useEffect(() => {
     if (firstSearchRun.current) {
       firstSearchRun.current = false;
@@ -401,7 +437,7 @@ const ProductsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // ---------- Filter changes (skip first render) ----------
+  // Filter changes
   useEffect(() => {
     if (firstFilterRun.current) {
       firstFilterRun.current = false;
@@ -412,7 +448,7 @@ const ProductsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory, selectedStatus, selectedVisibility]);
 
-  // ---------- Page changes (skip first render) ----------
+  // Page changes
   useEffect(() => {
     if (firstPageRun.current) {
       firstPageRun.current = false;
@@ -422,7 +458,7 @@ const ProductsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
 
-  // ---------- Bulk actions ----------
+  // Bulk actions
   const handleToggleAllProducts = async () => {
     try {
       setIsBulkActionLoading(true);
@@ -569,7 +605,7 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-  // ---------- Formatting ----------
+  // Formatting
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -590,17 +626,14 @@ const ProductsPage: React.FC = () => {
     });
   };
 
-  const getImageUrl = (imagePath: string) => {
+  // ✅ FIXED: use resolveImage so Cloudinary URLs are used when present
+  const getImageUrl = (imagePath: string | null | undefined): string | null => {
     if (!imagePath) return null;
-    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-      return imagePath;
-    }
-    let cleanPath = imagePath;
-    if (cleanPath.startsWith('/')) cleanPath = cleanPath.substring(1);
-    return `${API_URL}/${cleanPath}`;
+    const resolved = resolveImage(imagePath);
+    return resolved === DEFAULT_IMAGE ? null : resolved;
   };
 
-  const getFirstImage = (images: string[]) => {
+  const getFirstImage = (images: string[] | null | undefined): string | null => {
     if (!images || images.length === 0) return null;
     for (const img of images) {
       if (img && img.trim() !== '') {
@@ -611,7 +644,7 @@ const ProductsPage: React.FC = () => {
     return null;
   };
 
-  // ---------- Render ----------
+  // Render
   if (initialLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -836,7 +869,6 @@ const ProductsPage: React.FC = () => {
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden relative">
-        {/* Refreshing overlay (small, doesn't blank the table) */}
         {refreshing && (
           <div className="absolute inset-0 bg-white/40 flex items-start justify-center pt-6 pointer-events-none z-10">
             <div className="animate-spin rounded-full h-6 w-6 border-2 border-emerald-600 border-t-transparent" />

@@ -29,6 +29,41 @@ import { useLanguage } from "@/context/LanguageContext";
 import { ordersApi } from "@/lib/api";
 
 // ============================================================
+// API base + image resolver (same rule used app-wide)
+// ============================================================
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:5000";
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
+
+const DEFAULT_IMAGE = "/placeholder.svg";
+
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== "string") return DEFAULT_IMAGE;
+  const s = raw.trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  // 1. Absolute URL (Cloudinary, S3, Unsplash, …)
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("data:")) return s;
+
+  // 2. Cloudinary host without protocol
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  // 3. Legacy /uploads/... → backend origin
+  if (s.startsWith("/uploads/")) return `${API_BASE_URL}${s}`;
+  if (s.startsWith("uploads/")) return `${API_BASE_URL}/${s}`;
+
+  // 4. Bare filename
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_BASE_URL}/uploads/products/${s}`;
+  }
+
+  return DEFAULT_IMAGE;
+}
+
+// ============================================================
 // Types
 // ============================================================
 type OrderStatus =
@@ -65,17 +100,7 @@ interface Order {
 }
 
 // ============================================================
-// Image URL normalizer
-// ============================================================
-function normalizeImageUrl(src?: string | null): string {
-  if (!src) return "/placeholder-image.png";
-  if (src.startsWith("http://") || src.startsWith("https://")) return src;
-  if (src.startsWith("data:")) return src;
-  return src.startsWith("/") ? src : `/${src}`;
-}
-
-// ============================================================
-// Status config helper — built inside the component for translation
+// Status config
 // ============================================================
 type FilterType = "All" | OrderStatus;
 
@@ -170,6 +195,44 @@ function OrdersPageFallback() {
     </div>
   );
 }
+
+// ============================================================
+// Order item thumbnail with fallback
+// ============================================================
+const OrderItemImage: React.FC<{ src: string; alt: string }> = ({
+  src,
+  alt,
+}) => {
+  const [prevSrc, setPrevSrc] = useState(src);
+  const [imgSrc, setImgSrc] = useState(src);
+  const [failed, setFailed] = useState(false);
+
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setImgSrc(src);
+    setFailed(false);
+  }
+
+  if (!imgSrc || failed) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-[var(--cream)]">
+        <Package size={20} className="text-[#69736b]/40" />
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={imgSrc}
+      alt={alt}
+      fill
+      sizes="64px"
+      className="object-cover"
+      onError={() => setFailed(true)}
+      unoptimized={imgSrc.startsWith("/") || imgSrc.includes("images.unsplash.com")}
+    />
+  );
+};
 
 // ============================================================
 // Inner component
@@ -567,20 +630,9 @@ function OrdersPageContent() {
                             className="flex items-center gap-3 sm:gap-4 px-5 py-3.5 sm:px-6 sm:py-4 hover:bg-[var(--cream)]/30 transition-colors"
                           >
                             <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-[var(--cream)] flex-shrink-0 border border-[rgba(20,33,25,.09)] relative">
-                              <Image
-                                src={normalizeImageUrl(
-                                  item.product.images?.[0]
-                                )}
+                              <OrderItemImage
+                                src={resolveImage(item.product.images?.[0])}
                                 alt={item.product.name}
-                                fill
-                                sizes="64px"
-                                className="object-cover"
-                                unoptimized
-                                onError={(e) => {
-                                  const target =
-                                    e.currentTarget as HTMLImageElement;
-                                  target.src = "/placeholder-image.png";
-                                }}
                               />
                             </div>
 

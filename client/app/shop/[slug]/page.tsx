@@ -4,12 +4,45 @@ import { products, Product } from "@/data/products";
 import { notFound } from "next/navigation";
 
 type ProductDetailsPageProps = {
-  params: Promise<{
-    slug: string;
-  }> | { slug: string };
+  params: Promise<{ slug: string }> | { slug: string };
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:5000";
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
+
+const DEFAULT_IMAGE = "/placeholder.svg";
+
+/**
+ * Resolve a stored image path into a usable URL.
+ * Priority:
+ *   1. Absolute http(s) URL (Cloudinary, S3, Unsplash, …)  → as-is
+ *   2. Cloudinary host without protocol                    → prepend https://
+ *   3. Legacy "/uploads/..." path                          → prepend backend origin
+ *   4. Bare filename                                       → assume product image
+ *   5. Anything else                                        → placeholder
+ */
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== "string") return DEFAULT_IMAGE;
+  const s = raw.trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
+    const clean = s.startsWith("/") ? s : `/${s}`;
+    return `${API_BASE_URL}${clean}`;
+  }
+
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_BASE_URL}/uploads/products/${s}`;
+  }
+
+  return DEFAULT_IMAGE;
+}
 
 export default async function ProductDetailsPage({
   params,
@@ -23,33 +56,17 @@ export default async function ProductDetailsPage({
   try {
     const res = await fetch(
       `${API_BASE_URL}/api/products/${encodeURIComponent(slug)}`,
-      {
-        cache: "no-store",
-      }
+      { cache: "no-store" }
     );
 
     if (res.ok) {
       const data = await res.json();
+
       if (data && data.id) {
-        // Properly handle images
-        let imageList: string[] = [];
-        if (Array.isArray(data.images) && data.images.length > 0) {
-          imageList = data.images.map((img: string) => {
-            if (!img) return "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
-            if (img.startsWith("http://") || img.startsWith("https://")) {
-              return img;
-            }
-            if (img.startsWith("/uploads/")) {
-              return `${API_BASE_URL}${img}`;
-            }
-            if (img.startsWith("uploads/")) {
-              return `${API_BASE_URL}/${img}`;
-            }
-            return `${API_BASE_URL}/uploads/products/${img}`;
-          });
-        } else {
-          imageList = ["https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85"];
-        }
+        const imageList: string[] =
+          Array.isArray(data.images) && data.images.length > 0
+            ? data.images.map(resolveImage)
+            : [DEFAULT_IMAGE];
 
         fetchedProduct = {
           id: data.id,
@@ -67,20 +84,16 @@ export default async function ProductDetailsPage({
         };
       }
     } else if (res.status === 404) {
-      // Product not found or hidden - will trigger 404
       console.log(`Product with slug "${slug}" not found or is hidden`);
     }
   } catch (err) {
     console.warn("Could not fetch product from backend on slug page:", err);
   }
 
-  // If we couldn't fetch from backend, check local data as fallback
-  // BUT ONLY if the product is NOT hidden in the backend
   let finalProduct = fetchedProduct;
 
   if (!finalProduct) {
-    // Try to find in local data
-    const localProduct = 
+    const localProduct =
       products.find((item) => item.slug.toLowerCase() === slug) ||
       products.find((item) => item.id.toLowerCase() === slug) ||
       products.find(
@@ -88,13 +101,12 @@ export default async function ProductDetailsPage({
           slug.includes(item.slug.toLowerCase()) ||
           item.slug.toLowerCase().includes(slug)
       );
-    
+
     if (localProduct) {
       finalProduct = localProduct;
     }
   }
 
-  // If still no product found, return 404
   if (!finalProduct) {
     notFound();
   }

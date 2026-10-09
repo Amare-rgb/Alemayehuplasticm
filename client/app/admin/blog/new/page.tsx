@@ -24,8 +24,42 @@ import {
   Video,
 } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+// ============================================================
+// API base — strip trailing slash
+// ============================================================
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  'http://localhost:5000';
+const API_URL = RAW_API_BASE.replace(/\/+$/, '');
 
+const DEFAULT_IMAGE = '/placeholder.svg';
+
+// ============================================================
+// Image resolver
+// ============================================================
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_IMAGE;
+  const s = raw.trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+  if (s.startsWith('data:')) return s;
+  if (s.startsWith('res.cloudinary.com/')) return `https://${s}`;
+
+  if (s.startsWith('/uploads/')) return `${API_URL}${s}`;
+  if (s.startsWith('uploads/')) return `${API_URL}/${s}`;
+
+  if (!s.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_URL}/uploads/blog/${s}`;
+  }
+
+  return DEFAULT_IMAGE;
+}
+
+// ============================================================
+// Axios
+// ============================================================
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
@@ -36,7 +70,8 @@ api.interceptors.request.use((config) => {
   const token =
     localStorage.getItem('authToken') ||
     sessionStorage.getItem('authToken') ||
-    localStorage.getItem('token');
+    localStorage.getItem('token') ||
+    sessionStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -46,7 +81,9 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('authToken');
+      localStorage.removeItem('token');
       sessionStorage.removeItem('authToken');
+      sessionStorage.removeItem('token');
       localStorage.removeItem('user');
       sessionStorage.removeItem('user');
       if (typeof window !== 'undefined') window.location.href = '/auth/signin';
@@ -55,9 +92,9 @@ api.interceptors.response.use(
   }
 );
 
-/* -------------------------------------------------------------------------- */
-/*  Notification                                                               */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// Notification
+// ============================================================
 interface NotificationProps {
   type: 'success' | 'error' | 'info' | 'warning';
   message: string;
@@ -127,15 +164,14 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
-/* -------------------------------------------------------------------------- */
-/*  Video URL helpers                                                          */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// Video URL helpers
+// ============================================================
 const YOUTUBE_ID_REGEX =
   /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
 const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
 const DAILYMOTION_ID_REGEX =
   /dailymotion\.com\/(?:video|embed\/video)\/([a-zA-Z0-9]+)/i;
-const DIRECT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
 
 const getKnownPlatformEmbedUrl = (
   url: string | null | undefined
@@ -155,9 +191,9 @@ const getEmbedUrl = (url: string | null | undefined): string => {
   return getKnownPlatformEmbedUrl(url) ?? url;
 };
 
-/* -------------------------------------------------------------------------- */
-/*  Page                                                                       */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// Page
+// ============================================================
 const NewBlogPostPage: React.FC = () => {
   const router = useRouter();
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -170,9 +206,6 @@ const NewBlogPostPage: React.FC = () => {
     type: 'success' | 'error' | 'info' | 'warning';
     message: string;
   } | null>(null);
-
-  const [, setImageFile] = useState<File | null>(null);
-  const [, setVideoFile] = useState<File | null>(null);
 
   const [showVideoUrlInput, setShowVideoUrlInput] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
@@ -206,11 +239,14 @@ const NewBlogPostPage: React.FC = () => {
     'Irrigation',
   ];
 
-  /* ---- Auth check ---- */
+  // ── Auth check ───────────────────────────────────────────
   useEffect(() => {
     const checkAuth = () => {
       const token =
-        localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('authToken') ||
+        localStorage.getItem('token') ||
+        sessionStorage.getItem('token');
       const userData =
         localStorage.getItem('user') || sessionStorage.getItem('user');
 
@@ -250,7 +286,9 @@ const NewBlogPostPage: React.FC = () => {
   const clearNotification = () => setNotification(null);
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >
   ) => {
     const { name, value, type } = e.target;
     setFormData((prev) => ({
@@ -264,7 +302,7 @@ const NewBlogPostPage: React.FC = () => {
     setFormData((prev) => ({ ...prev, [name]: checked }));
   };
 
-  /* ---- Image upload ---- */
+  // ── Image upload ─────────────────────────────────────────
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -282,13 +320,17 @@ const NewBlogPostPage: React.FC = () => {
     setUploadingImage(true);
     try {
       const token =
-        localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('authToken') ||
+        localStorage.getItem('token') ||
+        sessionStorage.getItem('token');
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
       }
 
       const formDataUpload = new FormData();
+      // Field name matches what the backend expects.
       formDataUpload.append('media', file);
 
       const response = await api.post('/api/blog/upload', formDataUpload, {
@@ -298,25 +340,35 @@ const NewBlogPostPage: React.FC = () => {
         },
       });
 
-      const mediaUrl = response.data?.mediaUrl ?? null;
+      const mediaUrl =
+        response.data?.mediaUrl ??
+        response.data?.url ??
+        response.data?.secure_url ??
+        null;
+
       if (mediaUrl) {
         setFormData((prev) => ({ ...prev, image: mediaUrl, video: '' }));
-        setImageFile(file);
-        setVideoFile(null);
         showNotification('success', 'Image uploaded successfully');
       } else {
         showNotification('error', 'Failed to get image URL from server');
       }
     } catch (err) {
       console.error('Error uploading image:', err);
-      showNotification('error', 'Failed to upload image');
+      if (axios.isAxiosError(err)) {
+        showNotification(
+          'error',
+          err.response?.data?.error || 'Failed to upload image'
+        );
+      } else {
+        showNotification('error', 'Failed to upload image');
+      }
     } finally {
       setUploadingImage(false);
       if (imageInputRef.current) imageInputRef.current.value = '';
     }
   };
 
-  /* ---- Video upload ---- */
+  // ── Video upload ─────────────────────────────────────────
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -334,7 +386,10 @@ const NewBlogPostPage: React.FC = () => {
     setUploadingVideo(true);
     try {
       const token =
-        localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('authToken') ||
+        localStorage.getItem('token') ||
+        sessionStorage.getItem('token');
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -350,25 +405,35 @@ const NewBlogPostPage: React.FC = () => {
         },
       });
 
-      const mediaUrl = response.data?.mediaUrl ?? null;
+      const mediaUrl =
+        response.data?.mediaUrl ??
+        response.data?.url ??
+        response.data?.secure_url ??
+        null;
+
       if (mediaUrl) {
         setFormData((prev) => ({ ...prev, video: mediaUrl, image: '' }));
-        setVideoFile(file);
-        setImageFile(null);
         showNotification('success', 'Video uploaded successfully');
       } else {
         showNotification('error', 'Failed to get video URL from server');
       }
     } catch (err) {
       console.error('Error uploading video:', err);
-      showNotification('error', 'Failed to upload video');
+      if (axios.isAxiosError(err)) {
+        showNotification(
+          'error',
+          err.response?.data?.error || 'Failed to upload video'
+        );
+      } else {
+        showNotification('error', 'Failed to upload video');
+      }
     } finally {
       setUploadingVideo(false);
       if (videoInputRef.current) videoInputRef.current.value = '';
     }
   };
 
-  /* ---- Video URL insert (with strict validation) ---- */
+  // ── Video URL insert ─────────────────────────────────────
   const handleVideoUrlInsert = () => {
     const trimmed = videoUrl.trim();
     if (!trimmed) {
@@ -385,8 +450,6 @@ const NewBlogPostPage: React.FC = () => {
 
     const platformEmbed = getKnownPlatformEmbedUrl(trimmed);
 
-    // A YouTube/Vimeo/Dailymotion link that has no extractable video ID is
-    // almost certainly a channel/user page, not a video.
     const isLikelyPlatformPage =
       /youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com/i.test(trimmed);
 
@@ -398,7 +461,6 @@ const NewBlogPostPage: React.FC = () => {
       return;
     }
 
-    // Non-platform URLs must end in a known video extension.
     const isDirectVideo = /\.(mp4|webm|ogg|mov|avi|mkv)(\?.*)?$/i.test(trimmed);
 
     if (!platformEmbed && !isDirectVideo) {
@@ -412,8 +474,6 @@ const NewBlogPostPage: React.FC = () => {
     const normalized = platformEmbed ?? trimmed;
 
     setFormData((prev) => ({ ...prev, video: normalized, image: '' }));
-    setVideoFile(null);
-    setImageFile(null);
     setShowVideoUrlInput(false);
     setVideoUrl('');
     showNotification('success', 'Video URL added successfully');
@@ -421,24 +481,25 @@ const NewBlogPostPage: React.FC = () => {
 
   const handleRemoveImage = () => {
     setFormData((prev) => ({ ...prev, image: '' }));
-    setImageFile(null);
   };
 
   const handleRemoveVideo = () => {
     setFormData((prev) => ({ ...prev, video: '' }));
-    setVideoFile(null);
     setShowVideoUrlInput(false);
     setVideoUrl('');
   };
 
-  /* ---- Submit ---- */
+  // ── Submit ───────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
       const token =
-        localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('authToken') ||
+        localStorage.getItem('token') ||
+        sessionStorage.getItem('token');
       if (!token) {
         showNotification('error', 'Authentication required. Please login again.');
         router.push('/auth/signin');
@@ -506,12 +567,10 @@ const NewBlogPostPage: React.FC = () => {
     }
   };
 
-  /* ---- Image preview ---- */
+  // ── Image preview ────────────────────────────────────────
   const renderImagePreview = () => {
     if (formData.image) {
-      const displayUrl = formData.image.startsWith('http')
-        ? formData.image
-        : `${API_URL}${formData.image}`;
+      const displayUrl = resolveImage(formData.image);
 
       return (
         <div className="relative rounded-lg overflow-hidden border-2 border-gray-200">
@@ -522,7 +581,8 @@ const NewBlogPostPage: React.FC = () => {
               alt="Featured image"
               className="absolute inset-0 w-full h-full object-cover"
               onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                // Show placeholder instead of broken image glyph
+                (e.currentTarget as HTMLImageElement).src = DEFAULT_IMAGE;
               }}
             />
             <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full flex items-center space-x-1 pointer-events-none">
@@ -566,15 +626,16 @@ const NewBlogPostPage: React.FC = () => {
     );
   };
 
-  /* ---- Video preview ---- */
+  // ── Video preview ────────────────────────────────────────
   const renderVideoPreview = () => {
     const videoSrc = formData.video;
 
     if (videoSrc) {
       const isKnownPlatformLink = getKnownPlatformEmbedUrl(videoSrc) !== null;
-      const displayUrl = videoSrc.startsWith('http')
-        ? videoSrc
-        : `${API_URL}${videoSrc}`;
+      const displayUrl =
+        videoSrc.startsWith('http://') || videoSrc.startsWith('https://')
+          ? videoSrc
+          : `${API_URL}${videoSrc.startsWith('/') ? videoSrc : `/${videoSrc}`}`;
 
       return (
         <div className="relative rounded-lg overflow-hidden border-2 border-gray-200">
@@ -592,9 +653,6 @@ const NewBlogPostPage: React.FC = () => {
                 src={displayUrl}
                 controls
                 className="w-full h-full object-contain"
-                onError={() => {
-                  // Silent — preview simply won't render for invalid sources.
-                }}
               >
                 Your browser does not support the video tag.
               </video>

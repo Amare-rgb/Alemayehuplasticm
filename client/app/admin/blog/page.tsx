@@ -29,11 +29,42 @@ import {
   Link2,
 } from 'lucide-react';
 
-/* -------------------------------------------------------------------------- */
-/*  Axios instance                                                             */
-/* -------------------------------------------------------------------------- */
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+// ============================================================
+// API base — strip trailing slash
+// ============================================================
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  'http://localhost:5000';
+const API_URL = RAW_API_BASE.replace(/\/+$/, '');
 
+const DEFAULT_IMAGE = '/placeholder.svg';
+
+// ============================================================
+// Image resolver
+// ============================================================
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_IMAGE;
+  const s = raw.trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+  if (s.startsWith('data:')) return s;
+  if (s.startsWith('res.cloudinary.com/')) return `https://${s}`;
+
+  if (s.startsWith('/uploads/')) return `${API_URL}${s}`;
+  if (s.startsWith('uploads/')) return `${API_URL}/${s}`;
+
+  if (!s.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_URL}/uploads/blog/${s}`;
+  }
+
+  return DEFAULT_IMAGE;
+}
+
+// ============================================================
+// Axios
+// ============================================================
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
@@ -44,7 +75,8 @@ api.interceptors.request.use((config) => {
   const token =
     localStorage.getItem('authToken') ||
     sessionStorage.getItem('authToken') ||
-    localStorage.getItem('token');
+    localStorage.getItem('token') ||
+    sessionStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -54,7 +86,9 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('authToken');
+      localStorage.removeItem('token');
       sessionStorage.removeItem('authToken');
+      sessionStorage.removeItem('token');
       localStorage.removeItem('user');
       sessionStorage.removeItem('user');
       if (typeof window !== 'undefined') window.location.href = '/auth/signin';
@@ -63,9 +97,9 @@ api.interceptors.response.use(
   }
 );
 
-/* -------------------------------------------------------------------------- */
-/*  Types                                                                      */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// Types
+// ============================================================
 interface BlogPost {
   id: string;
   title: string;
@@ -88,9 +122,9 @@ interface BlogPost {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Notification                                                               */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// Notification
+// ============================================================
 interface NotificationProps {
   type: 'success' | 'error' | 'info' | 'warning';
   message: string;
@@ -160,9 +194,9 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   );
 };
 
-/* -------------------------------------------------------------------------- */
-/*  Video / image helpers                                                      */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// Video / image helpers
+// ============================================================
 const YOUTUBE_ID_REGEX =
   /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
 const VIMEO_ID_REGEX = /vimeo\.com\/(?:video\/)?(\d+)/i;
@@ -203,33 +237,41 @@ const getEmbedUrl = (url: string | null | undefined): string => {
   return getKnownPlatformEmbedUrl(url) ?? url;
 };
 
-/** Heuristic: does the URL look like an image we can safely send to next/image? */
 const looksLikeImage = (url: string | null | undefined): boolean => {
   if (!url) return false;
   const lower = url.toLowerCase().split('?')[0].split('#')[0];
 
-  // Explicit image extension
   if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
 
-  // Backend uploads are images unless the extension says otherwise
   if (lower.includes('/uploads/blog/') || lower.includes('/uploads/products/')) {
     return !DIRECT_VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
+  }
+
+  if (
+    lower.includes('res.cloudinary.com') &&
+    lower.includes('/image/upload/')
+  ) {
+    return true;
   }
 
   return false;
 };
 
-/** Build a fully-qualified URL for an image/video path. */
 const buildFullUrl = (path: string | null | undefined): string => {
   if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  if (path.startsWith('data:')) return path;
+
+  if (path.startsWith('/uploads/')) return `${API_URL}${path}`;
+  if (path.startsWith('uploads/')) return `${API_URL}/${path}`;
   if (path.startsWith('/')) return `${API_URL}${path}`;
-  return `${API_URL}/${path}`;
+
+  return `${API_URL}/uploads/blog/${path}`;
 };
 
-/* -------------------------------------------------------------------------- */
-/*  MediaRenderer — safe for any URL, never crashes on weird input             */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// MediaRenderer
+// ============================================================
 const MediaRenderer: React.FC<{
   image: string | null;
   video: string | null;
@@ -248,7 +290,6 @@ const MediaRenderer: React.FC<{
     : false;
   const embedUrl = getEmbedUrl(currentMedia);
 
-  // Render-time state adjustment — no cascading useEffect.
   const [prevMedia, setPrevMedia] = useState(currentMedia);
   if (currentMedia !== prevMedia) {
     setPrevMedia(currentMedia);
@@ -256,7 +297,6 @@ const MediaRenderer: React.FC<{
     setIsLoading(true);
   }
 
-  /* ---- No media ---- */
   if (!currentMedia) {
     return (
       <div
@@ -267,7 +307,6 @@ const MediaRenderer: React.FC<{
     );
   }
 
-  /* ---- Error state ---- */
   if (error) {
     return (
       <div
@@ -279,7 +318,6 @@ const MediaRenderer: React.FC<{
     );
   }
 
-  /* ---- Known platform video (YouTube / Vimeo / Dailymotion) ---- */
   if (isVideo && isKnownPlatformLink && embedUrl) {
     return (
       <div className={`relative w-full h-full bg-black ${className}`}>
@@ -308,7 +346,6 @@ const MediaRenderer: React.FC<{
     );
   }
 
-  /* ---- Direct video file (.mp4 / .webm / uploads) ---- */
   if (isVideo) {
     const fullUrl = buildFullUrl(currentMedia);
     return (
@@ -342,7 +379,6 @@ const MediaRenderer: React.FC<{
     );
   }
 
-  /* ---- Unknown media type (e.g. YouTube channel URL stored in `image`) ---- */
   if (!isImage) {
     return (
       <div
@@ -356,10 +392,9 @@ const MediaRenderer: React.FC<{
     );
   }
 
-  /* ---- Image (safe path) ---- */
   const fullUrl = buildFullUrl(currentMedia);
-  const isLocalBackendImage =
-    fullUrl.startsWith(API_URL) && fullUrl.includes('/uploads/');
+  const isLocalAsset =
+    fullUrl.startsWith('/') || fullUrl.includes(DEFAULT_IMAGE);
 
   return (
     <div className={`relative w-full h-full ${className}`}>
@@ -368,51 +403,33 @@ const MediaRenderer: React.FC<{
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600" />
         </div>
       )}
-
-      {isLocalBackendImage ? (
-        <Image
-          key={currentMedia}
-          src={fullUrl}
-          alt={alt}
-          fill
-          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-          className={`object-cover transition-opacity duration-300 ${
-            isLoading ? 'opacity-0' : 'opacity-100'
-          }`}
-          onLoad={() => setIsLoading(false)}
-          onError={() => {
-            setError(true);
-            setIsLoading(false);
-          }}
-          loading={eager ? 'eager' : 'lazy'}
-          fetchPriority={eager ? 'high' : 'auto'}
-        />
-      ) : (
-        // External image — plain <img> avoids unconfigured-host errors.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={currentMedia}
-          src={fullUrl}
-          alt={alt}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-            isLoading ? 'opacity-0' : 'opacity-100'
-          }`}
-          onLoad={() => setIsLoading(false)}
-          onError={() => {
-            setError(true);
-            setIsLoading(false);
-          }}
-          loading={eager ? 'eager' : 'lazy'}
-          fetchPriority={eager ? 'high' : 'auto'}
-        />
-      )}
+      <Image
+        key={currentMedia}
+        src={fullUrl}
+        alt={alt}
+        fill
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+        className={`object-cover transition-opacity duration-300 ${
+          isLoading ? 'opacity-0' : 'opacity-100'
+        }`}
+        onLoad={() => setIsLoading(false)}
+        onError={() => {
+          setError(true);
+          setIsLoading(false);
+        }}
+        loading={eager ? 'eager' : 'lazy'}
+        fetchPriority={eager ? 'high' : 'auto'}
+        unoptimized={
+          isLocalAsset || fullUrl.includes('images.unsplash.com')
+        }
+      />
     </div>
   );
 };
 
-/* -------------------------------------------------------------------------- */
-/*  Main page                                                                  */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// Main page
+// ============================================================
 const BlogPage: React.FC = () => {
   const router = useRouter();
 
@@ -435,6 +452,9 @@ const BlogPage: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
 
   const isMounted = useRef(true);
+  const didInitialLoad = useRef(false);
+  // Debounce timer for the search input
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
   const showNotification = useCallback(
     (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
@@ -461,35 +481,49 @@ const BlogPage: React.FC = () => {
 
   /**
    * Fetch blog posts.
-   * @param opts.silent — if true, skip setLoading(true). Used for refreshes
-   *                      and background updates.
+   *
+   * Accepts an explicit filter object so callers can pass "next" values
+   * without waiting for state updates (avoids stale closure + effect churn).
    */
   const fetchPosts = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (
+      filters: {
+        searchQuery: string;
+        selectedCategory: string;
+        selectedStatus: string;
+        currentPage: number;
+      },
+      opts?: { silent?: boolean }
+    ) => {
       try {
         if (!opts?.silent) setLoading(true);
 
         const token =
           localStorage.getItem('authToken') ||
-          sessionStorage.getItem('authToken');
+          sessionStorage.getItem('authToken') ||
+          localStorage.getItem('token') ||
+          sessionStorage.getItem('token');
         if (!token) {
-          showNotification('error', 'Authentication required. Please login again.');
+          showNotification(
+            'error',
+            'Authentication required. Please login again.'
+          );
           router.push('/auth/signin');
           return;
         }
 
         const params = new URLSearchParams();
-        if (selectedStatus !== 'all') {
+        if (filters.selectedStatus !== 'all') {
           params.append(
             'published',
-            selectedStatus === 'published' ? 'true' : 'false'
+            filters.selectedStatus === 'published' ? 'true' : 'false'
           );
         }
-        if (selectedCategory !== 'all') {
-          params.append('category', selectedCategory);
+        if (filters.selectedCategory !== 'all') {
+          params.append('category', filters.selectedCategory);
         }
-        if (searchQuery) params.append('search', searchQuery);
-        params.append('page', currentPage.toString());
+        if (filters.searchQuery) params.append('search', filters.searchQuery);
+        params.append('page', filters.currentPage.toString());
         params.append('limit', pageSize.toString());
 
         const response = await api.get(`/api/blog?${params.toString()}`, {
@@ -529,7 +563,10 @@ const BlogPage: React.FC = () => {
           const axiosError = err as AxiosError<{ error: string }>;
           const status = axiosError.response?.status;
           if (status === 401 || status === 403) {
-            showNotification('error', 'Authentication failed. Please login again.');
+            showNotification(
+              'error',
+              'Authentication failed. Please login again.'
+            );
             localStorage.removeItem('authToken');
             sessionStorage.removeItem('authToken');
             router.push('/auth/signin');
@@ -549,49 +586,86 @@ const BlogPage: React.FC = () => {
         if (isMounted.current) setLoading(false);
       }
     },
-    [
-      selectedStatus,
-      selectedCategory,
-      searchQuery,
-      currentPage,
-      pageSize,
-      router,
-      showNotification,
-    ]
+    [pageSize, router, showNotification]
   );
 
-  /**
-   * ✅ Deferred fetch — avoids "setState synchronously in effect" lint error.
-   * Cleanup clears the timer so no orphan fetches fire.
-   */
+  // ✅ Initial load — runs once on mount. The fetch is wrapped in a
+  //    microtask so React doesn't see a synchronous setState in the
+  //    effect body (which would trigger the lint warning).
   useEffect(() => {
     isMounted.current = true;
 
-    const isFirstRun = posts.length === 0;
-    const id = window.setTimeout(() => {
-      fetchPosts({ silent: isFirstRun });
-    }, 0);
+    if (!didInitialLoad.current) {
+      didInitialLoad.current = true;
+      const id = window.setTimeout(() => {
+        void fetchPosts(
+          {
+            searchQuery,
+            selectedCategory,
+            selectedStatus,
+            currentPage,
+          },
+          { silent: false }
+        );
+      }, 0);
+      return () => {
+        isMounted.current = false;
+        window.clearTimeout(id);
+      };
+    }
 
     return () => {
       isMounted.current = false;
-      window.clearTimeout(id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStatus, selectedCategory, searchQuery, currentPage]);
+  }, []);
 
+  // Debounced search — user typing only
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
+    const value = e.target.value;
+    setSearchQuery(value);
     setCurrentPage(1);
+
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      void fetchPosts(
+        {
+          searchQuery: value,
+          selectedCategory,
+          selectedStatus,
+          currentPage: 1,
+        },
+        { silent: true }
+      );
+    }, 400);
   };
 
   const handleStatusChange = (value: string) => {
     setSelectedStatus(value);
     setCurrentPage(1);
+    void fetchPosts(
+      {
+        searchQuery,
+        selectedCategory,
+        selectedStatus: value,
+        currentPage: 1,
+      },
+      { silent: true }
+    );
   };
 
   const handleCategoryChange = (value: string) => {
     setSelectedCategory(value);
     setCurrentPage(1);
+    void fetchPosts(
+      {
+        searchQuery,
+        selectedCategory: value,
+        selectedStatus,
+        currentPage: 1,
+      },
+      { silent: true }
+    );
   };
 
   const handleClearFilters = () => {
@@ -599,11 +673,41 @@ const BlogPage: React.FC = () => {
     setSelectedStatus('all');
     setSearchQuery('');
     setCurrentPage(1);
+    void fetchPosts(
+      {
+        searchQuery: '',
+        selectedCategory: 'all',
+        selectedStatus: 'all',
+        currentPage: 1,
+      },
+      { silent: true }
+    );
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    void fetchPosts(
+      {
+        searchQuery,
+        selectedCategory,
+        selectedStatus,
+        currentPage: page,
+      },
+      { silent: true }
+    );
   };
 
   const handleRefresh = () => {
     showNotification('info', 'Refreshing blog posts...');
-    fetchPosts({ silent: false });
+    void fetchPosts(
+      {
+        searchQuery,
+        selectedCategory,
+        selectedStatus,
+        currentPage,
+      },
+      { silent: false }
+    );
   };
 
   const handleDelete = async (id: string, title: string) => {
@@ -617,7 +721,9 @@ const BlogPage: React.FC = () => {
     try {
       const token =
         localStorage.getItem('authToken') ||
-        sessionStorage.getItem('authToken');
+        sessionStorage.getItem('authToken') ||
+        localStorage.getItem('token') ||
+        sessionStorage.getItem('token');
       if (!token) {
         showNotification('error', 'Authentication required');
         return;
@@ -629,7 +735,15 @@ const BlogPage: React.FC = () => {
 
       if (response.data.success) {
         showNotification('success', `Blog post "${title}" deleted successfully`);
-        await fetchPosts({ silent: true });
+        void fetchPosts(
+          {
+            searchQuery,
+            selectedCategory,
+            selectedStatus,
+            currentPage,
+          },
+          { silent: true }
+        );
       } else {
         showNotification(
           'error',
@@ -815,7 +929,7 @@ const BlogPage: React.FC = () => {
                     alt={post.title}
                     eager={index < 2}
                   />
-                  <div className="absolute top-3 right-3">
+                  <div className="absolute top-3 right-3 z-20">
                     <span
                       className={`text-xs font-medium px-2.5 py-1 rounded-full ${getStatusColor(
                         post.published
@@ -930,7 +1044,7 @@ const BlogPage: React.FC = () => {
           </p>
           <div className="flex space-x-2">
             <button
-              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+              onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
               disabled={currentPage === 1}
               className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -938,7 +1052,7 @@ const BlogPage: React.FC = () => {
             </button>
             <button
               onClick={() =>
-                setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                handlePageChange(Math.min(currentPage + 1, totalPages))
               }
               disabled={currentPage >= totalPages}
               className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"

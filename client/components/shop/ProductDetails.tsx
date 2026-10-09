@@ -1,7 +1,7 @@
 // components/shop/ProductDetails.tsx
 "use client";
 
-import { useMemo, useState } from "react"; // Removed useEffect
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -13,14 +13,53 @@ type ProductDetailsProps = {
   product: Product;
 };
 
+/* -------------------------------------------------------------------------- */
+/*  IMAGE RESOLUTION — same logic as Products.tsx so URLs are handled 1:1     */
+/* -------------------------------------------------------------------------- */
+
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:5000";
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
+
+const DEFAULT_IMAGE = "/placeholder.svg";
+const FALLBACK_REMOTE_IMAGE =
+  "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+
+function resolveImage(raw: unknown): string {
+  if (typeof raw !== "string") return DEFAULT_IMAGE;
+  const s = raw.trim();
+  if (!s) return DEFAULT_IMAGE;
+
+  // 1. Absolute URL (Cloudinary, S3, etc.)
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+
+  // 2. Cloudinary path without protocol
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  // 3. Legacy local uploads (will 404 if backend no longer serves /uploads)
+  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
+    const clean = s.startsWith("/") ? s : `/${s}`;
+    return `${API_BASE_URL}${clean}`;
+  }
+
+  // 4. Bare filename
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+    return `${API_BASE_URL}/uploads/products/${s}`;
+  }
+
+  // 5. Anything else
+  return DEFAULT_IMAGE;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  ICONS                                                                     */
+/* -------------------------------------------------------------------------- */
+
 function ArrowLeft() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className="h-4 w-4"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
       <path
         d="m15 18-6-6 6-6"
         stroke="currentColor"
@@ -34,12 +73,7 @@ function ArrowLeft() {
 
 function CheckIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className="h-4 w-4"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
       <path
         d="m5 12 4 4L19 6"
         stroke="currentColor"
@@ -54,12 +88,7 @@ function CheckIcon() {
 function MinusIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-      <path
-        d="M5 12h14"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+      <path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -79,12 +108,7 @@ function PlusIcon() {
 
 function CartIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className="h-5 w-5"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
       <path
         d="M3 4h2l1.7 10.2a2 2 0 0 0 2 1.8h7.8a2 2 0 0 0 2-1.6L20 7H6"
         stroke="currentColor"
@@ -100,12 +124,7 @@ function CartIcon() {
 
 function TruckIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className="h-5 w-5"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
       <path
         d="M3 6h11v10H3zM14 10h3l4 4v2h-7z"
         stroke="currentColor"
@@ -120,12 +139,7 @@ function TruckIcon() {
 
 function PhoneIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className="h-5 w-5"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
       <path
         d="M7 3h2l1.2 4-2 1.5a15 15 0 0 0 7.3 7.3L17 13.8 21 15v2c0 1.1-.9 2-2 2C10.2 19 5 13.8 5 5c0-1.1.9-2 2-2Z"
         stroke="currentColor"
@@ -137,57 +151,80 @@ function PhoneIcon() {
   );
 }
 
-// Product Image Component using Next.js Image
-const ProductImage: React.FC<{ 
-  src: string; 
-  alt: string; 
+/* -------------------------------------------------------------------------- */
+/*  STABLE IMAGE                                                              */
+/*  3-stage fallback: primary → placeholder → remote → dead                   */
+/*  Local/Unsplash assets skip Next.js optimizer via `unoptimized`            */
+/* -------------------------------------------------------------------------- */
+
+const ProductImage: React.FC<{
+  src: string;
+  alt: string;
   className?: string;
   priority?: boolean;
 }> = ({ src, alt, className = "", priority = false }) => {
-  const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+  const [prevSrc, setPrevSrc] = useState(src);
   const [imgSrc, setImgSrc] = useState(src);
-  const [hasError, setHasError] = useState(false);
+  const [stage, setStage] = useState<"primary" | "placeholder" | "remote" | "dead">(
+    "primary"
+  );
+
+  // Reset when parent passes a new src — React-recommended pattern
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setImgSrc(src);
+    setStage("primary");
+  }
 
   const handleError = () => {
-    if (!hasError) {
-      setHasError(true);
+    if (stage === "primary") {
+      setStage("placeholder");
       setImgSrc(DEFAULT_IMAGE);
+    } else if (stage === "placeholder") {
+      setStage("remote");
+      setImgSrc(FALLBACK_REMOTE_IMAGE);
+    } else {
+      setStage("dead");
     }
   };
 
-  if (hasError) {
+  if (stage === "dead") {
     return (
       <div className={`flex items-center justify-center bg-gray-200 ${className}`}>
-        <span className="text-gray-400 text-sm">No image</span>
+        <span className="text-xs text-gray-400">No image</span>
       </div>
     );
   }
+
+  const isLocalAsset = imgSrc.startsWith("/");
+  const isUnsplash = imgSrc.includes("images.unsplash.com");
 
   return (
     <Image
       src={imgSrc}
       alt={alt}
       fill
-      className={`object-cover ${className}`}
+      unoptimized={isLocalAsset || isUnsplash}
+      className={`object-cover object-center ${className}`}
       onError={handleError}
       sizes="(max-width: 768px) 100vw, 50vw"
-      priority={priority}
+      loading={priority ? "eager" : "lazy"}
+      fetchPriority={priority ? "high" : "auto"}
     />
   );
 };
 
-export default function ProductDetails({
-  product,
-}: ProductDetailsProps) {
+/* -------------------------------------------------------------------------- */
+/*  MAIN COMPONENT                                                            */
+/* -------------------------------------------------------------------------- */
+
+export default function ProductDetails({ product }: ProductDetailsProps) {
   const router = useRouter();
   const { addToCart } = useCart();
   const { t } = useLanguage();
 
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
-
-  // FIXED: Removed the useEffect. 
-  // The selectedImage state is now guaranteed valid by using a safe index accessor below.
 
   const effectivePrice =
     product.discountPrice !== null &&
@@ -201,8 +238,15 @@ export default function ProductDetails({
     [effectivePrice, quantity]
   );
 
-  // FIXED: Safely get the current image URL, ensuring it never breaks on new products
-  const currentImage = product.images?.[selectedImage] || product.images?.[0] || "";
+  // ✅ Resolve every image URL exactly once
+  const images = useMemo(() => {
+    const raw = Array.isArray(product.images) ? product.images : [];
+    const resolved = raw.map(resolveImage).filter(Boolean);
+    return resolved.length > 0 ? resolved : [DEFAULT_IMAGE];
+  }, [product.images]);
+
+  const safeIndex = Math.min(Math.max(selectedImage, 0), images.length - 1);
+  const currentImage = images[safeIndex];
 
   const decreaseQuantity = () => {
     setQuantity((current) => Math.max(1, current - 1));
@@ -286,7 +330,6 @@ export default function ProductDetails({
             <div>
               <div className="relative overflow-hidden rounded-[2rem] bg-white shadow-[0_20px_65px_rgba(18,53,35,.09)]">
                 <div className="relative aspect-square overflow-hidden bg-[#0b2419]">
-                  {/* FIXED: Used currentImage variable */}
                   <ProductImage
                     key={currentImage}
                     src={currentImage}
@@ -306,14 +349,14 @@ export default function ProductDetails({
               </div>
 
               {/* Thumbnails */}
-              {product.images && product.images.length > 1 && (
+              {images.length > 1 && (
                 <div className="mt-4 grid grid-cols-4 gap-3">
-                  {product.images.map((image, index) => {
-                    const active = selectedImage === index;
+                  {images.map((image, index) => {
+                    const active = safeIndex === index;
 
                     return (
                       <button
-                        key={image || index}
+                        key={`${image}-${index}`}
                         type="button"
                         onClick={() => setSelectedImage(index)}
                         className={`relative aspect-square overflow-hidden rounded-2xl border-2 transition-all ${
@@ -448,7 +491,7 @@ export default function ProductDetails({
                 </div>
               </div>
 
-              {/* Action CTA Buttons: Add to Cart & Buy Now */}
+              {/* Actions */}
               <div className="mt-7 flex flex-col sm:flex-row items-center gap-3">
                 <button
                   type="button"
