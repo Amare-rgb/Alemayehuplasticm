@@ -5,14 +5,32 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 
-export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+// ============================================================
+// Base URL (normalized)
+// ============================================================
+// - Removes trailing slashes   → prevents "//api/auth/login" (404)
+// - Removes a trailing "/api"  → prevents "/api/api/auth/login" (404)
+// - Falls back to the Railway backend in production if the Vercel
+//   env variable is missing, and to localhost in development.
+const PRODUCTION_FALLBACK = 'https://genesis-production-1d52.up.railway.app';
 
-// ✅ Instance for your EXTERNAL backend (Express at http://localhost:5000)
+const rawUrl =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === 'production'
+    ? PRODUCTION_FALLBACK
+    : 'http://localhost:5000');
+
+export const API_URL = rawUrl
+  .trim()
+  .replace(/\/+$/, '')
+  .replace(/\/api$/i, '');
+
+// ✅ Instance for your EXTERNAL backend (Express on Railway)
 export const api: AxiosInstance = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
+  timeout: 30000, // Neon cold start / Railway first request can be slow
 });
 
 // ✅ Instance for NEXT.JS internal API routes (/api/...)
@@ -26,6 +44,12 @@ const nextApi: AxiosInstance = axios.create({
 const attachAuth = (
   config: InternalAxiosRequestConfig
 ): InternalAxiosRequestConfig => {
+  // Make sure the path always starts with exactly one "/"
+  // so baseURL + url never produces a double slash.
+  if (config.baseURL && config.url && !/^https?:\/\//i.test(config.url)) {
+    config.url = '/' + config.url.replace(/^\/+/, '');
+  }
+
   if (typeof window !== 'undefined') {
     const token =
       localStorage.getItem('authToken') ||
@@ -42,14 +66,33 @@ api.interceptors.request.use(attachAuth, (error) => Promise.reject(error));
 nextApi.interceptors.request.use(attachAuth, (error) => Promise.reject(error));
 
 // ---------- Response interceptor (shared) ----------
+const isAuthRoute = (url?: string) =>
+  !!url && /\/auth\/(login|register|signin|signup|forgot|reset)/i.test(url);
+
 const handleAuthError = (error: AxiosError) => {
-  if (error.response?.status === 401 && typeof window !== 'undefined') {
+  // Only force logout on 401 for NON-auth routes.
+  // A wrong password on /auth/login must show its error message,
+  // not reload the page.
+  if (
+    error.response?.status === 401 &&
+    typeof window !== 'undefined' &&
+    !isAuthRoute(error.config?.url)
+  ) {
     localStorage.removeItem('authToken');
     sessionStorage.removeItem('authToken');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     sessionStorage.removeItem('user');
     window.location.href = '/auth/signin';
+  }
+
+  // Log the FULL url on 404 so path problems are obvious.
+  if (error.response?.status === 404) {
+    console.error('❌ 404 Not Found:', {
+      fullUrl: `${error.config?.baseURL ?? ''}${error.config?.url ?? ''}`,
+      method: error.config?.method,
+      serverResponse: error.response?.data,
+    });
   }
 
   // Log the ACTUAL server error body for 400s so you can debug.
@@ -72,6 +115,13 @@ const handleAuthError = (error: AxiosError) => {
         serverResponse: error.response?.data,
       });
     }
+  }
+
+  // Timeout / network problems (slow Railway or Neon cold start)
+  if (error.code === 'ECONNABORTED') {
+    console.error('⏱️ Request timed out:', {
+      fullUrl: `${error.config?.baseURL ?? ''}${error.config?.url ?? ''}`,
+    });
   }
 
   return Promise.reject(error);
@@ -299,7 +349,7 @@ export const ordersApi = {
     return response.data;
   },
 
-  // ✅ NEW: hard-delete an order (admin only) — same endpoint as cancelOrder
+  // ✅ Hard-delete an order (admin only) — same endpoint as cancelOrder
   // but the backend distinguishes them by role. Used by the admin orders page.
   deleteOrder: async (
     orderId: string
@@ -311,7 +361,7 @@ export const ordersApi = {
   },
 };
 
-// ✅ checkoutApi uses `api` → hits the Express backend at http://localhost:5000
+// ✅ checkoutApi uses `api` → hits the Express backend (Railway in production)
 export const checkoutApi = {
   createCheckout: async (
     data: CheckoutPayload
@@ -374,6 +424,7 @@ export const uploadApi = {
     formData.append(fieldName, file);
 
     const response = await api.post<UploadResponse>('/api/upload', formData, {
+      timeout: 120000, // uploads can take longer than normal requests
       // ✅ Delete the shared JSON Content-Type so the browser sets
       //    multipart/form-data with the correct boundary.
       transformRequest: [

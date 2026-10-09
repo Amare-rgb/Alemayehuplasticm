@@ -13,15 +13,63 @@ const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
 // ✅ Detect ANY serverless platform (Netlify, Vercel, AWS Lambda)
+// Railway is NOT serverless → it runs as a normal long-lived Node server.
 const isNetlify = !!(process.env.NETLIFY || process.env.NETLIFY_LOCAL);
 const isVercel = !!process.env.VERCEL;
+const isRailway = !!(
+  process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID
+);
 const isServerless =
   isNetlify || isVercel || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
 
+const platformName = isNetlify
+  ? 'netlify'
+  : isVercel
+  ? 'vercel'
+  : isRailway
+  ? 'railway'
+  : 'node';
+
 // ═══════════════════════════════════════════════════════════
-// TRUST PROXY
+// TRUST PROXY (Railway / Vercel / Netlify sit behind a proxy)
 // ═══════════════════════════════════════════════════════════
 app.set('trust proxy', 1);
+
+// ═══════════════════════════════════════════════════════════
+// ✅ FIX: collapse double slashes in the URL PATH
+// "//api/auth/login" → "/api/auth/login"
+// This was the cause of "Route not found" when the frontend
+// env variable NEXT_PUBLIC_API_URL ended with a trailing "/".
+// Only the path is changed; the query string is left untouched.
+// ═══════════════════════════════════════════════════════════
+app.use((req, res, next) => {
+  const i = req.url.indexOf('?');
+  const path = i === -1 ? req.url : req.url.slice(0, i);
+  const query = i === -1 ? '' : req.url.slice(i);
+  if (path.includes('//')) {
+    req.url = path.replace(/\/{2,}/g, '/') + query;
+  }
+  next();
+});
+
+// ═══════════════════════════════════════════════════════════
+// ✅ Slow request logger (helps find why register is slow)
+// Logs any request that takes longer than SLOW_REQUEST_MS.
+// ═══════════════════════════════════════════════════════════
+const SLOW_REQUEST_MS = Number(process.env.SLOW_REQUEST_MS) || 2000;
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    if (ms >= SLOW_REQUEST_MS) {
+      console.warn(
+        `🐢 Slow request: ${req.method} ${req.originalUrl} → ${res.statusCode} in ${ms}ms`
+      );
+    }
+  });
+  next();
+});
 
 // ═══════════════════════════════════════════════════════════
 // IMPORT ROUTES
@@ -131,6 +179,8 @@ app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // ═══════════════════════════════════════════════════════════
 // STATIC FILES (local/VPS only; serverless disk is not persistent)
+// NOTE: Railway's disk is also wiped on every redeploy unless you
+// attach a Volume. For production, store images on Cloudinary/S3.
 // ═══════════════════════════════════════════════════════════
 if (!isServerless) {
   app.use(
@@ -173,7 +223,7 @@ apiRouter.use('/telebirr', telebirrRoutes);
 // ═══════════════════════════════════════════════════════════
 // HEALTH CHECK
 // ═══════════════════════════════════════════════════════════
-apiRouter.get('/health', async (req, res) => {
+const healthHandler = async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     const userCount = await prisma.user.count();
@@ -182,7 +232,7 @@ apiRouter.get('/health', async (req, res) => {
       status: 'OK',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
-      platform: isNetlify ? 'netlify' : isVercel ? 'vercel' : 'node',
+      platform: platformName,
       database: { connected: true, userCount },
     });
   } catch (error) {
@@ -193,6 +243,14 @@ apiRouter.get('/health', async (req, res) => {
       database: { connected: false, error: error.message },
     });
   }
+};
+
+apiRouter.get('/health', healthHandler);
+
+// ✅ Lightweight liveness probe (no database call).
+// Use this as the Railway "Healthcheck Path" → /healthz
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ status: 'OK', uptime: process.uptime() });
 });
 
 // Mount the SAME router at /api (normal) and at the Netlify function path
@@ -207,7 +265,7 @@ const rootInfo = (req, res) => {
     name: 'Genesis Agri API Server',
     version: '1.0.0',
     status: 'Running',
-    platform: isNetlify ? 'netlify' : isVercel ? 'vercel' : 'node',
+    platform: platformName,
     endpoints: {
       auth: '/api/auth',
       admin: '/api/admin',
@@ -235,13 +293,15 @@ app.get('/api', rootInfo);
 
 // ═══════════════════════════════════════════════════════════
 // 404 HANDLER
+// ✅ Now shows the ORIGINAL url so path mistakes are obvious.
 // ═══════════════════════════════════════════════════════════
 app.use((req, res) => {
-  console.log('❌ Route not found:', req.method, req.url);
+  console.log('❌ Route not found:', req.method, req.originalUrl);
   res.status(404).json({
     success: false,
     error: 'Route not found',
-    path: req.url,
+    message: `Route not found: ${req.method} ${req.originalUrl}`,
+    path: req.originalUrl,
     method: req.method,
   });
 });
@@ -252,10 +312,19 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   console.error('❌ Global error handler:', err);
 
+  if (res.headersSent) return next(err);
+
   if (err.type === 'entity.too.large') {
     return res.status(413).json({
       success: false,
       error: 'File is too large. Please upload a file under 5 MB.',
+    });
+  }
+
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid JSON in request body.',
     });
   }
 
@@ -267,15 +336,27 @@ app.use((err, req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// PROCESS-LEVEL SAFETY NETS (keep the server alive on bad promises)
+// ═══════════════════════════════════════════════════════════
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Unhandled Promise Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+});
+
+// ═══════════════════════════════════════════════════════════
 // STARTUP — only when NOT serverless.
 // On Netlify, netlify/functions/api.js wraps the exported `app`.
 // ═══════════════════════════════════════════════════════════
 if (!isServerless) {
   let server;
+  let keepAliveTimer;
 
   const gracefulShutdown = async (signal) => {
     console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
     try {
+      if (keepAliveTimer) clearInterval(keepAliveTimer);
       if (server) {
         await new Promise((resolve) => server.close(resolve));
         console.log('✅ HTTP server closed');
@@ -308,20 +389,47 @@ if (!isServerless) {
       );
     } catch (error) {
       console.error('❌ Database connection failed:', error.message);
-      console.error('Please check your DATABASE_URL in .env file');
+      console.error('Please check your DATABASE_URL in Railway variables');
     }
 
     server = http.createServer(app);
+
+    // ✅ Railway's proxy keeps connections open for ~60s.
+    // Node's defaults (5s) can cause random 502 errors, so raise them.
+    server.keepAliveTimeout = 65 * 1000;
+    server.headersTimeout = 66 * 1000;
+
     server.listen(PORT, '0.0.0.0', () => {
       const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
       console.log('\n🌱 Genesis Agri Server running on ' + backendUrl);
       console.log('🌍 Environment: ' + (process.env.NODE_ENV || 'development'));
+      console.log('🚆 Platform: ' + platformName);
       console.log('💾 Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
       console.log('🔓 Allowed CORS origins:');
       allowedOrigins.forEach((o) => console.log('   - ' + o));
       console.log('   - *.vercel.app');
       console.log('   - *.netlify.app');
     });
+
+    // ✅ Neon keep-alive: Neon suspends idle databases (~5 min) and the
+    // first query after that can take several seconds. This tiny ping
+    // keeps it warm so login/register stay fast.
+    // Set DB_KEEPALIVE_MS=0 in Railway to disable.
+    const keepAliveMs =
+      process.env.DB_KEEPALIVE_MS !== undefined
+        ? Number(process.env.DB_KEEPALIVE_MS)
+        : 4 * 60 * 1000;
+
+    if (keepAliveMs > 0) {
+      keepAliveTimer = setInterval(async () => {
+        try {
+          await prisma.$queryRaw`SELECT 1`;
+        } catch (err) {
+          console.warn('⚠️ DB keep-alive ping failed:', err.message);
+        }
+      }, keepAliveMs);
+      keepAliveTimer.unref();
+    }
   })();
 }
 
