@@ -1,75 +1,135 @@
 // routes/upload.routes.js
+//
+// Image uploads → Cloudinary (permanent storage).
+//
+// Why: Railway's disk is erased on every deploy/restart, so files saved to
+// /uploads disappear and product images turn into 404s.
+//
+// Railway variables (either option A or B):
+//   A) CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
+//   B) CLOUDINARY_CLOUD_NAME=...
+//      CLOUDINARY_API_KEY=...
+//      CLOUDINARY_API_SECRET=...
+//   Optional: CLOUDINARY_FOLDER=genesis-agri
+//
+// In development (NODE_ENV !== 'production') with no Cloudinary variables,
+// it still saves to the local uploads/ folder so local work keeps running.
+// In production without Cloudinary it returns a clear error instead of
+// silently saving files that will be deleted.
+
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { v2: cloudinary } = require('cloudinary');
 const { requireAuth } = require('../middleware/auth');
+const { ensureDir } = require('../lib/uploadPaths');
+
+const isProd = process.env.NODE_ENV === 'production';
 
 // ============================================
-// STORAGE SETUP
+// CLOUDINARY SETUP
 // ============================================
-const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
-const PRODUCT_DIR = path.join(UPLOAD_ROOT, 'products');
-const AVATAR_DIR = path.join(UPLOAD_ROOT, 'avatars');
+const hasCloudinary = !!(
+  process.env.CLOUDINARY_URL ||
+  (process.env.CLOUDINARY_CLOUD_NAME &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_SECRET)
+);
 
-for (const dir of [UPLOAD_ROOT, PRODUCT_DIR, AVATAR_DIR]) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+const CLOUD_FOLDER = (process.env.CLOUDINARY_FOLDER || 'genesis-agri')
+  .trim()
+  .replace(/^\/+|\/+$/g, '');
+
+if (hasCloudinary) {
+  if (process.env.CLOUDINARY_URL) {
+    // The SDK reads CLOUDINARY_URL by itself; just force https links.
+    cloudinary.config({ secure: true });
+  } else {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true,
+    });
+  }
+  console.log('☁️  Cloudinary image storage enabled');
+} else if (isProd) {
+  console.error(
+    '❌ Cloudinary is NOT configured. Image uploads will fail in production. ' +
+      'Set CLOUDINARY_URL (or CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).'
+  );
+} else {
+  console.warn(
+    '⚠️  Cloudinary not configured → using local uploads/ folder (development only).'
+  );
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Route by field name: "avatar" → uploads/avatars, everything else → uploads/products
-    const dir = file.fieldname === 'avatar' ? AVATAR_DIR : PRODUCT_DIR;
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const id = crypto.randomBytes(8).toString('hex');
-    cb(null, `${Date.now()}-${id}${ext}`);
-  },
-});
+// ============================================
+// MULTER (files are kept in memory, then sent to Cloudinary)
+// ============================================
+const ALLOWED_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/svg+xml',
+];
 
 const fileFilter = (req, file, cb) => {
-  const allowed = [
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'image/avif',
-    'image/svg+xml',
-  ];
-  if (allowed.includes(file.mimetype)) cb(null, true);
+  if (ALLOWED_TYPES.includes(file.mimetype)) cb(null, true);
   else cb(new Error(`Invalid file type: ${file.mimetype}`), false);
 };
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 }, // 10 MB
 });
 
-// ✅ Single middleware that accepts ONE file from EITHER field name.
-//    Using .fields() lets multer read the request stream exactly once
-//    and decide which field the file arrived on — no fallback chain,
-//    no "stream already consumed" issue.
+// One middleware that accepts ONE file from EITHER field name.
 const uploadAny = upload.fields([
   { name: 'image', maxCount: 1 },
   { name: 'avatar', maxCount: 1 },
 ]);
 
 // ============================================
+// HELPERS
+// ============================================
+const uploadBufferToCloudinary = (buffer, { folder, publicId }) =>
+  new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        public_id: publicId,
+        resource_type: 'image',
+        overwrite: false,
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        return resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+
+// ============================================
 // UPLOAD SINGLE FILE
 // POST /api/upload
 //
 // Accepts either field:
-//   - "image"  → saved to uploads/products/
-//   - "avatar" → saved to uploads/avatars/
+//   - "image"  → products
+//   - "avatar" → avatars
+//
+// Returns { success, url, ... } where url is a permanent
+// https://res.cloudinary.com/... link.
 // ============================================
 router.post('/', requireAuth, (req, res) => {
-  uploadAny(req, res, (err) => {
+  uploadAny(req, res, async (err) => {
     // ── Multer errors ──
     if (err instanceof multer.MulterError) {
       console.error('Multer error:', err.code, err.message);
@@ -124,12 +184,9 @@ router.post('/', requireAuth, (req, res) => {
     }
 
     // ── Pick the file from whichever field was used ──
-    // req.files is an object like { image: [file], avatar: [file] } when
-    // using .fields(). Only one of these will be present.
     const files = req.files || {};
     const file =
-      (files.image && files.image[0]) ||
-      (files.avatar && files.avatar[0]);
+      (files.image && files.image[0]) || (files.avatar && files.avatar[0]);
 
     if (!file) {
       return res.status(400).json({
@@ -141,17 +198,58 @@ router.post('/', requireAuth, (req, res) => {
 
     const isAvatar = file.fieldname === 'avatar';
     const folder = isAvatar ? 'avatars' : 'products';
+    const baseName = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
 
-    return res.json({
-      success: true,
-      url: `/uploads/${folder}/${file.filename}`,
-      fileName: file.originalname,
-      fileSize: file.size,
-      fileType: file.mimetype,
-      message: isAvatar
-        ? 'Avatar uploaded successfully'
-        : 'File uploaded successfully',
-    });
+    try {
+      let url;
+      let publicId = null;
+
+      if (hasCloudinary) {
+        // ✅ Permanent storage
+        const result = await uploadBufferToCloudinary(file.buffer, {
+          folder: `${CLOUD_FOLDER}/${folder}`,
+          publicId: baseName,
+        });
+        url = result.secure_url;
+        publicId = result.public_id;
+      } else if (!isProd) {
+        // Development fallback: local disk
+        const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+        const dir = ensureDir(folder);
+        const filename = `${baseName}${ext}`;
+        await fs.promises.writeFile(path.join(dir, filename), file.buffer);
+        url = `/uploads/${folder}/${filename}`;
+      } else {
+        return res.status(503).json({
+          success: false,
+          error:
+            'Image storage is not configured on the server. Please contact the administrator.',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+      }
+
+      return res.json({
+        success: true,
+        url,
+        publicId,
+        fileName: file.originalname,
+        fileSize: file.size,
+        fileType: file.mimetype,
+        message: isAvatar
+          ? 'Avatar uploaded successfully'
+          : 'File uploaded successfully',
+      });
+    } catch (storageErr) {
+      console.error(
+        '❌ Image storage error:',
+        storageErr && storageErr.message ? storageErr.message : storageErr
+      );
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to store the image. Please try again.',
+        code: 'STORAGE_FAILED',
+      });
+    }
   });
 });
 
