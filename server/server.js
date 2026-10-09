@@ -6,14 +6,12 @@ const http = require('http');
 
 // ✅ Shared Prisma client (singleton)
 const prisma = require('./lib/prisma');
-const { UPLOAD_ROOT, ensureDir } = require('./lib/uploadPaths');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// ✅ Detect ANY serverless platform (Netlify, Vercel, AWS Lambda)
-// Railway is NOT serverless → it runs as a normal long-lived Node server.
+// ✅ Detect serverless platforms
 const isNetlify = !!(process.env.NETLIFY || process.env.NETLIFY_LOCAL);
 const isVercel = !!process.env.VERCEL;
 const isRailway = !!(
@@ -31,16 +29,12 @@ const platformName = isNetlify
   : 'node';
 
 // ═══════════════════════════════════════════════════════════
-// TRUST PROXY (Railway / Vercel / Netlify sit behind a proxy)
+// TRUST PROXY
 // ═══════════════════════════════════════════════════════════
 app.set('trust proxy', 1);
 
 // ═══════════════════════════════════════════════════════════
-// ✅ FIX: collapse double slashes in the URL PATH
-// "//api/auth/login" → "/api/auth/login"
-// This was the cause of "Route not found" when the frontend
-// env variable NEXT_PUBLIC_API_URL ended with a trailing "/".
-// Only the path is changed; the query string is left untouched.
+// Collapse double slashes in the URL PATH
 // ═══════════════════════════════════════════════════════════
 app.use((req, res, next) => {
   const i = req.url.indexOf('?');
@@ -53,8 +47,7 @@ app.use((req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// ✅ Slow request logger (helps find why register is slow)
-// Logs any request that takes longer than SLOW_REQUEST_MS.
+// Slow request logger
 // ═══════════════════════════════════════════════════════════
 const SLOW_REQUEST_MS = Number(process.env.SLOW_REQUEST_MS) || 2000;
 
@@ -92,14 +85,13 @@ const chatbotRoutes = require('./routes/chatbot.routes');
 const telebirrRoutes = require('./routes/telebirr.routes');
 
 // ═══════════════════════════════════════════════════════════
-// UPLOAD DIRECTORIES (skip entirely on serverless: read-only disk)
+// ❌ REMOVED: UPLOAD DIRECTORIES creation
+// ❌ REMOVED: ensureDir / UPLOAD_ROOT imports
+// All uploads now go to Cloudinary. Do not create local dirs.
 // ═══════════════════════════════════════════════════════════
-if (!isServerless) {
-  ['products', 'settings', 'pdfs', 'avatars'].forEach((d) => ensureDir(d));
-}
 
 // ═══════════════════════════════════════════════════════════
-// CORS — localhost + Vercel + Netlify + ngrok + custom origins
+// CORS
 // ═══════════════════════════════════════════════════════════
 const stripSlash = (o) => String(o).trim().replace(/\/+$/, '');
 
@@ -113,11 +105,11 @@ const allowedOrigins = new Set(
     process.env.CLIENT_URL,
     process.env.FRONTEND_URL,
     process.env.NEXT_PUBLIC_SITE_URL,
-    process.env.URL, // Netlify: main site URL (auto-set)
-    process.env.DEPLOY_PRIME_URL, // Netlify: current deploy URL (auto-set)
+    process.env.URL,
+    process.env.DEPLOY_PRIME_URL,
     'http://localhost:3000',
     'http://localhost:3001',
-    'http://localhost:8888', // netlify dev
+    'http://localhost:8888',
     'http://127.0.0.1:3000',
     ...extraOrigins,
   ]
@@ -132,13 +124,11 @@ const LAN_REGEX =
   /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
 
 function isOriginAllowed(origin) {
-  if (!origin) return true; // curl, Postman, server-to-server
+  if (!origin) return true;
   const cleaned = stripSlash(origin);
-
   if (allowedOrigins.has(cleaned)) return true;
   if (VERCEL_REGEX.test(cleaned)) return true;
   if (NETLIFY_REGEX.test(cleaned)) return true;
-
   if (!isProd) {
     if (NGROK_REGEX.test(cleaned)) return true;
     if (LAN_REGEX.test(cleaned)) return true;
@@ -171,32 +161,32 @@ app.use(
 
 // ═══════════════════════════════════════════════════════════
 // BODY PARSERS
-// NOTE: Netlify Functions have a ~6 MB request payload limit.
-// Use direct-to-Cloudinary uploads for anything larger.
 // ═══════════════════════════════════════════════════════════
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // ═══════════════════════════════════════════════════════════
-// STATIC FILES (local/VPS only; serverless disk is not persistent)
-// NOTE: Railway's disk is also wiped on every redeploy unless you
-// attach a Volume. For production, store images on Cloudinary/S3.
+// ❌ REMOVED: express.static('/uploads', ...)
+// Cloudinary serves all files now. Old /uploads/... URLs
+// are handled by the redirect middleware below.
 // ═══════════════════════════════════════════════════════════
-if (!isServerless) {
-  app.use(
-    '/uploads',
-    express.static(UPLOAD_ROOT, {
-      setHeaders: (res, filePath) => {
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        if (/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i.test(filePath)) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        } else {
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        }
-      },
-    })
+
+// ═══════════════════════════════════════════════════════════
+// ✅ LEGACY REDIRECT: old /uploads/... URLs
+// If any DB record still stores "/uploads/products/x.jpg",
+// redirect it to Cloudinary (or 404 gracefully).
+// Adjust CLOUDINARY_FOLDER to match your cloud name/folder.
+// ═══════════════════════════════════════════════════════════
+app.get('/uploads/*', (req, res) => {
+  console.warn(
+    `⚠️ Legacy /uploads path requested: ${req.originalUrl}. ` +
+      `This record still points to local disk. Re-upload the file or migrate the DB.`
   );
-}
+  return res.status(404).json({
+    success: false,
+    error: 'File not found. Local disk storage has been deprecated. Please re-upload.',
+  });
+});
 
 // ═══════════════════════════════════════════════════════════
 // ROUTES
@@ -204,7 +194,7 @@ if (!isServerless) {
 const apiRouter = express.Router();
 
 apiRouter.use('/auth', authRoutes);
-apiRouter.use('/admin/dashboard', adminDashboardRoutes); // more specific first
+apiRouter.use('/admin/dashboard', adminDashboardRoutes);
 apiRouter.use('/admin/settings', settingsRoutes);
 apiRouter.use('/admin', adminRoutes);
 apiRouter.use('/blog', blogRoutes);
@@ -233,6 +223,7 @@ const healthHandler = async (req, res) => {
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
       platform: platformName,
+      storage: 'cloudinary',
       database: { connected: true, userCount },
     });
   } catch (error) {
@@ -247,13 +238,10 @@ const healthHandler = async (req, res) => {
 
 apiRouter.get('/health', healthHandler);
 
-// ✅ Lightweight liveness probe (no database call).
-// Use this as the Railway "Healthcheck Path" → /healthz
 app.get('/healthz', (req, res) => {
   res.status(200).json({ status: 'OK', uptime: process.uptime() });
 });
 
-// Mount the SAME router at /api (normal) and at the Netlify function path
 app.use('/api', apiRouter);
 app.use('/.netlify/functions/api', apiRouter);
 
@@ -266,6 +254,7 @@ const rootInfo = (req, res) => {
     version: '1.0.0',
     status: 'Running',
     platform: platformName,
+    storage: 'cloudinary',
     endpoints: {
       auth: '/api/auth',
       admin: '/api/admin',
@@ -293,7 +282,6 @@ app.get('/api', rootInfo);
 
 // ═══════════════════════════════════════════════════════════
 // 404 HANDLER
-// ✅ Now shows the ORIGINAL url so path mistakes are obvious.
 // ═══════════════════════════════════════════════════════════
 app.use((req, res) => {
   console.log('❌ Route not found:', req.method, req.originalUrl);
@@ -328,6 +316,13 @@ app.use((err, req, res, next) => {
     });
   }
 
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({
+      success: false,
+      error: 'File too large. Max 5 MB.',
+    });
+  }
+
   res.status(500).json({
     success: false,
     error: 'Internal server error',
@@ -336,7 +331,7 @@ app.use((err, req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// PROCESS-LEVEL SAFETY NETS (keep the server alive on bad promises)
+// PROCESS-LEVEL SAFETY NETS
 // ═══════════════════════════════════════════════════════════
 process.on('unhandledRejection', (reason) => {
   console.error('❌ Unhandled Promise Rejection:', reason);
@@ -346,8 +341,7 @@ process.on('uncaughtException', (err) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// STARTUP — only when NOT serverless.
-// On Netlify, netlify/functions/api.js wraps the exported `app`.
+// STARTUP
 // ═══════════════════════════════════════════════════════════
 if (!isServerless) {
   let server;
@@ -393,9 +387,6 @@ if (!isServerless) {
     }
 
     server = http.createServer(app);
-
-    // ✅ Railway's proxy keeps connections open for ~60s.
-    // Node's defaults (5s) can cause random 502 errors, so raise them.
     server.keepAliveTimeout = 65 * 1000;
     server.headersTimeout = 66 * 1000;
 
@@ -404,17 +395,10 @@ if (!isServerless) {
       console.log('\n🌱 Genesis Agri Server running on ' + backendUrl);
       console.log('🌍 Environment: ' + (process.env.NODE_ENV || 'development'));
       console.log('🚆 Platform: ' + platformName);
+      console.log('☁️  Storage: Cloudinary');
       console.log('💾 Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
-      console.log('🔓 Allowed CORS origins:');
-      allowedOrigins.forEach((o) => console.log('   - ' + o));
-      console.log('   - *.vercel.app');
-      console.log('   - *.netlify.app');
     });
 
-    // ✅ Neon keep-alive: Neon suspends idle databases (~5 min) and the
-    // first query after that can take several seconds. This tiny ping
-    // keeps it warm so login/register stay fast.
-    // Set DB_KEEPALIVE_MS=0 in Railway to disable.
     const keepAliveMs =
       process.env.DB_KEEPALIVE_MS !== undefined
         ? Number(process.env.DB_KEEPALIVE_MS)
