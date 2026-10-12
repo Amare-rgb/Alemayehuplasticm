@@ -1,9 +1,9 @@
 // app/admin/profile/page.tsx
-'use client';
+"use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   Mail,
   Phone,
@@ -15,45 +15,39 @@ import {
   Shield,
   CheckCircle,
   AlertCircle,
-} from 'lucide-react';
-import axios, { AxiosError } from 'axios';
+} from "lucide-react";
+import axios, { AxiosError } from "axios";
 
 // ============================================================
-// API base — strip trailing slash
+// API base
 // ============================================================
 const RAW_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'http://localhost:5000';
-const API_URL = RAW_API_BASE.replace(/\/+$/, '');
-
-const DEFAULT_AVATAR = ''; // empty → fall back to initial-letter block
+  "http://localhost:5000";
+const API_URL = RAW_API_BASE.replace(/\/+$/, "");
 
 // ============================================================
-// Avatar resolver — same rule as the rest of the app
+// Avatar resolver
 // ============================================================
 function resolveAvatar(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
+  if (typeof raw !== "string") return "";
   const s = raw.trim();
-  if (!s) return '';
+  if (!s) return "";
 
-  // Absolute URL (Cloudinary, S3, etc.)
-  if (s.startsWith('http://') || s.startsWith('https://')) return s;
-  if (s.startsWith('data:')) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("data:")) return s;
 
-  // Cloudinary host without protocol
-  if (s.startsWith('res.cloudinary.com/')) return `https://${s}`;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  // Legacy /uploads/... → backend origin
-  if (s.startsWith('/uploads/')) return `${API_URL}${s}`;
-  if (s.startsWith('uploads/')) return `${API_URL}/${s}`;
+  if (s.startsWith("/uploads/")) return `${API_URL}${s}`;
+  if (s.startsWith("uploads/")) return `${API_URL}/${s}`;
 
-  // Bare filename → assume avatar folder
-  if (!s.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
     return `${API_URL}/uploads/avatars/${s}`;
   }
 
-  return '';
+  return "";
 }
 
 // ============================================================
@@ -61,16 +55,16 @@ function resolveAvatar(raw: unknown): string {
 // ============================================================
 const api = axios.create({
   baseURL: API_URL,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { "Content-Type": "application/json" },
   withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
   const token =
-    localStorage.getItem('authToken') ||
-    sessionStorage.getItem('authToken') ||
-    localStorage.getItem('token') ||
-    sessionStorage.getItem('token');
+    localStorage.getItem("authToken") ||
+    sessionStorage.getItem("authToken") ||
+    localStorage.getItem("token") ||
+    sessionStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -79,14 +73,18 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('token');
-      sessionStorage.removeItem('authToken');
-      sessionStorage.removeItem('token');
-      localStorage.removeItem('user');
-      sessionStorage.removeItem('user');
-      if (typeof window !== 'undefined') {
-        window.location.href = '/auth/signin';
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("token");
+      sessionStorage.removeItem("authToken");
+      sessionStorage.removeItem("token");
+      localStorage.removeItem("user");
+      sessionStorage.removeItem("user");
+      if (typeof window !== "undefined") {
+        // Full-page redirect is intentional here: this interceptor lives
+        // outside React, so useRouter() isn't available. A hard reset is
+        // also desirable after auth failure.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.href = "/auth/signin";
       }
     }
     return Promise.reject(error);
@@ -108,15 +106,10 @@ interface UserProfile {
 }
 
 // ============================================================
-// Avatar display — 2-stage fallback (resolved URL → initial letter)
+// Avatar display — 2-stage fallback (URL → initial letter)
+// ✅ Rebranded with gold/yellow gradient
 // ============================================================
-function AdminAvatar({
-  src,
-  name,
-}: {
-  src: string;
-  name: string;
-}) {
+function AdminAvatar({ src, name }: { src: string; name: string }) {
   const [prevSrc, setPrevSrc] = useState(src);
   const [imgSrc, setImgSrc] = useState(src);
   const [failed, setFailed] = useState(false);
@@ -129,8 +122,8 @@ function AdminAvatar({
 
   if (!imgSrc || failed) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-gray-500 bg-gradient-to-br from-green-100 to-green-200">
-        {name?.charAt(0)?.toUpperCase() || 'A'}
+      <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-[#1a1410] bg-gradient-to-br from-yellow-200 to-yellow-400">
+        {name?.charAt(0)?.toUpperCase() || "A"}
       </div>
     );
   }
@@ -138,12 +131,14 @@ function AdminAvatar({
   return (
     <Image
       src={imgSrc}
-      alt={name || 'Admin'}
+      alt={name || "Admin"}
       width={80}
       height={80}
       className="object-cover w-full h-full"
       onError={() => setFailed(true)}
-      unoptimized={imgSrc.startsWith('/') || imgSrc.includes('images.unsplash.com')}
+      unoptimized={
+        imgSrc.startsWith("/") || imgSrc.includes("images.unsplash.com")
+      }
     />
   );
 }
@@ -159,9 +154,9 @@ export default function AdminProfilePage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({ name: '', phone: '' });
+  const [formData, setFormData] = useState({ name: "", phone: "" });
   const [message, setMessage] = useState<{
-    type: 'success' | 'error' | 'info';
+    type: "success" | "error" | "info";
     text: string;
   } | null>(null);
   const hasFetched = useRef(false);
@@ -170,15 +165,15 @@ export default function AdminProfilePage() {
   useEffect(() => {
     const checkAuth = () => {
       const token =
-        localStorage.getItem('authToken') ||
-        sessionStorage.getItem('authToken') ||
-        localStorage.getItem('token') ||
-        sessionStorage.getItem('token');
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("authToken") ||
+        localStorage.getItem("token") ||
+        sessionStorage.getItem("token");
       const userData =
-        localStorage.getItem('user') || sessionStorage.getItem('user');
+        localStorage.getItem("user") || sessionStorage.getItem("user");
 
       if (!token) {
-        router.replace('/auth/signin');
+        router.replace("/auth/signin");
         setAuthLoading(false);
         return;
       }
@@ -186,17 +181,17 @@ export default function AdminProfilePage() {
       if (userData) {
         try {
           const parsedUser = JSON.parse(userData);
-          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
-            router.replace('/');
+          if (parsedUser.role?.toUpperCase() !== "ADMIN") {
+            router.replace("/");
             setAuthLoading(false);
             return;
           }
           setIsAuthenticated(true);
         } catch {
-          router.replace('/auth/signin');
+          router.replace("/auth/signin");
         }
       } else {
-        router.replace('/auth/signin');
+        router.replace("/auth/signin");
       }
       setAuthLoading(false);
     };
@@ -213,17 +208,17 @@ export default function AdminProfilePage() {
       try {
         setLoading(true);
         const token =
-          localStorage.getItem('authToken') ||
-          sessionStorage.getItem('authToken') ||
-          localStorage.getItem('token') ||
-          sessionStorage.getItem('token');
+          localStorage.getItem("authToken") ||
+          sessionStorage.getItem("authToken") ||
+          localStorage.getItem("token") ||
+          sessionStorage.getItem("token");
 
         if (!token) {
           setLoading(false);
           return;
         }
 
-        const response = await api.get('/api/profile/me', {
+        const response = await api.get("/api/profile/me", {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -235,15 +230,15 @@ export default function AdminProfilePage() {
         if (user) {
           setProfile(user);
           setFormData({
-            name: user.name || '',
-            phone: user.phone || '',
+            name: user.name || "",
+            phone: user.phone || "",
           });
         } else {
-          setMessage({ type: 'error', text: 'Failed to load profile' });
+          setMessage({ type: "error", text: "Failed to load profile" });
         }
       } catch (error) {
-        console.error('❌ Error fetching profile:', error);
-        setMessage({ type: 'error', text: 'Failed to load profile' });
+        console.error("❌ Error fetching profile:", error);
+        setMessage({ type: "error", text: "Failed to load profile" });
       } finally {
         setLoading(false);
       }
@@ -264,18 +259,18 @@ export default function AdminProfilePage() {
 
     try {
       const token =
-        localStorage.getItem('authToken') ||
-        sessionStorage.getItem('authToken') ||
-        localStorage.getItem('token') ||
-        sessionStorage.getItem('token');
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("authToken") ||
+        localStorage.getItem("token") ||
+        sessionStorage.getItem("token");
 
       if (!token) {
-        setMessage({ type: 'error', text: 'No authentication token found' });
+        setMessage({ type: "error", text: "No authentication token found" });
         setSaving(false);
         return;
       }
 
-      const response = await api.put('/api/profile/update', formData, {
+      const response = await api.put("/api/profile/update", formData, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -283,34 +278,36 @@ export default function AdminProfilePage() {
         const updatedUser =
           response.data.user || response.data.data || response.data;
 
-        setMessage({ type: 'success', text: 'Profile updated successfully!' });
+        setMessage({
+          type: "success",
+          text: "Profile updated successfully!",
+        });
         setProfile(updatedUser);
         setFormData({
-          name: updatedUser.name || '',
-          phone: updatedUser.phone || '',
+          name: updatedUser.name || "",
+          phone: updatedUser.phone || "",
         });
         setEditing(false);
 
-        // Persist updated user back to storage
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        sessionStorage.setItem('user', JSON.stringify(updatedUser));
+        localStorage.setItem("user", JSON.stringify(updatedUser));
+        sessionStorage.setItem("user", JSON.stringify(updatedUser));
       } else {
         setMessage({
-          type: 'error',
-          text: response.data.error || 'Failed to update profile',
+          type: "error",
+          text: response.data.error || "Failed to update profile",
         });
       }
     } catch (error) {
-      console.error('❌ Update error:', error);
+      console.error("❌ Update error:", error);
       if (axios.isAxiosError(error)) {
         const axiosError = error as AxiosError<{ error: string }>;
         setMessage({
-          type: 'error',
+          type: "error",
           text:
-            axiosError.response?.data?.error || 'Failed to update profile',
+            axiosError.response?.data?.error || "Failed to update profile",
         });
       } else {
-        setMessage({ type: 'error', text: 'An error occurred' });
+        setMessage({ type: "error", text: "An error occurred" });
       }
     } finally {
       setSaving(false);
@@ -321,8 +318,10 @@ export default function AdminProfilePage() {
     return (
       <div className="flex justify-center items-center min-h-[300px]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600 text-sm">Checking authentication...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600 text-sm">
+            Checking authentication...
+          </p>
         </div>
       </div>
     );
@@ -334,21 +333,22 @@ export default function AdminProfilePage() {
     return (
       <div className="flex justify-center items-center min-h-[300px]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500 mx-auto"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500 mx-auto"></div>
           <p className="mt-4 text-gray-600 text-sm">Loading profile...</p>
         </div>
       </div>
     );
   }
 
-  // ✅ Resolve the avatar URL once, using the shared rule
   const resolvedAvatar = resolveAvatar(profile?.avatar);
 
   return (
     <div className="max-w-3xl mx-auto">
       {/* Page Header */}
       <div className="mb-6">
-        <h1 className="text-lg font-semibold text-gray-900">Profile Settings</h1>
+        <h1 className="text-lg font-semibold text-gray-900">
+          Profile Settings
+        </h1>
         <p className="text-xs text-gray-500 mt-0.5">
           Manage your admin account information
         </p>
@@ -358,15 +358,19 @@ export default function AdminProfilePage() {
       {message && (
         <div
           className={`mb-4 p-3 rounded-lg flex items-center space-x-2 ${
-            message.type === 'success'
-              ? 'bg-green-50 border border-green-200 text-green-700'
-              : message.type === 'info'
-              ? 'bg-blue-50 border border-blue-200 text-blue-700'
-              : 'bg-red-50 border border-red-200 text-red-700'
+            message.type === "success"
+              ? "bg-yellow-50 border border-yellow-200 text-yellow-700"
+              : message.type === "info"
+              ? "bg-blue-50 border border-blue-200 text-blue-700"
+              : "bg-red-50 border border-red-200 text-red-700"
           }`}
         >
-          {message.type === 'success' && <CheckCircle className="w-4 h-4" />}
-          {message.type === 'error' && <AlertCircle className="w-4 h-4" />}
+          {message.type === "success" && (
+            <CheckCircle className="w-4 h-4" />
+          )}
+          {message.type === "error" && (
+            <AlertCircle className="w-4 h-4" />
+          )}
           <span className="text-sm">{message.text}</span>
           <button
             onClick={() => setMessage(null)}
@@ -386,7 +390,7 @@ export default function AdminProfilePage() {
               Personal Information
             </h3>
             {profile?.role && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
                 {profile.role}
               </span>
             )}
@@ -394,7 +398,7 @@ export default function AdminProfilePage() {
           {!editing && (
             <button
               onClick={() => setEditing(true)}
-              className="text-xs text-green-600 hover:text-green-700 flex items-center gap-1 px-3 py-1.5 border border-green-200 rounded-lg hover:bg-green-50 transition-colors"
+              className="text-xs text-yellow-600 hover:text-yellow-700 flex items-center gap-1 px-3 py-1.5 border border-yellow-200 rounded-lg hover:bg-yellow-50 transition-colors"
             >
               <Edit2 className="w-3.5 h-3.5" />
               Edit
@@ -409,7 +413,7 @@ export default function AdminProfilePage() {
               <div className="w-20 h-20 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 border-2 border-gray-100">
                 <AdminAvatar
                   src={resolvedAvatar}
-                  name={profile?.name || 'Admin'}
+                  name={profile?.name || "Admin"}
                 />
               </div>
 
@@ -417,14 +421,14 @@ export default function AdminProfilePage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="text-lg font-semibold text-gray-900">
-                    {profile?.name || 'Loading...'}
+                    {profile?.name || "Loading..."}
                   </h3>
                 </div>
 
                 <div className="space-y-1.5 mt-2">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Mail className="w-4 h-4 text-gray-400" />
-                    <span>{profile?.email || 'No email'}</span>
+                    <span>{profile?.email || "No email"}</span>
                   </div>
                   {profile?.phone && (
                     <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -435,17 +439,17 @@ export default function AdminProfilePage() {
                   <div className="flex items-center gap-2 text-xs text-gray-400">
                     <Calendar className="w-3.5 h-3.5" />
                     <span>
-                      Joined{' '}
+                      Joined{" "}
                       {profile?.createdAt
                         ? new Date(profile.createdAt).toLocaleDateString(
-                            'en-US',
+                            "en-US",
                             {
-                              month: 'long',
-                              day: 'numeric',
-                              year: 'numeric',
+                              month: "long",
+                              day: "numeric",
+                              year: "numeric",
                             }
                           )
-                        : 'N/A'}
+                        : "N/A"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -484,7 +488,7 @@ export default function AdminProfilePage() {
                   required
                   value={formData.name}
                   onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 text-sm px-3 py-2 border"
+                  className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 text-sm px-3 py-2 border"
                   placeholder="Enter your full name"
                 />
               </div>
@@ -502,8 +506,8 @@ export default function AdminProfilePage() {
                   name="phone"
                   value={formData.phone}
                   onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 text-sm px-3 py-2 border"
-                  placeholder="Enter your phone number"
+                  className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 text-sm px-3 py-2 border"
+                  placeholder="+251 900 000 000"
                 />
                 <p className="text-xs text-gray-400 mt-1">Optional</p>
               </div>
@@ -514,8 +518,8 @@ export default function AdminProfilePage() {
                   onClick={() => {
                     setEditing(false);
                     setFormData({
-                      name: profile?.name || '',
-                      phone: profile?.phone || '',
+                      name: profile?.name || "",
+                      phone: profile?.phone || "",
                     });
                     setMessage(null);
                   }}
@@ -527,10 +531,10 @@ export default function AdminProfilePage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-4 py-2 text-sm bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors disabled:opacity-50 flex items-center gap-1.5"
                 >
                   <Save className="w-4 h-4" />
-                  {saving ? 'Saving...' : 'Save Changes'}
+                  {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -538,18 +542,18 @@ export default function AdminProfilePage() {
         </div>
       </div>
 
-      {/* Admin Info Card */}
-      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+      {/* Admin Info Card — Rebranded gold theme */}
+      <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
         <div className="flex items-start space-x-3">
-          <Shield className="w-5 h-5 text-blue-600 mt-0.5" />
+          <Shield className="w-5 h-5 text-yellow-600 mt-0.5" />
           <div>
-            <h4 className="text-sm font-semibold text-blue-800">
-              Admin Account
+            <h4 className="text-sm font-semibold text-yellow-800">
+              Admin Account — Alemayehu Plastic Manufacturing
             </h4>
-            <p className="text-xs text-blue-600 mt-1">
-              You have full administrative access to manage products, orders,
-              users, and settings. Please keep your account information up to
-              date.
+            <p className="text-xs text-yellow-700 mt-1">
+              You have full administrative access to manage products,
+              categories, users, and settings. Please keep your account
+              information up to date.
             </p>
           </div>
         </div>

@@ -8,11 +8,7 @@ import axios, {
 // ============================================================
 // Base URL (normalized)
 // ============================================================
-// - Removes trailing slashes   → prevents "//api/auth/login" (404)
-// - Removes a trailing "/api"  → prevents "/api/api/auth/login" (404)
-// - Falls back to the Railway backend in production if the Vercel
-//   env variable is missing, and to localhost in development.
-const PRODUCTION_FALLBACK = 'https://genesis-production-1d52.up.railway.app';
+const PRODUCTION_FALLBACK = 'https://api.alemayehplastic.com';
 
 const rawUrl =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -25,16 +21,15 @@ export const API_URL = rawUrl
   .replace(/\/+$/, '')
   .replace(/\/api$/i, '');
 
-// ✅ Instance for your EXTERNAL backend (Express on Railway)
+// ✅ Instance for your EXTERNAL backend (Express)
 export const api: AxiosInstance = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
-  timeout: 30000, // Neon cold start / Railway first request can be slow
+  timeout: 30000,
 });
 
 // ✅ Instance for NEXT.JS internal API routes (/api/...)
-// No baseURL → uses the current origin automatically.
 const nextApi: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
@@ -44,8 +39,6 @@ const nextApi: AxiosInstance = axios.create({
 const attachAuth = (
   config: InternalAxiosRequestConfig
 ): InternalAxiosRequestConfig => {
-  // Make sure the path always starts with exactly one "/"
-  // so baseURL + url never produces a double slash.
   if (config.baseURL && config.url && !/^https?:\/\//i.test(config.url)) {
     config.url = '/' + config.url.replace(/^\/+/, '');
   }
@@ -70,9 +63,7 @@ const isAuthRoute = (url?: string) =>
   !!url && /\/auth\/(login|register|signin|signup|forgot|reset)/i.test(url);
 
 const handleAuthError = (error: AxiosError) => {
-  // Only force logout on 401 for NON-auth routes.
-  // A wrong password on /auth/login must show its error message,
-  // not reload the page.
+  // Force logout only on 401 for NON-auth routes.
   if (
     error.response?.status === 401 &&
     typeof window !== 'undefined' &&
@@ -83,10 +74,14 @@ const handleAuthError = (error: AxiosError) => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     sessionStorage.removeItem('user');
+
+    // Full-page redirect is intentional here: we need to fully reset all
+    // React state and in-memory caches after an auth failure. A router.push()
+    // would keep stale state around, so window.location is the correct tool.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = '/auth/signin';
   }
 
-  // Log the FULL url on 404 so path problems are obvious.
   if (error.response?.status === 404) {
     console.error('❌ 404 Not Found:', {
       fullUrl: `${error.config?.baseURL ?? ''}${error.config?.url ?? ''}`,
@@ -95,11 +90,10 @@ const handleAuthError = (error: AxiosError) => {
     });
   }
 
-  // Log the ACTUAL server error body for 400s so you can debug.
-  // Skip binary FormData payloads (uploads) — they'd flood the console.
   if (error.response?.status === 400) {
     const isFormData =
-      typeof FormData !== 'undefined' && error.config?.data instanceof FormData;
+      typeof FormData !== 'undefined' &&
+      error.config?.data instanceof FormData;
 
     if (!isFormData) {
       console.error('❌ 400 Bad Request:', {
@@ -117,7 +111,6 @@ const handleAuthError = (error: AxiosError) => {
     }
   }
 
-  // Timeout / network problems (slow Railway or Neon cold start)
   if (error.code === 'ECONNABORTED') {
     console.error('⏱️ Request timed out:', {
       fullUrl: `${error.config?.baseURL ?? ''}${error.config?.url ?? ''}`,
@@ -131,36 +124,28 @@ api.interceptors.response.use((r) => r, handleAuthError);
 nextApi.interceptors.response.use((r) => r, handleAuthError);
 
 // ============================================================
-// Types
+// Types — kept minimal (no orders / checkout)
 // ============================================================
-
-export interface Address {
-  id: string;
-  fullName: string;
-  phone: string;
-  street: string;
-  city: string;
-  state: string;
-  zip: string;
-  country: string;
-  isDefault: boolean;
-}
 
 export interface Product {
   id: string;
   name: string;
   slug: string;
   price: number;
+  discountPrice?: number | null;
   images: string[];
   stock: number;
-}
-
-export interface OrderItem {
-  id: string;
-  productId: string;
-  quantity: number;
-  price: number;
-  product: Product;
+  sku?: string;
+  description?: string;
+  brand?: string | null;
+  unitOfMeasurement?: string;
+  weight?: number | null;
+  durationTime?: string | null;
+  tags?: string[];
+  categoryId?: string;
+  subCategoryId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface User {
@@ -171,238 +156,12 @@ export interface User {
   role?: string;
 }
 
-export type OrderStatus =
-  | 'PENDING'
-  | 'SHIPPED'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'REJECTED';
-export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
-
-export interface Order {
-  id: string;              // internal cuid — do not display
-  orderNumber: number;     // ✅ sequential display number (1, 2, 3, …)
-  userId: string;
-  addressId: string;
-  total: number;
-  status: OrderStatus;
-  paymentStatus: PaymentStatus;
-  paymentMethod?: string;
-  paymentRef?: string;
-  paymentProof?: string;   // base64 data URL of uploaded receipt
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-  user: User;
-  address: Address;
-  items: OrderItem[];
-}
-
-export interface PaginatedOrdersResponse {
-  orders: Order[];
-  total: number;
-  pages: number;
-  page: number;
-  limit: number;
-}
-
-export interface CreateOrderPayload {
-  addressId?: string;
-  paymentMethod?: string;
-  paymentRef?: string;
-  paymentStatus?: PaymentStatus;
-  notes?: string;
-}
-
-export interface CheckoutItem {
-  productId: string;
-  name?: string;
-  price: number;
-  quantity: number;
-  image?: string | null;
-}
-
-export interface CheckoutPayload {
-  addressId?: string;
-  paymentMethod?: string;
-  notes?: string;
-  paymentRef?: string;
-  paymentProof?: {
-    fileName: string;
-    mimeType: string;
-    base64: string;
-  } | null;
-  guestInfo?: {
-    name: string;
-    phone: string;
-    email?: string;
-    address: string;
-    city?: string;
-  };
-  items?: CheckoutItem[];
-}
-
-export interface CheckoutSummaryItem {
-  productId: string;
-  name: string;
-  price: number;
-  quantity: number;
-  image: string | null;
-  stock: number;
-}
-
-export interface CheckoutSummaryData {
-  addresses: Address[];
-  items?: CheckoutSummaryItem[];
-  subtotal?: number;
-  tax?: number;
-  taxRate?: number;
-  total?: number;
-  paymentMethods?: string[];
-  cartEmpty?: boolean;
-}
-
-export interface CheckoutSummaryResponse {
-  success: boolean;
-  data?: CheckoutSummaryData;
-}
-
-export interface CreateCheckoutResponse {
-  success: boolean;
-  message: string;
-  data: {
-    order: Order;
-    items?: CheckoutSummaryItem[];
-    isGuest?: boolean;
-  };
-}
-
-export interface GetOrderResponse {
-  success: boolean;
-  data: Order;
-}
-
-// ============================================================
-// API Functions
-// ============================================================
-
-export const ordersApi = {
-  getOrders: async (params?: {
-    status?: OrderStatus | string;
-    paymentStatus?: PaymentStatus | string;
-    search?: string;
-    page?: number;
-    limit?: number;
-  }): Promise<PaginatedOrdersResponse> => {
-    const queryParams = new URLSearchParams();
-    if (params?.status && params.status !== 'ALL')
-      queryParams.append('status', params.status);
-    if (params?.paymentStatus && params.paymentStatus !== 'ALL')
-      queryParams.append('paymentStatus', params.paymentStatus);
-    if (params?.search) queryParams.append('search', params.search);
-    if (params?.page) queryParams.append('page', params.page.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-
-    const url = `/api/orders${
-      queryParams.toString() ? `?${queryParams.toString()}` : ''
-    }`;
-    const response = await api.get<PaginatedOrdersResponse>(url);
-    return response.data;
-  },
-
-  getOrder: async (orderId: string): Promise<Order> => {
-    const response = await api.get<Order>(`/api/orders/${orderId}`);
-    return response.data;
-  },
-
-  createOrder: async (
-    data: CreateOrderPayload
-  ): Promise<{ success: boolean; order: Order; message: string }> => {
-    const response = await api.post<{
-      success: boolean;
-      order: Order;
-      message: string;
-    }>('/api/orders', data);
-    return response.data;
-  },
-
-  updateOrder: async (data: {
-    orderId: string;
-    status?: OrderStatus;
-    paymentStatus?: PaymentStatus;
-    notes?: string;
-  }): Promise<{ success: boolean; order: Order; message: string }> => {
-    const response = await api.patch<{
-      success: boolean;
-      order: Order;
-      message: string;
-    }>('/api/orders', data);
-    return response.data;
-  },
-
-  cancelOrder: async (
-    orderId: string
-  ): Promise<{ success: boolean; message: string }> => {
-    const response = await api.delete<{ success: boolean; message: string }>(
-      `/api/orders/${orderId}`
-    );
-    return response.data;
-  },
-
-  // ✅ Hard-delete an order (admin only) — same endpoint as cancelOrder
-  // but the backend distinguishes them by role. Used by the admin orders page.
-  deleteOrder: async (
-    orderId: string
-  ): Promise<{ success: boolean; message: string }> => {
-    const response = await api.delete<{ success: boolean; message: string }>(
-      `/api/orders/${orderId}`
-    );
-    return response.data;
-  },
-};
-
-// ✅ checkoutApi uses `api` → hits the Express backend (Railway in production)
-export const checkoutApi = {
-  createCheckout: async (
-    data: CheckoutPayload
-  ): Promise<CreateCheckoutResponse> => {
-    const response = await api.post<CreateCheckoutResponse>(
-      '/api/checkout',
-      data
-    );
-    return response.data;
-  },
-
-  getSummary: async (): Promise<CheckoutSummaryResponse> => {
-    const response = await api.get<CheckoutSummaryResponse>(
-      '/api/checkout/summary'
-    );
-    return response.data;
-  },
-
-  getOrder: async (orderId: string): Promise<GetOrderResponse> => {
-    const response = await api.get<GetOrderResponse>(
-      `/api/checkout/order/${orderId}`
-    );
-    return response.data;
-  },
-};
-
 // ============================================================
 // UPLOAD API
 // ============================================================
-// The shared `api` instance sets Content-Type: application/json.
-// For multipart uploads we must NOT send that header — the browser
-// needs to set "multipart/form-data; boundary=..." itself, otherwise
-// Multer receives a JSON body, req.file is undefined, and the route
-// returns 400.
-//
-// We strip the header by deleting it inside `transformRequest` so
-// the browser can set the multipart Content-Type with its own boundary.
-
 export interface UploadResponse {
   success: boolean;
-  url: string;         // e.g. "/uploads/products/1712345678-abcd.png"
+  url: string; // e.g. "/uploads/products/1712345678-abcd.png"
   fileName: string;
   fileSize: number;
   fileType: string;
@@ -424,9 +183,7 @@ export const uploadApi = {
     formData.append(fieldName, file);
 
     const response = await api.post<UploadResponse>('/api/upload', formData, {
-      timeout: 120000, // uploads can take longer than normal requests
-      // ✅ Delete the shared JSON Content-Type so the browser sets
-      //    multipart/form-data with the correct boundary.
+      timeout: 120000,
       transformRequest: [
         (data: FormData, headers: Record<string, unknown>) => {
           if (headers && typeof headers === 'object') {
@@ -440,13 +197,8 @@ export const uploadApi = {
     return response.data;
   },
 
-  /** Convenience wrapper for product images. */
   uploadProductImage: (file: File) => uploadApi.uploadFile(file, 'image'),
-
-  /** Convenience wrapper for category images. */
   uploadCategoryImage: (file: File) => uploadApi.uploadFile(file, 'image'),
-
-  /** Convenience wrapper for user avatars. */
   uploadAvatar: (file: File) => uploadApi.uploadFile(file, 'avatar'),
 };
 

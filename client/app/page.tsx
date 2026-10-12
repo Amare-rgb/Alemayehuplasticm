@@ -1,15 +1,15 @@
 // app/page.tsx
 "use client";
 
-import { useEffect, useState, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
   ArrowDown,
   ArrowRight,
-  ArrowLeft,
   ArrowUp,
   ArrowUpRight,
+  ChevronRight,
 } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { useLanguage } from "@/context/LanguageContext";
@@ -23,27 +23,28 @@ interface CategoryData {
   slug?: string;
   description?: string | null;
   image?: string | null;
+  images?: string[] | null;
   parentId?: string | null;
 }
 
-interface CategoryItem {
-  number: string;
-  title: string;
-  description: string;
-  image: string;
-  category: string;
-  slug?: string;
+interface ProductData {
+  id?: string;
+  name?: string;
+  image?: string | null;
+  images?: string[] | null;
+  categoryId?: string | null;
+  category?: string | null;
 }
 
-interface ValueItem {
-  number: string;
-  icon: string;
+interface CategoryItem {
+  id: string;
   title: string;
-  description: string;
+  slug: string;
+  images: string[];
 }
 
 // ============================================================
-// API base — strip trailing slash
+// API base
 // ============================================================
 const RAW_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -52,6 +53,12 @@ const RAW_API_BASE =
 const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
 
 const DEFAULT_IMAGE = "/placeholder.svg";
+
+// ============================================================
+// HERO VIDEO
+// ============================================================
+const HERO_VIDEO = "/banners/her.mp4";
+const HERO_POSTER = "/banners/carplastik.jpg";
 
 // ============================================================
 // Mounted detection (server-safe)
@@ -65,12 +72,7 @@ function useMounted() {
 }
 
 // ============================================================
-// Image resolver — same rule used everywhere else in the app
-//   - absolute URL (Cloudinary, Unsplash, S3) → keep
-//   - res.cloudinary.com/...  → prepend https://
-//   - /uploads/...            → prepend API origin
-//   - bare filename           → assume category image
-//   - empty                   → placeholder
+// Image resolver
 // ============================================================
 function resolveImage(raw?: string | null): string {
   if (!raw) return DEFAULT_IMAGE;
@@ -92,163 +94,235 @@ function resolveImage(raw?: string | null): string {
 }
 
 // ============================================================
-// ProductCard
+// Build the mosaic images for ONE category
 // ============================================================
-function ProductCard({ product }: { product: CategoryItem }) {
-  const { t } = useLanguage();
-  const imageUrl = resolveImage(product.image);
-  const hasImage = imageUrl !== DEFAULT_IMAGE;
+function buildCategoryMosaic(
+  cat: CategoryData,
+  productsForCategory: ProductData[]
+): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  const add = (raw?: string | null) => {
+    if (!raw) return;
+    const s = String(raw).trim();
+    if (!s) return;
+    if (seen.has(s)) return;
+    seen.add(s);
+    result.push(s);
+  };
+
+  add(cat.image);
+
+  if (Array.isArray(cat.images)) {
+    for (const img of cat.images) add(img);
+  }
+
+  for (const p of productsForCategory) {
+    if (result.length >= 4) break;
+    if (Array.isArray(p.images)) {
+      for (const img of p.images) {
+        if (result.length >= 4) break;
+        add(img);
+      }
+    }
+    add(p.image);
+  }
+
+  while (result.length < 4) {
+    result.push(DEFAULT_IMAGE);
+  }
+
+  return result.slice(0, 4);
+}
+
+// ============================================================
+// CategoryCard — clean 2×2 mosaic with DISTINCT images
+// ✅ Title pill REMOVED from the mosaic (no overlay text)
+// ============================================================
+function CategoryCard({ product }: { product: CategoryItem }) {
+  const cells: (string | null)[] = [...product.images];
+  while (cells.length < 4) cells.push(null);
 
   return (
     <Link
-      href={`/shop?category=${encodeURIComponent(
-        product.slug || product.category
-      )}`}
-      className="group relative block h-[260px] w-full overflow-hidden rounded-[28px] bg-[#0b2419] shadow-lg transition-all duration-500 hover:shadow-2xl"
+      href={`/shop?category=${encodeURIComponent(product.slug)}`}
+      className="group relative flex w-full flex-col overflow-hidden rounded-[14px] border border-[#eee6d8] bg-white shadow-[0_2px_10px_rgba(58,42,30,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_32px_rgba(58,42,30,0.14)]"
     >
-      <div className="relative h-full w-full">
-        {hasImage ? (
-          <Image
-            src={imageUrl}
-            alt={product.title}
-            fill
-            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 260px"
-            className="object-cover transition-transform duration-300 ease-out group-hover:scale-[101%]"
-            priority={false}
-            loading="lazy"
-            unoptimized={imageUrl.startsWith("/") || imageUrl.includes("images.unsplash.com")}
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center bg-[#0b2419] text-4xl text-[#b9d873]/40">
-            🌱
-          </div>
-        )}
+      {/* 2×2 mosaic — no overlay pill, just clean images */}
+      <div className="relative grid h-[220px] w-full grid-cols-2 grid-rows-2 gap-[2px] bg-[#eee6d8]">
+        {cells.map((src, i) => {
+          const url = src ? resolveImage(src) : "";
+          const hasImg = !!url && url !== DEFAULT_IMAGE;
+          return (
+            <div key={i} className="relative overflow-hidden bg-[#f5eee1]">
+              {hasImg ? (
+                <Image
+                  src={url}
+                  alt={`${product.title} ${i + 1}`}
+                  fill
+                  sizes="(max-width: 640px) 25vw, 12vw"
+                  className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.06]"
+                  loading="lazy"
+                  unoptimized={
+                    url.startsWith("/") ||
+                    url.includes("images.unsplash.com")
+                  }
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-[#f5eee1] text-[10px] font-semibold tracking-wider text-[#b98a3e]/40">
+                  {product.title.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* Dark gradient overlay at bottom */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-
-      {/* Card Content Overlay */}
-      <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
-        <span className="mb-1 block text-[10px] font-mono tracking-widest text-white/70">
-          {product.number}
-        </span>
-
-        <h3 className="font-serif-heading mb-1 text-xl font-normal leading-tight text-white sm:text-xl">
-          {product.title}
-        </h3>
-
-        <p className="mb-3 max-w-[480px] font-sans text-[11px] leading-snug text-white/80">
-          {product.description}
-        </p>
-
-        <div className="inline-flex items-center gap-2 text-[11px] font-semibold text-white/90 transition-all duration-300 group-hover:translate-x-1 group-hover:text-[var(--lime)]">
-          <span>{t("home.view_selection", "View selection")}</span>
-          <span className="text-sm font-bold">→</span>
+      {/* Footer — the category name, slug, and arrow live HERE, not on
+          the mosaic. This is the only place the name is shown now. */}
+      <div className="flex items-center justify-between gap-2 border-t border-[#f0e8d8] bg-[#faf6ee] px-3.5 py-2.5">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[12px] font-semibold leading-tight text-[#2a1f18]">
+            {product.title}
+          </h3>
+          <p className="mt-0.5 truncate text-[10px] text-[#7a6a58]">
+            {product.slug}
+          </p>
         </div>
+
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2a2a2a] text-white shadow-md transition-all duration-300 group-hover:scale-110 group-hover:bg-[#e0a83c] group-hover:text-[#1a1410]">
+          <ChevronRight size={14} strokeWidth={2.5} />
+        </span>
       </div>
     </Link>
   );
 }
 
 // ============================================================
-// ProductCards — fetches categories from the backend
+// ProductCards — fetch categories AND products, build mosaics
 // ============================================================
 function ProductCards() {
   const { t } = useLanguage();
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
-    const fetchCategories = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
+        setError(null);
 
-        const res = await fetch(`${API_BASE_URL}/api/categories/public`, {
-          cache: "no-store",
-        });
+        const [catRes, prodRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/categories/public`, {
+            cache: "no-store",
+          }),
+          fetch(`${API_BASE_URL}/api/products?limit=200`, {
+            cache: "no-store",
+          }).catch(() => null),
+        ]);
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!catRes.ok) {
+          throw new Error(`Categories API returned ${catRes.status}`);
+        }
 
-        const data = await res.json();
-        const raw: CategoryData[] = Array.isArray(data)
-          ? data
-          : data?.categories || data?.data || [];
+        const catData = await catRes.json();
+        const rawCats: CategoryData[] = Array.isArray(catData)
+          ? catData
+          : catData?.categories || catData?.data || [];
+
+        let rawProducts: ProductData[] = [];
+        if (prodRes && prodRes.ok) {
+          try {
+            const prodData = await prodRes.json();
+            rawProducts = Array.isArray(prodData)
+              ? prodData
+              : prodData?.products || prodData?.data || [];
+          } catch {
+            rawProducts = [];
+          }
+        }
 
         if (!isMounted) return;
 
-        // Only top-level categories (no parentId)
-        const top = raw.filter((c) => !c.parentId);
-        const toMap = top.length > 0 ? top : raw;
+        if (!Array.isArray(rawCats) || rawCats.length === 0) {
+          setCategories([]);
+          return;
+        }
 
-        const mapped: CategoryItem[] = toMap.map((cat, i) => ({
-          number: String(i + 1).padStart(2, "0"),
-          title: cat.name,
-          description:
-            cat.description ||
-            t(
-              "home.cat_default_desc",
-              "Fresh, quality produce from our farms."
-            ),
-          // Keep the RAW value — resolveImage handles it during render
-          image: cat.image || "",
-          category: cat.slug || cat.id || String(i),
-          slug: cat.slug || undefined,
-        }));
+        const top = rawCats.filter((c) => !c.parentId);
+        const toMap = top.length > 0 ? top : rawCats;
+
+        const mapped: CategoryItem[] = toMap.map((cat, i) => {
+          const slug = (cat.slug || cat.id || `category-${i}`)
+            .toString()
+            .toLowerCase();
+
+          const productsForCategory = rawProducts.filter((p) => {
+            const pCat = (p.categoryId || p.category || "")
+              .toString()
+              .toLowerCase();
+            return (
+              pCat === slug ||
+              pCat === (cat.id || "").toString().toLowerCase()
+            );
+          });
+
+          const images = buildCategoryMosaic(cat, productsForCategory);
+
+          return {
+            id: cat.id || slug,
+            title: cat.name || "Untitled",
+            slug,
+            images,
+          };
+        });
 
         setCategories(mapped);
       } catch (err) {
-        console.warn("Failed to fetch categories for home page:", err);
-        if (isMounted) setCategories([]);
+        console.error("Failed to fetch categories:", err);
+        if (isMounted) {
+          setCategories([]);
+          setError(
+            err instanceof Error ? err.message : "Failed to load categories"
+          );
+        }
       } finally {
         if (isMounted) setLoading(false);
       }
     };
 
-    fetchCategories();
+    fetchData();
 
     return () => {
       isMounted = false;
     };
-  }, [t]);
+  }, []);
 
-  const scroll = (direction: "left" | "right") => {
-    if (scrollContainerRef.current) {
-      const offset = scrollContainerRef.current.clientWidth * 0.75;
-      scrollContainerRef.current.scrollBy({
-        left: direction === "left" ? -offset : offset,
-        behavior: "smooth",
-      });
-    }
-  };
-
-  // Loading skeleton
   if (loading) {
     return (
       <section
         id="products"
-        className="w-full scroll-mt-20 overflow-hidden bg-[var(--cream)] px-4 py-[105px] sm:px-6 lg:px-10"
+        className="w-full scroll-mt-20 overflow-hidden bg-[#fbf8f1] px-4 py-12 sm:px-6 lg:px-10"
       >
         <div className="w-full">
-          <div className="mb-[50px] flex items-end justify-between gap-14 max-md:flex-col max-md:items-start max-md:gap-5">
-            <div>
-              <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-                {t("home.products_heading_prefix", "Freshness you can")}
-                <br />
-                <em className="font-semibold text-[var(--green-700)]">
-                  {t("home.products_heading_accent", "taste.")}
-                </em>
-              </h2>
-            </div>
+          <div className="mb-6">
+            <h2 className="text-[20px] font-semibold leading-tight text-[#2a1f18]">
+              {t("home.featured_title", "Featured Categories")}
+            </h2>
+            <p className="mt-1 text-[12px] text-[#7a6a58]">
+              {t("home.featured_subtitle", "Explore top categories")}
+            </p>
           </div>
-          <div className="flex w-full gap-6 overflow-x-auto pb-6 pt-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="w-[260px] shrink-0 snap-start">
-                <div className="h-[260px] w-full animate-pulse rounded-[28px] bg-gray-200" />
-              </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="h-[270px] w-full animate-pulse rounded-[14px] bg-gray-200"
+              />
             ))}
           </div>
         </div>
@@ -256,66 +330,45 @@ function ProductCards() {
     );
   }
 
-  // Nothing to show — hide the section entirely
-  if (categories.length === 0) return null;
+  if (error || categories.length === 0) {
+    return (
+      <section
+        id="products"
+        className="w-full scroll-mt-20 overflow-hidden bg-[#fbf8f1] px-4 py-12 sm:px-6 lg:px-10"
+      >
+        <div className="w-full text-center">
+          <h2 className="text-[20px] font-semibold leading-tight text-[#2a1f18]">
+            {t("home.featured_title", "Featured Categories")}
+          </h2>
+          <p className="mt-2 text-[13px] text-[#7a6a58]">
+            {t(
+              "home.no_categories",
+              "No categories available yet. Please check back soon."
+            )}
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
       id="products"
-      className="w-full scroll-mt-20 overflow-hidden bg-[var(--cream)] px-4 py-[105px] sm:px-6 lg:px-10"
+      className="w-full scroll-mt-20 overflow-hidden bg-[#fbf8f1] px-4 py-12 sm:px-6 lg:px-10"
     >
       <div className="w-full">
-        <div className="mb-[50px] flex items-end justify-between gap-14 max-md:flex-col max-md:items-start max-md:gap-5">
-          <div>
-            <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-              {t("home.products_heading_prefix", "Freshness you can")}
-              <br />
-              <em className="font-semibold text-[var(--green-700)]">
-                {t("home.products_heading_accent", "taste.")}
-              </em>
-            </h2>
-          </div>
-
-          <div className="flex flex-col items-start gap-4 md:items-end">
-            <p className="max-w-[420px] text-[13px] leading-[1.8] text-[var(--muted)]">
-              {t(
-                "home.products_subtitle",
-                "From nutrient-rich vegetables to naturally grown fruits and staple cereals, we bring the harvest closer to home."
-              )}
-            </p>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => scroll("left")}
-                aria-label={t("home.products_scroll_left", "Scroll left")}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] shadow-sm transition-all hover:scale-105 hover:border-[var(--lime)] hover:bg-[var(--lime)] hover:text-[var(--green-950)] active:scale-95"
-              >
-                <ArrowLeft size={18} />
-              </button>
-              <button
-                type="button"
-                onClick={() => scroll("right")}
-                aria-label={t("home.products_scroll_right", "Scroll right")}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--green-900)]/15 bg-white text-[var(--green-900)] shadow-sm transition-all hover:scale-105 hover:border-[var(--lime)] hover:bg-[var(--lime)] hover:text-[var(--green-950)] active:scale-95"
-              >
-                <ArrowRight size={18} />
-              </button>
-            </div>
-          </div>
+        <div className="mb-6">
+          <h2 className="text-[20px] font-semibold leading-tight text-[#2a1f18] sm:text-[22px]">
+            {t("home.featured_title", "Featured Categories")}
+          </h2>
+          <p className="mt-1 text-[12px] text-[#7a6a58]">
+            {t("home.featured_subtitle", "Explore top categories")}
+          </p>
         </div>
 
-        <div
-          ref={scrollContainerRef}
-          className="scrollbar-none flex w-full snap-x snap-mandatory gap-6 overflow-x-auto scroll-smooth pb-6 pt-2"
-        >
+        <div className="grid w-full grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {categories.map((product) => (
-            <div
-              key={product.number}
-              className="w-[260px] shrink-0 snap-start"
-            >
-              <ProductCard product={product} />
-            </div>
+            <CategoryCard key={product.id} product={product} />
           ))}
         </div>
       </div>
@@ -335,11 +388,11 @@ function Eyebrow({
 }) {
   return (
     <div
-      className={`mb-5 flex items-center gap-2.5 text-[10px] font-bold tracking-[0.18em] ${
-        light ? "text-[var(--lime)]" : "text-[var(--green-700)]"
+      className={`mb-3 flex items-center gap-2 text-[10px] font-semibold tracking-[0.16em] ${
+        light ? "text-[#f0c872]" : "text-[#b98a3e]"
       }`}
     >
-      <span className="h-px w-[26px] bg-current" />
+      <span className="h-px w-5 bg-current" />
       {children}
     </div>
   );
@@ -350,12 +403,14 @@ function Eyebrow({
 // ============================================================
 export default function HomePage() {
   const [showBackTop, setShowBackTop] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const mounted = useMounted();
   const { settings } = useSettings();
   const { t } = useLanguage();
 
   const DEFAULT_PHONE = "+251 900 000 000";
-  const DEFAULT_EMAIL = "info@genesisagri.com";
+  const DEFAULT_EMAIL = "info@alemayehplastic.com";
 
   const contactPhone = mounted
     ? settings?.contactPhone || DEFAULT_PHONE
@@ -365,50 +420,37 @@ export default function HomePage() {
     : DEFAULT_EMAIL;
   const cleanPhone = contactPhone.replace(/\s/g, "");
 
-  const values: ValueItem[] = [
-    {
-      number: "01",
-      icon: "↔",
-      title: t("home.v1_title", "Direct Connection"),
-      description: t(
-        "home.v1_desc",
-        "We reduce unnecessary layers between farms and consumers, creating a simpler supply chain."
-      ),
-    },
-    {
-      number: "02",
-      icon: "✦",
-      title: t("home.v2_title", "Freshness First"),
-      description: t(
-        "home.v2_desc",
-        "Shorter journeys mean our produce reaches your home fresher and closer to the harvest."
-      ),
-    },
-    {
-      number: "03",
-      icon: "₿",
-      title: t("home.v3_title", "Fair Prices"),
-      description: t(
-        "home.v3_desc",
-        "By cutting out resellers and unnecessary markups, we work toward prices that make sense."
-      ),
-    },
-    {
-      number: "04",
-      icon: "♧",
-      title: t("home.v4_title", "Responsible Growth"),
-      description: t(
-        "home.v4_desc",
-        "We are building an agricultural business that values quality, people and long-term sustainability."
-      ),
-    },
-  ];
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.muted = true;
+    video.defaultMuted = true;
+
+    const tryPlay = () => {
+      const p = video.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {});
+      }
+    };
+
+    tryPlay();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") tryPlay();
+      else video.pause();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
       setShowBackTop(window.scrollY > 500);
     };
-    window.addEventListener("scroll", handleScroll);
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -417,328 +459,200 @@ export default function HomePage() {
       {/* HERO */}
       <section
         id="home"
-        className="relative flex min-h-[760px] items-center bg-cover bg-center text-white"
-        style={{
-          backgroundImage: `
-            linear-gradient(
-              90deg,
-              rgba(7,26,17,.92) 0%,
-              rgba(7,26,17,.68) 45%,
-              rgba(7,26,17,.18) 100%
-            ),
-            url("https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=2200&q=85")
-          `,
-        }}
+        className="relative flex min-h-[100svh] items-center overflow-hidden bg-[#1a1410] text-white"
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_48%,rgba(180,216,115,.16),transparent_28%)]" />
+        <div className="absolute inset-0 z-0">
+          {videoFailed ? (
+            <div
+              className="absolute inset-0 bg-cover bg-center"
+              style={{ backgroundImage: `url('${HERO_POSTER}')` }}
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              src={HERO_VIDEO}
+              poster={HERO_POSTER}
+              className="absolute inset-0 h-full w-full object-cover"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              disablePictureInPicture
+              onError={() => setVideoFailed(true)}
+            />
+          )}
+        </div>
 
-        <div className="relative mx-auto flex w-[min(1180px,calc(100%-48px))] items-center justify-between gap-[70px] pt-[90px]">
-          <div className="max-w-[720px] animate-fade-in-up">
-            <h1 className="mb-[10rem] font-serif-heading text-[clamp(48px,6vw,80px)] font-extrabold leading-[1.03] tracking-[-0.045em]">
-              {t("home.hero_title_prefix", "Fresh from our")}{" "}
-              <em className="font-semibold text-[var(--lime)]">
-                {t("home.hero_title_accent", "fields")}
-              </em>{" "}
-              {t("home.hero_title_suffix", "to your table.")}
+        <div
+          className="absolute inset-0 z-[1]"
+          style={{
+            background:
+              "linear-gradient(90deg, rgba(26,20,16,.94) 0%, rgba(26,20,16,.72) 45%, rgba(26,20,16,.30) 100%)",
+          }}
+        />
+        <div className="absolute inset-0 z-[2] bg-[radial-gradient(circle_at_72%_48%,rgba(224,168,60,.18),transparent_28%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-[140px] bg-gradient-to-b from-black/50 to-transparent" />
+
+        <div className="relative z-10 mx-auto flex w-[min(1180px,calc(100%-48px))] items-end justify-between gap-[70px] pb-[72px] pt-[110px]">
+          <div className="max-w-[620px] animate-fade-in-up">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#e0a83c]/40 bg-[#2a1f18]/70 px-3.5 py-1.5 text-[10px] font-semibold tracking-[0.16em] text-[#f0c872] backdrop-blur-sm">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#e0a83c]" />
+              {t("home.hero_badge", "PLASTIC MANUFACTURING")}
+            </div>
+
+            <h1 className="mb-5 text-[clamp(30px,3.6vw,48px)] font-bold leading-[1.1] tracking-[-0.02em] text-[#faf6ee]">
+              {t("home.hero_title_prefix", "Alemayehu")}
+              <span className="mt-1.5 block text-[clamp(15px,1.4vw,20px)] font-medium tracking-[0.06em] text-[#e0a83c]">
+                {t("home.hero_title_accent", "Plastic")}
+              </span>
             </h1>
 
-            <div className="mt-8 flex items-center gap-6 max-sm:flex-col max-sm:items-start">
+            <p className="mb-7 max-w-[540px] text-[14px] leading-[1.75] text-white/80">
+              {t(
+                "home.hero_subtitle",
+                "Manufacturing high-quality plastic products for homes, businesses and industries across Ethiopia."
+              )}
+            </p>
+
+            <div className="flex items-center gap-4 max-sm:flex-col max-sm:items-start">
               <Link
                 href="/shop"
-                className="flex min-h-[52px] items-center gap-6 bg-[var(--lime)] px-[22px] text-xs font-bold text-[var(--green-950)] transition hover:-translate-y-1 hover:shadow-xl"
+                className="flex min-h-[44px] items-center justify-center gap-2.5 rounded-xl border border-[#e7b14d] bg-[linear-gradient(135deg,#e8aa3d,#d88d1d)] px-6 text-[13px] font-semibold text-[#1d1408] shadow-[0_10px_26px_rgba(216,141,29,0.32)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(216,141,29,0.42)]"
               >
-                {t("home.hero_btn_explore", "Explore Our Produce")}
-                <ArrowRight size={17} />
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-[#1d1408]/30 bg-[#f8d38d] text-[9px]">
+                  ✓
+                </span>
+                {t("home.hero_btn_explore", "Shop Collection")}
               </Link>
 
               <Link
-                href="#about"
-                className="flex items-center gap-2 border-b border-white pb-1 text-xs font-bold"
+                href="#contact"
+                className="flex min-h-[44px] items-center justify-center gap-2.5 rounded-xl border border-white/25 bg-white/5 px-6 text-[13px] font-semibold text-white backdrop-blur-sm transition hover:border-[#f0c872]/70 hover:bg-white/10"
               >
-                {t("home.hero_btn_story", "Discover our story")}
-                <ArrowUpRight size={15} />
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-white/30 text-[9px]">
+                  ✦
+                </span>
+                {t("home.hero_btn_story", "Custom Order")}
               </Link>
-            </div>
-
-            <div className="mt-[60px] flex items-center gap-6 max-sm:gap-3">
-              <div className="grid gap-0.5">
-                <strong className="text-base">
-                  {t("home.hero_stat_fresh_val", "100%")}
-                </strong>
-                <span className="text-[9px] uppercase tracking-wider text-white/60">
-                  {t("home.hero_stat_fresh_lbl", "Farm Fresh")}
-                </span>
-              </div>
-
-              <div className="h-[30px] w-px bg-white/25" />
-
-              <div className="grid gap-0.5">
-                <strong className="text-base">
-                  {t("home.hero_stat_direct_val", "Direct")}
-                </strong>
-                <span className="text-[9px] uppercase tracking-wider text-white/60">
-                  {t("home.hero_stat_direct_lbl", "From Our Farms")}
-                </span>
-              </div>
-
-              <div className="h-[30px] w-px bg-white/25" />
-
-              <div className="grid gap-0.5">
-                <strong className="text-base">
-                  {t("home.hero_stat_fair_val", "Fair")}
-                </strong>
-                <span className="text-[9px] uppercase tracking-wider text-white/60">
-                  {t("home.hero_stat_fair_lbl", "Everyday Prices")}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="w-[300px] shrink-0 bg-white/95 text-[var(--ink)] shadow-[0_25px_60px_rgba(18,53,35,.12)] backdrop-blur-md max-lg:hidden">
-            <div className="border-b border-[var(--line)] px-[18px] py-[15px] text-[9px] font-bold tracking-[0.12em]">
-              <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#6aa94c] shadow-[0_0_0_4px_rgba(106,169,76,.12)]" />
-              {t("home.hero_card_badge", "HARVESTED TODAY")}
-            </div>
-
-            <div className="flex items-center gap-4 px-5 py-7">
-              <span className="text-[34px]">🌿</span>
-              <div>
-                <strong className="text-sm">
-                  {t("home.hero_card_title", "Seasonal Produce")}
-                </strong>
-                <p className="mt-0.5 text-[10px] text-[var(--muted)]">
-                  {t(
-                    "home.hero_card_subtitle",
-                    "Freshly picked, carefully selected."
-                  )}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-between bg-[var(--green-900)] px-[18px] py-3 text-[9px] uppercase tracking-wider text-white">
-              <span>{t("home.hero_card_farm_to_you", "Farm → You")}</span>
-              <span>{t("home.hero_card_100_fresh", "100% Fresh")}</span>
             </div>
           </div>
         </div>
 
-        <div className="absolute bottom-7 right-9 hidden items-center text-[9px] tracking-[0.16em] opacity-65 md:flex">
+        <div className="absolute bottom-7 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-2 text-[10px] tracking-[0.2em] text-white/70 md:flex">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/25 text-[9px]">
+            ◌
+          </span>
           {t("home.hero_scroll", "SCROLL TO EXPLORE")}
-          <ArrowDown size={15} className="ml-2" />
+          <ArrowDown size={14} className="ml-1" />
         </div>
       </section>
 
       {/* INTRO */}
-      <section className="bg-white py-[105px]">
-        <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[1.15fr_.85fr] items-end gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
+      <section className="bg-white py-12 sm:py-14">
+        <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[1.1fr_.9fr] items-center gap-10 max-lg:grid-cols-1 max-lg:gap-5">
           <div>
-            <Eyebrow>{t("home.intro_eyebrow", "THE GENESIS DIFFERENCE")}</Eyebrow>
+            <Eyebrow>
+              {t("home.intro_eyebrow", "THE ALEMAYEHU DIFFERENCE")}
+            </Eyebrow>
 
-            <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-              {t("home.intro_heading_prefix", "Good food shouldnt")}
-              <br />
-              <em className="font-semibold text-[var(--green-700)]">
-                {t("home.intro_heading_accent", "cost more")}
+            <h2 className="text-[clamp(20px,2.1vw,28px)] font-semibold leading-[1.25] tracking-[-0.015em] text-[#2a1f18]">
+              {t("home.intro_heading_prefix", "Quality plastic")}{" "}
+              <em className="font-semibold not-italic text-[#b98a3e]">
+                {t("home.intro_heading_accent", "built to perform")}
               </em>{" "}
-              {t("home.intro_heading_suffix", "than it has to.")}
+              {t("home.intro_heading_suffix", "for everyday life.")}
             </h2>
           </div>
 
           <div>
-            <p className="mb-6 text-sm leading-[1.8] text-[var(--muted)]">
+            <p className="mb-3 text-[13px] leading-[1.7] text-[var(--muted)]">
               {t(
                 "home.intro_p1",
-                "We connect our farms directly with consumers, giving you fresher products at honest prices while ensuring the people who grow your food create more value."
+                "We manufacture durable plastic products with modern production methods, strict quality control and dependable service for homes, businesses and industrial buyers across Ethiopia."
               )}
             </p>
 
             <Link
               href="/about"
-              className="inline-flex items-center gap-2 border-b border-[var(--green-800)] pb-1 text-xs font-bold text-[var(--green-800)]"
+              className="inline-flex items-center gap-1.5 border-b border-[#b98a3e] pb-0.5 text-[12px] font-semibold text-[#b98a3e]"
             >
-              {t("home.intro_btn", "Learn more about Genesis")}
-              <ArrowRight size={15} />
+              {t(
+                "home.intro_btn",
+                "Learn more about Alemayehu Plastic Manufacturing"
+              )}
+              <ArrowRight size={13} />
             </Link>
           </div>
         </div>
       </section>
 
-      {/* PRODUCTS CARDS */}
+      {/* FEATURED CATEGORIES */}
       <ProductCards />
 
-      {/* TANA FARM */}
-      <section id="tana-farm" className="scroll-mt-20 bg-white py-[105px]">
-        <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[.95fr_1.05fr] items-center gap-[100px] max-lg:grid-cols-1 max-lg:gap-12">
-          <div className="relative h-[500px] w-full max-lg:h-[400px]">
-            <div className="relative h-full w-full overflow-hidden rounded-3xl bg-[#f6f3e9]">
+      {/* FACILITY SECTION */}
+      <section id="facility" className="scroll-mt-20 bg-white py-14 sm:py-16">
+        <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[.95fr_1.05fr] items-center gap-12 max-lg:grid-cols-1 max-lg:gap-8">
+          <div className="relative h-[380px] w-full max-lg:h-[320px]">
+            <div className="relative h-full w-full overflow-hidden rounded-2xl bg-[#f6f0e2]">
               <Image
-                src="/banners/tanafarm.jpg"
-                alt="Tana Farm"
+                src="/banners/carplastik.jpg"
+                alt="Alemayehu Plastic Manufacturing Facility"
                 fill
                 sizes="(max-width: 1024px) 100vw, 50vw"
-                className="object-contain"
+                className="object-cover"
                 priority={false}
                 unoptimized
               />
-              <span className="absolute right-5 top-5 z-10 rounded-md bg-white px-3 py-2 text-[8px] font-bold tracking-[0.12em] text-[var(--green-900)] shadow-md">
-                {t("home.tana_badge", "A SISTER COMPANY")}
-              </span>
             </div>
 
-            <div className="absolute bottom-5 left-0 z-10 flex w-[260px] items-center gap-3 rounded-r-xl bg-[var(--lime)] p-5 shadow-[0_20px_45px_rgba(18,53,35,.15)] max-sm:bottom-0 max-sm:w-[215px]">
-              <span className="text-[35px]">🌱</span>
+            <div className="absolute bottom-4 left-0 z-10 flex w-[180px] items-center gap-2 rounded-r-xl bg-[#e0a83c] p-3 shadow-[0_16px_36px_rgba(58,42,30,.25)] max-sm:bottom-0 max-sm:w-[160px] max-sm:p-2.5">
               <div className="grid">
-                <strong className="font-serif-heading text-[21px]">
-                  {t("home.tana_title", "Tana Farm")}
+                <strong className="text-[13px] font-semibold leading-tight text-[#1a1410]">
+                  {t("home.facility_title", "Alemayehu Plastic")}
                 </strong>
-                <small className="text-[9px] uppercase tracking-wider">
-                  {t("home.tana_motto", "Pure. Fresh. Local.")}
+                <small className="mt-0.5 text-[8px] uppercase tracking-wider text-[#1a1410]/80">
+                  {t("home.facility_motto", "Strong. Safe. Lasting.")}
                 </small>
               </div>
             </div>
           </div>
 
           <div>
-            <Eyebrow>{t("home.tana_eyebrow", "MEET TANA FARM")}</Eyebrow>
+            <Eyebrow>{t("home.facility_eyebrow", "INSIDE OUR FACTORY")}</Eyebrow>
 
-            <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-[var(--green-900)]">
-              {t("home.tana_heading_prefix", "Straight from")}
-              <br />
-              <em className="font-semibold text-[var(--green-700)]">
-                {t("home.tana_heading_accent", "the land.")}
+            <h2 className="text-[clamp(20px,2.1vw,28px)] font-semibold leading-[1.25] tracking-[-0.015em] text-[#2a1f18]">
+              {t("home.facility_heading_prefix", "Engineered")}{" "}
+              <em className="font-semibold not-italic text-[#b98a3e]">
+                {t("home.facility_heading_accent", "from the ground up.")}
               </em>
             </h2>
 
-            <p className="mt-6 text-[18px] leading-[1.65] text-[var(--green-800)]">
-              {t("home.tana_lead_1", "Our sister company,")}{" "}
+            <p className="mt-4 text-[15px] leading-[1.65] text-[#3a2a1e]">
+              {t("home.facility_lead_1", "At")}{" "}
               <strong className="font-semibold">
-                {t("home.tana_title", "Tana Farm")}
+                {t("home.facility_title", "Alemayehu Plastic Manufacturing")}
               </strong>
               {t(
-                "home.tana_lead_2",
-                ", produces organic products straight from its own land."
+                "home.facility_lead_2",
+                ", every product is built with precision using modern machinery and tested materials."
               )}
             </p>
 
-            <p className="mt-4 max-w-[550px] text-sm leading-[1.85] text-[var(--muted)]">
+            <p className="mt-3 max-w-[520px] text-[13px] leading-[1.75] text-[var(--muted)]">
               {t(
-                "home.tana_body",
-                "Tana Farm extends our farm-to-table philosophy by growing and providing fresh, organic products directly from the farm. No unnecessary middlemen. No unnecessary distance. Just products that come straight from the land to the people."
+                "home.facility_body",
+                "From raw material selection to final packaging, our production line follows strict quality standards. We focus on durability, safety and sustainability — creating plastic products that serve Ethiopian homes, businesses and industries reliably."
               )}
             </p>
-
-            <div className="mt-8 grid grid-cols-4 gap-2 max-sm:grid-cols-2">
-              {[
-                [
-                  "🌱",
-                  t("home.tana_f1_title", "Organic"),
-                  t("home.tana_f1_sub", "Naturally grown"),
-                ],
-                [
-                  "🌾",
-                  t("home.tana_f2_title", "Fresh"),
-                  t("home.tana_f2_sub", "From the land"),
-                ],
-                [
-                  "🚜",
-                  t("home.tana_f3_title", "Local"),
-                  t("home.tana_f3_sub", "Farm produced"),
-                ],
-                [
-                  "🥬",
-                  t("home.tana_f4_title", "Healthy"),
-                  t("home.tana_f4_sub", "Quality focused"),
-                ],
-              ].map(([icon, title, subtitle]) => (
-                <div
-                  key={title}
-                  className="grid gap-0.5 rounded-lg bg-[var(--cream)] p-4 text-center transition-all hover:scale-105 hover:shadow-md"
-                >
-                  <span className="text-[25px]">{icon}</span>
-                  <strong className="text-[11px]">{title}</strong>
-                  <small className="text-[8px] text-[var(--muted)]">
-                    {subtitle}
-                  </small>
-                </div>
-              ))}
-            </div>
 
             <Link
               href="#contact"
-              className="mt-6 inline-flex items-center gap-6 rounded-lg border border-[var(--green-800)] px-[22px] py-4 text-xs font-bold text-[var(--green-800)] transition hover:bg-[var(--green-800)] hover:text-white"
+              className="mt-6 inline-flex items-center gap-4 rounded-lg border border-[#b98a3e] px-4 py-2.5 text-[12px] font-semibold text-[#b98a3e] transition hover:bg-[#b98a3e] hover:text-white"
             >
-              {t("home.tana_btn", "Connect with Tana Farm")}
-              <ArrowRight size={17} />
+              {t("home.facility_btn", "Request a Quote")}
+              <ArrowRight size={15} />
             </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* VALUES */}
-      <section
-        id="about"
-        className="scroll-mt-20 bg-[var(--green-800)] py-[105px] text-white"
-        style={{
-          backgroundImage: `
-            linear-gradient(
-              120deg,
-              rgba(8,35,21,.97),
-              rgba(21,65,40,.93)
-            ),
-            url("https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1800&q=80")
-          `,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        <div className="mx-auto w-[min(1180px,calc(100%-48px))]">
-          <div className="max-w-[850px]">
-            <Eyebrow light>{t("home.values_eyebrow", "WHY GENESIS")}</Eyebrow>
-
-            <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-white">
-              {t("home.values_heading_line1", "A simpler food system.")}
-              <br />
-              <em className="font-semibold text-[var(--lime)]">
-                {t("home.values_heading_line2", "A better deal for everyone.")}
-              </em>
-            </h2>
-
-            <p className="mt-5 max-w-[560px] text-sm leading-[1.8] text-white/60">
-              {t(
-                "home.values_subtitle",
-                "We believe agriculture works best when the distance between the farmer and the family buying their food is kept short."
-              )}
-            </p>
-          </div>
-
-          <div className="mt-16 grid grid-cols-4 gap-6 max-lg:grid-cols-2 max-sm:grid-cols-1">
-            {values.map((value, index) => (
-              <div
-                key={value.number}
-                className="group relative min-h-[280px] rounded-2xl bg-white/95 p-8 shadow-lg backdrop-blur-sm transition-all duration-500 hover:-translate-y-2 hover:bg-white hover:shadow-2xl"
-                style={{ transitionDelay: `${index * 0.1}s` }}
-              >
-                <div className="absolute left-8 right-8 top-0 h-1 origin-left scale-x-0 rounded-full bg-[var(--lime)] transition-transform duration-500 group-hover:scale-x-100" />
-
-                <span className="font-mono text-[9px] tracking-wider text-[var(--green-700)]/40">
-                  {value.number}
-                </span>
-
-                <span className="my-4 block text-[28px] transition-transform duration-300 group-hover:rotate-3 group-hover:scale-110">
-                  {value.icon}
-                </span>
-
-                <h3 className="font-serif-heading text-[22px] font-bold text-[var(--green-900)] transition-colors duration-300 group-hover:text-[var(--green-700)]">
-                  {value.title}
-                </h3>
-
-                <p className="mt-3 text-[12px] leading-[1.7] text-[var(--muted)] transition-colors duration-300 group-hover:text-[var(--green-800)]/80">
-                  {value.description}
-                </p>
-
-                <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-[var(--lime)]/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-              </div>
-            ))}
           </div>
         </div>
       </section>
@@ -746,43 +660,42 @@ export default function HomePage() {
       {/* CONTACT CTA */}
       <section
         id="contact"
-        className="relative overflow-hidden bg-[var(--green-800)] py-[105px] text-white"
+        className="relative overflow-hidden bg-[#2a1f18] py-14 text-white sm:py-16"
       >
-        <div className="pointer-events-none absolute -right-[250px] -top-[270px] h-[700px] w-[700px] rounded-full border border-[rgba(185,216,115,.1)]">
-          <div className="absolute inset-[70px] rounded-full border border-[rgba(185,216,115,.08)]" />
+        <div className="pointer-events-none absolute -right-[250px] -top-[270px] h-[700px] w-[700px] rounded-full border border-[rgba(224,168,60,.1)]">
+          <div className="absolute inset-[70px] rounded-full border border-[rgba(224,168,60,.08)]" />
         </div>
 
-        <div className="relative mx-auto max-w-[800px] px-6 text-center">
-          <h2 className="font-serif-heading text-[clamp(38px,4.4vw,59px)] font-bold leading-[1.08] tracking-[-0.04em] text-white">
-            {t("home.cta_heading_prefix", "Bring the farm")}
-            <br />
-            <em className="font-semibold text-[var(--lime)]">
-              {t("home.cta_heading_accent", "closer to home.")}
+        <div className="relative mx-auto max-w-[720px] px-6 text-center">
+          <h2 className="text-[clamp(22px,2.6vw,32px)] font-semibold leading-[1.2] tracking-[-0.015em] text-white">
+            {t("home.cta_heading_prefix", "Need plastic products")}{" "}
+            <em className="font-semibold not-italic text-[#e0a83c]">
+              {t("home.cta_heading_accent", "at scale?")}
             </em>
           </h2>
 
-          <p className="mx-auto mt-5 max-w-[510px] text-[13px] leading-[1.8] text-white/65">
+          <p className="mx-auto mt-3 max-w-[480px] text-[13px] leading-[1.75] text-white/65">
             {t(
               "home.cta_subtitle",
-              "Interested in our products, availability or a direct order? We'd love to hear from you."
+              "Interested in our products, bulk pricing or a custom manufacturing order? We'd love to hear from you."
             )}
           </p>
 
-          <div className="mt-7 flex justify-center gap-6 max-sm:flex-col max-sm:items-center">
+          <div className="mt-6 flex justify-center gap-4 max-sm:flex-col max-sm:items-center">
             <Link
               href={`tel:${cleanPhone}`}
-              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 rounded-lg bg-white px-5 text-xs font-bold text-[var(--green-900)] transition hover:-translate-y-1"
+              className="flex min-h-[44px] w-[150px] items-center justify-center gap-4 rounded-lg bg-white px-4 text-[12px] font-semibold text-[#2a1f18] transition hover:-translate-y-0.5"
             >
               {t("home.cta_btn_call", "Call Us")}
-              <ArrowRight size={17} />
+              <ArrowRight size={15} />
             </Link>
 
             <Link
               href={`mailto:${contactEmail}`}
-              className="flex min-h-[52px] w-[160px] items-center justify-center gap-6 rounded-lg border border-white/35 px-5 text-xs font-bold text-white transition hover:bg-white/10"
+              className="flex min-h-[44px] w-[150px] items-center justify-center gap-4 rounded-lg border border-white/35 px-4 text-[12px] font-semibold text-white transition hover:bg-white/10"
             >
               {t("home.cta_btn_email", "Send an Email")}
-              <ArrowUpRight size={16} />
+              <ArrowUpRight size={14} />
             </Link>
           </div>
         </div>
@@ -793,13 +706,13 @@ export default function HomePage() {
         type="button"
         aria-label={t("home.back_to_top", "Back to top")}
         onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-        className={`fixed bottom-5 right-5 z-40 grid h-[42px] w-[42px] place-items-center rounded-full bg-[var(--lime)] text-[var(--green-950)] shadow-lg transition-all duration-300 ${
+        className={`fixed bottom-5 right-5 z-40 grid h-[40px] w-[40px] place-items-center rounded-full bg-[#e0a83c] text-[#1a1410] shadow-lg transition-all duration-300 ${
           showBackTop
             ? "visible translate-y-0 opacity-100"
             : "invisible translate-y-4 opacity-0"
         }`}
       >
-        <ArrowUp size={18} />
+        <ArrowUp size={17} />
       </button>
     </main>
   );

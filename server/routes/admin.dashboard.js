@@ -4,7 +4,10 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
-const { OrderStatus, PaymentStatus, ProductStatus, Role } = require('@prisma/client');
+// ═══════════════════════════════════════════════════════════
+// NOTE: OrderStatus / PaymentStatus / ProductStatus enums were
+// REMOVED from the Prisma schema. This file now works without them.
+// ═══════════════════════════════════════════════════════════
 
 // ============================================================
 // GET /api/admin/dashboard - Main dashboard stats
@@ -13,92 +16,78 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     console.log('🔍 Fetching dashboard data...');
 
-    const [
-      totalRevenue,
-      totalProducts,
-      totalOrders,
-      totalCustomers,
-      pendingOrders,
-      completedOrders,
-      recentOrders,
-      weeklySales,
-    ] = await Promise.all([
-      // ✅ Revenue = sum of every order that is COMPLETED or PAID.
-      prisma.order.aggregate({
-        where: {
-          OR: [
-            { status: OrderStatus.COMPLETED },
-            { paymentStatus: PaymentStatus.PAID },
-          ],
-        },
-        _sum: { total: true },
-      }),
-
-      // Total Products (approved)
-      prisma.product.count({
-        where: { status: ProductStatus.APPROVED },
-      }),
-
-      // Total Orders
+    // ---------------------------------------------------------
+    // 1. BASIC COUNTS
+    // ---------------------------------------------------------
+    const [totalProducts, totalOrders, totalCustomers] = await Promise.all([
+      prisma.product.count(),
       prisma.order.count(),
-
-      // Total Customers (role USER)
-      prisma.user.count({
-        where: { role: Role.USER },
-      }),
-
-      // Pending Orders
-      prisma.order.count({
-        where: { status: OrderStatus.PENDING },
-      }),
-
-      // Completed Orders
-      prisma.order.count({
-        where: { status: OrderStatus.COMPLETED },
-      }),
-
-      // ✅ Recent Orders — sorted ascending so the list reads #1, #2, #3, …
-      prisma.order.findMany({
-        take: 10,
-        orderBy: { orderNumber: 'asc' },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  price: true,
-                },
-              },
-            },
-          },
-        },
-      }),
-
-      // Weekly Sales — same revenue rule as the summary
-      prisma.$queryRaw`
-        SELECT
-          DATE("createdAt") as date,
-          COUNT(*) as orders,
-          SUM(total) as revenue
-        FROM "orders"
-        WHERE "createdAt" >= NOW() - INTERVAL '7 days'
-          AND (status = 'COMPLETED' OR "paymentStatus" = 'PAID')
-        GROUP BY DATE("createdAt")
-        ORDER BY date ASC
-      `,
+      prisma.user.count({ where: { role: 'USER' } }),
     ]);
 
-    console.log('📊 Data fetched successfully');
+    // ---------------------------------------------------------
+    // 2. TOTAL REVENUE (sum of every order — no status filter)
+    // ---------------------------------------------------------
+    const revenueAgg = await prisma.order.aggregate({
+      _sum: { total: true },
+    });
+    const totalRevenue = Number(revenueAgg._sum.total || 0);
 
+    // ---------------------------------------------------------
+    // 3. RECENT ORDERS (last 10, newest first)
+    // ---------------------------------------------------------
+    const recentOrders = await prisma.order.findMany({
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: { id: true, name: true, email: true },
+        },
+        items: {
+          include: {
+            product: {
+              select: { id: true, name: true, price: true },
+            },
+          },
+        },
+      },
+    });
+
+    // ---------------------------------------------------------
+    // 4. WEEKLY SALES (last 7 days)
+    // ---------------------------------------------------------
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const recentOrdersForWeekly = await prisma.order.findMany({
+      where: { createdAt: { gte: sevenDaysAgo } },
+      select: { total: true, createdAt: true },
+    });
+
+    // Build a map of the last 7 days (including days with 0 orders)
+    const weeklySalesMap = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      const key = d.toISOString().split('T')[0];
+      weeklySalesMap[key] = { date: key, orders: 0, revenue: 0 };
+    }
+
+    for (const o of recentOrdersForWeekly) {
+      const key = new Date(o.createdAt).toISOString().split('T')[0];
+      if (weeklySalesMap[key]) {
+        weeklySalesMap[key].orders += 1;
+        weeklySalesMap[key].revenue += Number(o.total || 0);
+      }
+    }
+
+    const weeklySales = Object.values(weeklySalesMap);
+
+    // ---------------------------------------------------------
+    // 5. FORMAT RECENT ORDERS
+    // ---------------------------------------------------------
     const formattedRecentOrders = recentOrders.map((order) => ({
       id: order.id,
       orderNumber: order.orderNumber,
@@ -113,21 +102,24 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
         quantity: item.quantity,
       })),
       total: Number(order.total),
-      status: order.status,
-      paymentStatus: order.paymentStatus,
-      paymentMethod: order.paymentMethod || 'Not specified',
       createdAt: order.createdAt,
     }));
 
+    console.log('📊 Dashboard data fetched successfully');
+
+    // ---------------------------------------------------------
+    // 6. RESPONSE
+    // ---------------------------------------------------------
     res.json({
       success: true,
       stats: {
-        revenue: Number(totalRevenue._sum.total || 0),
+        revenue: totalRevenue,
         products: totalProducts,
         orders: totalOrders,
         customers: totalCustomers,
-        pendingOrders,
-        completedOrders,
+        // Kept as 0 placeholders since status tracking was removed
+        pendingOrders: 0,
+        completedOrders: totalOrders,
       },
       recentOrders: formattedRecentOrders,
       weeklySales: weeklySales.map((day) => ({
@@ -141,7 +133,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch dashboard data',
-      message: error.message,
+      message:
+        process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
@@ -174,34 +167,26 @@ router.get('/overview', requireAuth, requireAdmin, async (req, res) => {
         id: true,
         orderNumber: true,
         total: true,
-        status: true,
-        paymentStatus: true,
         createdAt: true,
         user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
+          select: { id: true, name: true, email: true },
         },
       },
-      orderBy: { orderNumber: 'asc' }, // ✅ ascending
+      orderBy: { createdAt: 'desc' },
     });
 
-    const totalRevenue = orders
-      .filter(
-        (o) =>
-          o.status === OrderStatus.COMPLETED ||
-          o.paymentStatus === PaymentStatus.PAID
-      )
-      .reduce((sum, o) => sum + Number(o.total), 0);
+    // Total revenue = sum of every order in the period
+    const totalRevenue = orders.reduce(
+      (sum, o) => sum + Number(o.total || 0),
+      0
+    );
 
     const orderStats = {
       total: orders.length,
-      completed: orders.filter((o) => o.status === OrderStatus.COMPLETED).length,
-      pending: orders.filter((o) => o.status === OrderStatus.PENDING).length,
-      shipped: orders.filter((o) => o.status === OrderStatus.SHIPPED).length,
-      cancelled: orders.filter((o) => o.status === OrderStatus.CANCELLED).length,
+      completed: orders.length, // every order counts as complete now
+      pending: 0,
+      shipped: 0,
+      cancelled: 0,
     };
 
     res.json({
@@ -234,10 +219,7 @@ router.get('/recent-activity', requireAuth, requireAdmin, async (req, res) => {
       orderBy: { createdAt: 'desc' },
       include: {
         user: {
-          select: {
-            name: true,
-            email: true,
-          },
+          select: { name: true, email: true },
         },
       },
     });
@@ -245,7 +227,7 @@ router.get('/recent-activity', requireAuth, requireAdmin, async (req, res) => {
     const recentUsers = await prisma.user.findMany({
       take: limit,
       orderBy: { createdAt: 'desc' },
-      where: { role: Role.USER },
+      where: { role: 'USER' },
       select: {
         id: true,
         name: true,
@@ -260,9 +242,8 @@ router.get('/recent-activity', requireAuth, requireAdmin, async (req, res) => {
         id: order.id,
         orderNumber: order.orderNumber,
         user: order.user?.name || order.user?.email || 'Unknown User',
-        details: `Placed an order worth $${Number(order.total).toFixed(2)}`,
+        details: `Placed an order worth ETB ${Number(order.total).toFixed(2)}`,
         timestamp: order.createdAt,
-        status: order.status,
       })),
       ...recentUsers.map((user) => ({
         type: 'user',

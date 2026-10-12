@@ -8,30 +8,25 @@ const { generateToken } = require('../lib/auth');
 const { requireAuth } = require('../middleware/auth');
 const { sendWelcomeEmail } = require('../lib/email');
 
-// ============================================
+// ============================================================
 // HELPERS & CONSTANTS
-// ============================================
+// ============================================================
 
-// ✅ 10 rounds is the standard balance of security and speed.
-// 12+ is very slow on small Railway CPUs with bcryptjs (pure JS).
-// Existing hashes keep working because the cost is stored inside each hash.
+// 10 rounds = balance of security and speed for small CPUs
 const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 10;
 
-// ✅ Roles a visitor may pick for themselves at registration.
-// NEVER include 'ADMIN' here. Add other roles (e.g. 'SELLER') only if
-// your Prisma Role enum has them and they should be self-service.
+// Roles a visitor may pick at registration — NEVER include ADMIN
 const SELF_SERVICE_ROLES = ['USER'];
 
-const RESERVED_ACCOUNTS = ['adminpa@gmail.com'];
+// Optional — reserved accounts (add yours if you want to block certain emails)
+const RESERVED_ACCOUNTS = [];
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Safe against non-string input (numbers, objects) that would crash .toLowerCase()
 const normalizeEmail = (value) =>
   typeof value === 'string' ? value.trim().toLowerCase() : '';
 
-// Matches the rules shown on the register form:
-// at least 8 characters and at least one number.
+// Password rules — at least 8 chars + at least one number
 const passwordError = (pw) => {
   if (typeof pw !== 'string' || pw.length < 8) {
     return 'Password must be at least 8 characters';
@@ -45,27 +40,29 @@ const passwordError = (pw) => {
   return null;
 };
 
-// ✅ Run slow side-jobs (like email) AFTER the response is sent.
-// Errors are logged but never block or fail the request.
+// Run slow side-jobs (email) after the response is sent
 const runInBackground = (label, fn) => {
   Promise.resolve()
     .then(fn)
     .catch((err) =>
-      console.error(`⚠️  ${label} failed:`, err && err.message ? err.message : err)
+      console.error(
+        `⚠️  ${label} failed:`,
+        err && err.message ? err.message : err
+      )
     );
 };
 
-// Timing-safe string comparison (for secret keys)
+// Timing-safe string comparison
 const safeEqual = (a, b) => {
   const bufA = Buffer.from(String(a || ''));
   const bufB = Buffer.from(String(b || ''));
   return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
 };
 
-// ============================================
-// REGISTER — creates the user, sends welcome email in the background
+// ============================================================
+// REGISTER
 // POST /api/auth/register
-// ============================================
+// ============================================================
 router.post('/register', async (req, res) => {
   try {
     const { name, password, phone, role } = req.body || {};
@@ -98,9 +95,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
+    const existingUser = await prisma.user.findUnique({ where: { email } });
 
     if (existingUser) {
       return res.status(400).json({
@@ -109,8 +104,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // ✅ SECURITY: never trust the role sent by the browser.
-    // Before, anyone could register with role "ADMIN".
+    // Never trust the role sent by the browser
     const requestedRole = String(role || 'USER').toUpperCase();
     const finalRole = SELF_SERVICE_ROLES.includes(requestedRole)
       ? requestedRole
@@ -123,7 +117,8 @@ router.post('/register', async (req, res) => {
         name: cleanName,
         email,
         password: hashedPassword,
-        phone: typeof phone === 'string' && phone.trim() ? phone.trim() : null,
+        phone:
+          typeof phone === 'string' && phone.trim() ? phone.trim() : null,
         role: finalRole,
       },
       select: {
@@ -139,10 +134,7 @@ router.post('/register', async (req, res) => {
       },
     });
 
-    // ✅ FIX: do NOT await the email.
-    // On Railway, SMTP connections time out (~120s), which made
-    // register hang. Now the user gets a response immediately and the
-    // email is attempted in the background.
+    // ✅ Fire-and-forget welcome email
     runInBackground('Welcome email', () =>
       sendWelcomeEmail(user.email, user.name)
     );
@@ -153,7 +145,6 @@ router.post('/register', async (req, res) => {
       user,
     });
   } catch (error) {
-    // Two requests registering the same email at the same moment
     if (error && error.code === 'P2002') {
       return res.status(400).json({
         success: false,
@@ -171,10 +162,10 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// ============================================
+// ============================================================
 // LOGIN
 // POST /api/auth/login
-// ============================================
+// ============================================================
 router.post('/login', async (req, res) => {
   try {
     const email = normalizeEmail(req.body && req.body.email);
@@ -187,10 +178,10 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // ✅ Fast indexed lookup first (new users are stored lowercase).
-    // Fall back to a case-insensitive search for older accounts.
+    // Fast indexed lookup first
     let user = await prisma.user.findUnique({ where: { email } });
 
+    // Fallback to case-insensitive for older accounts
     if (!user) {
       user = await prisma.user.findFirst({
         where: { email: { equals: email, mode: 'insensitive' } },
@@ -239,13 +230,21 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ============================================
+// ============================================================
 // GET CURRENT USER
 // GET /api/auth/me
-// ============================================
+// ✅ Simplified — no profile/adminProfile relations
+// ============================================================
 router.get('/me', requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id || req.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+      });
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -260,28 +259,6 @@ router.get('/me', requireAuth, async (req, res) => {
         avatar: true,
         createdAt: true,
         updatedAt: true,
-        profile: {
-          select: {
-            id: true,
-            shopName: true,
-            shopDesc: true,
-            isVerified: true,
-            totalSales: true,
-            phone: true,
-            address: true,
-            logo: true,
-            banner: true,
-            isAdmin: true,
-            permissions: true,
-          },
-        },
-        adminProfile: {
-          select: {
-            id: true,
-            permissions: true,
-            department: true,
-          },
-        },
       },
     });
 
@@ -298,22 +275,26 @@ router.get('/me', requireAuth, async (req, res) => {
   }
 });
 
-// ============================================
+// ============================================================
 // LOGOUT
 // POST /api/auth/logout
-// ============================================
+// ============================================================
 router.post('/logout', async (req, res) => {
   res.json({ success: true, message: 'Logged out successfully' });
 });
 
-// ============================================
+// ============================================================
 // CHANGE PASSWORD
 // POST /api/auth/change-password
-// ============================================
+// ============================================================
 router.post('/change-password', requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id || req.userId;
     const { currentPassword, newPassword } = req.body || {};
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
 
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
@@ -358,14 +339,18 @@ router.post('/change-password', requireAuth, async (req, res) => {
   }
 });
 
-// ============================================
+// ============================================================
 // UPDATE PROFILE
 // PATCH /api/auth/profile
-// ============================================
+// ============================================================
 router.patch('/profile', requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id || req.userId;
     const { name, phone, address, bio, avatar } = req.body || {};
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
 
     const data = {};
     if (name !== undefined) data.name = name;
@@ -414,10 +399,10 @@ router.patch('/profile', requireAuth, async (req, res) => {
   }
 });
 
-// ============================================
+// ============================================================
 // FORGOT PASSWORD
 // POST /api/auth/forgot-password
-// ============================================
+// ============================================================
 router.post('/forgot-password', async (req, res) => {
   try {
     const email = normalizeEmail(req.body && req.body.email);
@@ -449,16 +434,12 @@ router.post('/forgot-password', async (req, res) => {
   }
 });
 
-// ============================================
+// ============================================================
 // RESET PASSWORD
 // POST /api/auth/reset-password
-//
-// ⚠️ SECURITY WARNING: this route has NO proof that the caller owns the
-// email (no emailed token). Anyone who knows an email can change that
-// account's password. Replace it with a token-based flow as soon as email
-// sending works (see notes). As a minimum protection, ADMIN accounts
-// cannot be reset through this route.
-// ============================================
+// ⚠️ SECURITY: this route has no proof that the caller owns the email.
+// Protect ADMIN accounts — they cannot be reset here.
+// ============================================================
 router.post('/reset-password', async (req, res) => {
   try {
     const email = normalizeEmail(req.body && req.body.email);
@@ -506,15 +487,11 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// ============================================
+// ============================================================
 // ADMIN: Create admin user
 // POST /api/auth/create-admin
-//
-// ✅ SECURITY: this route used to be open to everyone. It now requires
-// the header  x-admin-setup-key  to equal the ADMIN_SETUP_KEY variable.
-// If ADMIN_SETUP_KEY is not set in Railway, the route is disabled.
-// (You can also keep using:  npm run create-admin)
-// ============================================
+// Requires header  x-admin-setup-key  matching  ADMIN_SETUP_KEY env var
+// ============================================================
 router.post('/create-admin', async (req, res) => {
   try {
     const setupKey = process.env.ADMIN_SETUP_KEY;

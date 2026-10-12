@@ -3,6 +3,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
 
 // ✅ Shared Prisma client (singleton)
 const prisma = require('./lib/prisma');
@@ -34,14 +36,36 @@ const platformName = isNetlify
 app.set('trust proxy', 1);
 
 // ═══════════════════════════════════════════════════════════
+// LOCAL UPLOAD DIRECTORIES — CREATE IF MISSING
+// ═══════════════════════════════════════════════════════════
+const UPLOAD_ROOT = path.join(__dirname, 'uploads');
+const UPLOAD_DIRS = [
+  UPLOAD_ROOT,
+  path.join(UPLOAD_ROOT, 'products'),
+  path.join(UPLOAD_ROOT, 'categories'),
+  path.join(UPLOAD_ROOT, 'avatars'),
+  path.join(UPLOAD_ROOT, 'articles'),
+];
+
+function ensureUploadDirs() {
+  for (const dir of UPLOAD_DIRS) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`📁 Created upload dir: ${dir}`);
+    }
+  }
+}
+ensureUploadDirs();
+
+// ═══════════════════════════════════════════════════════════
 // Collapse double slashes in the URL PATH
 // ═══════════════════════════════════════════════════════════
 app.use((req, res, next) => {
   const i = req.url.indexOf('?');
-  const path = i === -1 ? req.url : req.url.slice(0, i);
+  const p = i === -1 ? req.url : req.url.slice(0, i);
   const query = i === -1 ? '' : req.url.slice(i);
-  if (path.includes('//')) {
-    req.url = path.replace(/\/{2,}/g, '/') + query;
+  if (p.includes('//')) {
+    req.url = p.replace(/\/{2,}/g, '/') + query;
   }
   next();
 });
@@ -70,25 +94,13 @@ app.use((req, res, next) => {
 const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
 const adminDashboardRoutes = require('./routes/admin.dashboard');
-const blogRoutes = require('./routes/blog.routes');
-const cartRoutes = require('./routes/cart.routes');
 const categoriesRoutes = require('./routes/categories.routes');
-const checkoutRoutes = require('./routes/checkout.routes');
-const ordersRoutes = require('./routes/orders.routes');
 const productsRoutes = require('./routes/products.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const usersRoutes = require('./routes/users.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const profileRoutes = require('./routes/profile.routes');
-const articlesRoutes = require('./routes/articles.routes');
-const chatbotRoutes = require('./routes/chatbot.routes');
-const telebirrRoutes = require('./routes/telebirr.routes');
-
-// ═══════════════════════════════════════════════════════════
-// ❌ REMOVED: UPLOAD DIRECTORIES creation
-// ❌ REMOVED: ensureDir / UPLOAD_ROOT imports
-// All uploads now go to Cloudinary. Do not create local dirs.
-// ═══════════════════════════════════════════════════════════
+const chatbotRoutes = require('./routes/chatbot.routes'); // ✅ RE-ENABLED (OpenRouter AI)
 
 // ═══════════════════════════════════════════════════════════
 // CORS
@@ -166,27 +178,16 @@ app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // ═══════════════════════════════════════════════════════════
-// ❌ REMOVED: express.static('/uploads', ...)
-// Cloudinary serves all files now. Old /uploads/... URLs
-// are handled by the redirect middleware below.
+// LOCAL STATIC FILES — serve /uploads/** from disk
 // ═══════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════
-// ✅ LEGACY REDIRECT: old /uploads/... URLs
-// If any DB record still stores "/uploads/products/x.jpg",
-// redirect it to Cloudinary (or 404 gracefully).
-// Adjust CLOUDINARY_FOLDER to match your cloud name/folder.
-// ═══════════════════════════════════════════════════════════
-app.get('/uploads/*', (req, res) => {
-  console.warn(
-    `⚠️ Legacy /uploads path requested: ${req.originalUrl}. ` +
-      `This record still points to local disk. Re-upload the file or migrate the DB.`
-  );
-  return res.status(404).json({
-    success: false,
-    error: 'File not found. Local disk storage has been deprecated. Please re-upload.',
-  });
-});
+app.use(
+  '/uploads',
+  express.static(UPLOAD_ROOT, {
+    maxAge: isProd ? '7d' : 0,
+    etag: true,
+    index: false,
+  })
+);
 
 // ═══════════════════════════════════════════════════════════
 // ROUTES
@@ -197,18 +198,12 @@ apiRouter.use('/auth', authRoutes);
 apiRouter.use('/admin/dashboard', adminDashboardRoutes);
 apiRouter.use('/admin/settings', settingsRoutes);
 apiRouter.use('/admin', adminRoutes);
-apiRouter.use('/blog', blogRoutes);
-apiRouter.use('/cart', cartRoutes);
 apiRouter.use('/categories', categoriesRoutes);
-apiRouter.use('/checkout', checkoutRoutes);
-apiRouter.use('/orders', ordersRoutes);
 apiRouter.use('/products', productsRoutes);
 apiRouter.use('/upload', uploadRoutes);
 apiRouter.use('/users', usersRoutes);
 apiRouter.use('/profile', profileRoutes);
-apiRouter.use('/articles', articlesRoutes);
-apiRouter.use('/chatbot', chatbotRoutes);
-apiRouter.use('/telebirr', telebirrRoutes);
+apiRouter.use('/chatbot', chatbotRoutes); // ✅ RE-ENABLED (OpenRouter AI)
 
 // ═══════════════════════════════════════════════════════════
 // HEALTH CHECK
@@ -223,8 +218,11 @@ const healthHandler = async (req, res) => {
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
       platform: platformName,
-      storage: 'cloudinary',
+      storage: 'local-disk',
       database: { connected: true, userCount },
+      services: {
+        chatbot: process.env.OPENROUTER_API_KEY ? 'enabled' : 'disabled',
+      },
     });
   } catch (error) {
     res.status(500).json({
@@ -243,37 +241,30 @@ app.get('/healthz', (req, res) => {
 });
 
 app.use('/api', apiRouter);
-app.use('/.netlify/functions/api', apiRouter);
 
 // ═══════════════════════════════════════════════════════════
 // ROOT ROUTE
 // ═══════════════════════════════════════════════════════════
 const rootInfo = (req, res) => {
   res.json({
-    name: 'Genesis Agri API Server',
+    name: 'Alemayehu Plastic Manufacturing API Server',
     version: '1.0.0',
     status: 'Running',
     platform: platformName,
-    storage: 'cloudinary',
+    storage: 'local-disk',
     endpoints: {
       auth: '/api/auth',
       admin: '/api/admin',
       adminDashboard: '/api/admin/dashboard',
-      articles: '/api/articles',
-      blog: '/api/blog',
-      cart: '/api/cart',
       categories: '/api/categories',
-      chatbot: '/api/chatbot',
-      checkout: '/api/checkout',
-      orders: '/api/orders',
+      chatbot: '/api/chatbot', // ✅ RE-ENABLED
       products: '/api/products',
       upload: '/api/upload',
       users: '/api/users',
       profile: '/api/profile',
       settings: '/api/admin/settings',
       health: '/api/health',
-      telebirrNotify: '/api/telebirr/notify',
-      telebirrReturn: '/api/telebirr/return',
+      uploads: '/uploads/*',
     },
   });
 };
@@ -379,11 +370,11 @@ if (!isServerless) {
       console.log(
         adminUser
           ? `👤 Admin user exists: ${adminUser.email}`
-          : '⚠️ No admin user found. Run: npm run create-admin'
+          : '⚠️ No admin user found. Run: node prisma/seed.js'
       );
     } catch (error) {
       console.error('❌ Database connection failed:', error.message);
-      console.error('Please check your DATABASE_URL in Railway variables');
+      console.error('Please check your DATABASE_URL in .env');
     }
 
     server = http.createServer(app);
@@ -392,11 +383,15 @@ if (!isServerless) {
 
     server.listen(PORT, '0.0.0.0', () => {
       const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
-      console.log('\n🌱 Genesis Agri Server running on ' + backendUrl);
+      console.log('\n🏭 Alemayehu Plastic Server running on ' + backendUrl);
       console.log('🌍 Environment: ' + (process.env.NODE_ENV || 'development'));
       console.log('🚆 Platform: ' + platformName);
-      console.log('☁️  Storage: Cloudinary');
+      console.log('📁 Storage: Local disk (/uploads)');
       console.log('💾 Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
+      console.log(
+        '🤖 Chatbot: ' +
+          (process.env.OPENROUTER_API_KEY ? 'OpenRouter AI enabled ✅' : 'Fallback mode ⚠️')
+      );
     });
 
     const keepAliveMs =

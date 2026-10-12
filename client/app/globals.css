@@ -5,64 +5,83 @@
 @tailwind utilities;
 
 :root {
-  --green-950: #0b2419;
-  --green-900: #123523;
-  --green-800: #19472d;
-  --green-700: #28633e;
-  --green-500: #72a84d;
-  --lime: #b9d873;
-  --cream: #f6f3e9;
-  --cream-dark: #eae5d7;
+  /* ============================================================
+     ALEMAYEHU PLASTIC — GOLD / DARK BROWN THEME
+     (No green — matches ABE TIBEB reference style)
+     ============================================================ */
+
+  /* Dark browns (replace all greens) */
+  --green-950: #1a1410;   /* deepest — hero bg */
+  --green-900: #2a1f18;   /* dark brown */
+  --green-800: #3a2a1e;   /* mid brown */
+  --green-700: #6b5238;   /* warm brown */
+  --green-500: #b98a3e;   /* amber-brown bridge */
+
+  /* Gold accents (replace lime) */
+  --lime: #e0a83c;        /* main gold */
+  --gold: #e0a83c;
+  --gold-light: #f0c872;
+  --gold-deep: #c8871e;
+
+  /* Creams */
+  --cream: #faf6ee;
+  --cream-dark: #f0e8d8;
   --white: #ffffff;
-  --ink: #142119;
-  --muted: #69736b;
-  --line: rgba(20, 33, 25, .12);
+
+  /* Text */
+  --ink: #1c1610;
+  --muted: #7a6a58;
+  --line: rgba(28, 22, 16, .12);
+
+  /* Fonts */
   --serif: "Playfair Display", Georgia, serif;
   --sans: "DM Sans", Arial, sans-serif;
-  --shadow: 0 25px 60px rgba(18, 53, 35, .12);
 
-  --background: 45 40% 94%;
-  --foreground: 145 25% 10%;
+  --shadow: 0 25px 60px rgba(58, 42, 30, .15);
+
+  /* shadcn tokens */
+  --background: 40 40% 96%;
+  --foreground: 30 25% 10%;
   --card: 0 0% 100%;
-  --card-foreground: 145 25% 10%;
+  --card-foreground: 30 25% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 145 25% 10%;
-  --primary: 153 55% 12%;
-  --primary-foreground: 79 56% 65%;
-  --secondary: 45 30% 88%;
-  --secondary-foreground: 153 55% 12%;
-  --muted-fg: 135 5% 43%;
-  --accent: 79 56% 65%;
-  --accent-foreground: 153 55% 12%;
+  --popover-foreground: 30 25% 10%;
+  --primary: 30 35% 15%;
+  --primary-foreground: 40 80% 65%;
+  --secondary: 40 30% 88%;
+  --secondary-foreground: 30 35% 15%;
+  --muted-fg: 30 10% 45%;
+  --accent: 40 80% 60%;
+  --accent-foreground: 30 35% 12%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 210 40% 98%;
-  --border: 145 15% 85%;
-  --input: 145 15% 85%;
-  --ring: 153 55% 12%;
+  --border: 30 15% 85%;
+  --input: 30 15% 85%;
+  --ring: 40 80% 55%;
   --radius: 0.75rem;
 }
 
 .dark {
-  --background: 153 55% 8%;
-  --foreground: 45 40% 94%;
-  --card: 153 55% 10%;
-  --card-foreground: 45 40% 94%;
-  --popover: 153 55% 10%;
-  --popover-foreground: 45 40% 94%;
-  --primary: 79 56% 65%;
-  --primary-foreground: 153 55% 8%;
-  --secondary: 153 35% 18%;
-  --secondary-foreground: 45 40% 94%;
-  --border: 153 35% 20%;
-  --input: 153 35% 20%;
-  --ring: 79 56% 65%;
+  --background: 30 35% 8%;
+  --foreground: 40 40% 94%;
+  --card: 30 30% 10%;
+  --card-foreground: 40 40% 94%;
+  --popover: 30 30% 10%;
+  --popover-foreground: 40 40% 94%;
+  --primary: 40 80% 60%;
+  --primary-foreground: 30 35% 8%;
+  --secondary: 30 30% 18%;
+  --secondary-foreground: 40 40% 94%;
+  --border: 30 25% 20%;
+  --input: 30 25% 20%;
+  --ring: 40 80% 60%;
 }
 
 @layer base {
   * {
-    border-color: rgba(20, 33, 25, 0.12);
+    border-color: rgba(28, 22, 16, 0.12);
   }
-  
+
   body {
     background-color: var(--cream);
     color: var(--ink);
@@ -80,7 +99,7 @@
   }
 }
 
-/* Genesis custom Leaf Brand Mark */
+/* Alemayehu brand mark (gold, no green) */
 .brand-mark {
   position: relative;
   width: 28px;
@@ -91,7 +110,7 @@
   position: absolute;
   width: 15px;
   height: 22px;
-  background: var(--lime);
+  background: var(--gold);
   border-radius: 100% 0 100% 0;
   transform: rotate(-25deg);
 }
@@ -101,25 +120,19 @@
   position: absolute;
   width: 2px;
   height: 26px;
-  background: var(--lime);
+  background: var(--gold);
   left: 13px;
   top: 5px;
   transform: rotate(24deg);
   transform-origin: bottom;
 }
 
-/* Subtle reveal keyframes & animations */
+/* Reveal animation */
 .animate-fade-in-up {
   animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

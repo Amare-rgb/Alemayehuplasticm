@@ -1,9 +1,21 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+).replace(/\/+$/, '');
 
+// ============================================================
+// Types
+// ============================================================
 export interface SettingsData {
   id?: string;
   siteName: string;
@@ -27,27 +39,33 @@ export interface SettingsData {
   infoEmail: string;
 }
 
+// ============================================================
+// ✅ Rebranded defaults — Alemayehu Plastic Manufacturing
+// ============================================================
 export const defaultSettings: SettingsData = {
-  siteName: 'Genesis Agri Business',
-  siteDescription: 'Agriculture marketplace connecting farmers and buyers',
-  storeName: 'Genesis Agri Business',
-  currency: 'KES',
+  siteName: 'Alemayehu Plastic Manufacturing',
+  siteDescription: 'Quality plastic products manufactured in Ethiopia',
+  storeName: 'Alemayehu Plastic Manufacturing',
+  currency: 'ETB',
   logo: '',
-  themeColor: '#22c55e',
-  contactEmail: 'info@genesisagri.com',
+  themeColor: '#e0a83c',
+  contactEmail: 'info@alemayehplastic.com',
   contactPhone: '+251 900 000 000',
-  contactAddress: '123 Farm Road, Addis Ababa, Ethiopia',
-  contactHours: 'Mon-Fri: 8:00 AM - 6:00 PM',
+  contactAddress: 'Bahir Dar, Ethiopia',
+  contactHours: 'Mon-Sat: 8:00 AM - 6:00 PM',
   contactMapEmbed: '',
   enableContactForm: true,
   enableWhatsApp: true,
   whatsAppNumber: '+251900000000',
   enableLiveChat: false,
-  emergencyPhone: '+251 911 234 567',
-  supportEmail: 'support@genesisagri.com',
-  infoEmail: 'info@genesisagri.com',
+  emergencyPhone: '+251 900 000 000',
+  supportEmail: 'support@alemayehplastic.com',
+  infoEmail: 'info@alemayehplastic.com',
 };
 
+// ============================================================
+// Context
+// ============================================================
 interface SettingsContextType {
   settings: SettingsData;
   loading: boolean;
@@ -66,56 +84,74 @@ const SettingsContext = createContext<SettingsContextType>({
   updateSettings: () => {},
 });
 
+// ============================================================
+// Logo URL helper
+// ============================================================
 export const getFullLogoUrl = (logoPath: string): string => {
   if (!logoPath) return '';
-  if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) return logoPath;
+  if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) {
+    return logoPath;
+  }
   const cleanPath = logoPath.startsWith('/') ? logoPath.slice(1) : logoPath;
   return `${API_URL}/${cleanPath}`;
 };
 
+// ============================================================
+// Provider
+// ============================================================
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
+  // ✅ Initialize from cache without a setState-in-effect
   const [settings, setSettings] = useState<SettingsData>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const cached = localStorage.getItem('site_settings');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          return {
-            ...defaultSettings,
-            ...parsed,
-            logo: parsed.logo ? getFullLogoUrl(parsed.logo) : '',
-          };
-        }
-      } catch (e) {
-        console.error('Error reading cached settings:', e);
-      }
+    if (typeof window === 'undefined') return defaultSettings;
+
+    try {
+      const cached = localStorage.getItem('site_settings');
+      if (!cached) return defaultSettings;
+
+      const parsed = JSON.parse(cached);
+      return {
+        ...defaultSettings,
+        ...parsed,
+        logo: parsed.logo ? getFullLogoUrl(parsed.logo) : '',
+      };
+    } catch (e) {
+      console.error('Error reading cached settings:', e);
+      return defaultSettings;
     }
-    return defaultSettings;
   });
 
-  // 💡 ጅምር ላይ localStorage ካለ loading በራስ-ሰር false እንዲሆን ማድረግ
-  const [loading, setLoading] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return !localStorage.getItem('site_settings');
-    }
-    return true;
+  // ✅ Loading is only true if there's NO cache
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return !localStorage.getItem('site_settings');
   });
-  
+
   const [error, setError] = useState<string | null>(null);
-  const isMountedRef = React.useRef(true);
-  const hasFetchedRef = React.useRef(false);
 
+  // ✅ Use refs so `fetchSettings` never depends on state
+  const isMountedRef = useRef(true);
+  const hasFetchedRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // ============================================================
+  // fetchSettings — stable across renders (no state deps)
+  // ============================================================
   const fetchSettings = useCallback(async (forceRefresh = false) => {
     if (!isMountedRef.current) return;
+
+    // Cancel any in-flight request
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
       const url = forceRefresh
         ? `${API_URL}/api/admin/settings/public?_=${Date.now()}`
         : `${API_URL}/api/admin/settings/public`;
-
-      // ለሰርቨር ጥያቄ የጊዜ ገደብ (AbortController - 5 ሰከንድ) መስጠት
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(url, {
         headers: { 'Content-Type': 'application/json' },
@@ -124,71 +160,80 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       });
 
       clearTimeout(timeoutId);
-
       if (!isMountedRef.current) return;
 
-      if (response.ok) {
-        const data = await response.json();
-        const settingsData = data.data || data;
+      if (!response.ok) {
+        setError('Failed to fetch settings');
+        return;
+      }
 
-        const updatedSettings: SettingsData = {
-          ...defaultSettings,
-          ...settingsData,
-          logo: settingsData.logo ? getFullLogoUrl(settingsData.logo) : '',
-          emergencyPhone: settingsData.emergencyPhone || defaultSettings.emergencyPhone,
-          supportEmail: settingsData.supportEmail || defaultSettings.supportEmail,
-          infoEmail: settingsData.infoEmail || defaultSettings.infoEmail,
-        };
+      const data = await response.json();
+      const settingsData = data.data || data;
 
-        setSettings(updatedSettings);
-        setError(null);
+      const updatedSettings: SettingsData = {
+        ...defaultSettings,
+        ...settingsData,
+        logo: settingsData.logo ? getFullLogoUrl(settingsData.logo) : '',
+        emergencyPhone:
+          settingsData.emergencyPhone || defaultSettings.emergencyPhone,
+        supportEmail:
+          settingsData.supportEmail || defaultSettings.supportEmail,
+        infoEmail: settingsData.infoEmail || defaultSettings.infoEmail,
+      };
 
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('site_settings', JSON.stringify(updatedSettings));
-          window.dispatchEvent(new Event('settings-change'));
-        }
-      } else {
-        if (isMountedRef.current) {
-          setError('Failed to fetch settings');
-        }
+      setSettings(updatedSettings);
+      setError(null);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('site_settings', JSON.stringify(updatedSettings));
+        window.dispatchEvent(new Event('settings-change'));
       }
     } catch (err) {
-      console.warn('Could not fetch public settings, using fallback/cache:', err);
+      // Silently ignore abort errors (they're expected)
+      if (err instanceof Error && err.name === 'AbortError') return;
+
+      console.warn(
+        'Could not fetch public settings, using fallback/cache:',
+        err
+      );
       if (isMountedRef.current) {
-        // ሰርቨሩ ቢጠፋም ካሽ (cache) ካለ ስህተት እንዳይሆን እናደርጋለን
-        if (!settings) {
-          setError('Failed to load settings');
-        }
+        setError('Failed to load settings');
       }
     } finally {
       if (isMountedRef.current) {
-        setLoading(false); // 💡 ሁልጊዜ loading ወደ false ይቀየራል
+        setLoading(false);
       }
     }
-  }, [settings]);
+  }, []);
 
+  // ============================================================
+  // forceUpdate — re-read from localStorage
+  // ============================================================
   const forceUpdate = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const cached = localStorage.getItem('site_settings');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          const updatedSettings = {
-            ...defaultSettings,
-            ...parsed,
-            logo: parsed.logo ? getFullLogoUrl(parsed.logo) : '',
-          };
-          setSettings({ ...updatedSettings });
-        } else {
-          setSettings({ ...defaultSettings });
-        }
-      } catch (e) {
-        console.error('Error reading cached settings:', e);
+    if (typeof window === 'undefined') return;
+
+    try {
+      const cached = localStorage.getItem('site_settings');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setSettings({
+          ...defaultSettings,
+          ...parsed,
+          logo: parsed.logo ? getFullLogoUrl(parsed.logo) : '',
+        });
+      } else {
+        setSettings({ ...defaultSettings });
       }
+    } catch (e) {
+      console.error('Error reading cached settings:', e);
     }
+
     setLoading(false);
   }, []);
 
+  // ============================================================
+  // updateSettings — merge + persist + broadcast
+  // ============================================================
   const updateSettings = useCallback((partial: Partial<SettingsData>) => {
     setSettings((prev) => {
       const merged: SettingsData = {
@@ -211,36 +256,40 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // ============================================================
+  // Mount: initial fetch + listeners
+  // ✅ No state (`loading`) in deps — avoids infinite loop
+  // ============================================================
   useEffect(() => {
+    isMountedRef.current = true;
+
+    // Initial fetch (once)
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true;
-      fetchSettings();
+      void fetchSettings();
     }
 
-    // 💡 የ 4 ሰከንድ Safety Timeout: ሰርቨሩ ዘግይቶም ቢሆን ሎዲንግ ስፒነሩ ለዘላለም እንዳይሽከረከር ይከላከላል
+    // Safety timeout — force loading=false after 4s even if the
+    // network is stuck, so the spinner never spins forever
     const safetyTimer = setTimeout(() => {
-      if (isMountedRef.current && loading) {
+      if (isMountedRef.current) {
         setLoading(false);
       }
     }, 4000);
 
     const handleSettingsChange = () => {
-      if (isMountedRef.current) {
-        fetchSettings(true);
-      }
+      if (isMountedRef.current) void fetchSettings(true);
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isMountedRef.current) {
-        fetchSettings();
+        void fetchSettings();
       }
     };
 
-    const interval = setInterval(() => {
-      if (isMountedRef.current) {
-        fetchSettings();
-      }
-    }, 5 * 60 * 1000);
+    const handleFocus = () => {
+      if (isMountedRef.current) void fetchSettings();
+    };
 
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'site_settings' && e.newValue && isMountedRef.current) {
@@ -252,13 +301,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             logo: parsed.logo ? getFullLogoUrl(parsed.logo) : '',
           });
           setLoading(false);
-        } catch {}
-      }
-    };
-
-    const handleFocus = () => {
-      if (isMountedRef.current) {
-        fetchSettings();
+        } catch {
+          // ignore parse errors
+        }
       }
     };
 
@@ -267,16 +312,23 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('focus', handleFocus);
     window.addEventListener('storage', handleStorageChange);
 
+    // Poll every 5 minutes (unref'd, safe)
+    const interval = setInterval(() => {
+      if (isMountedRef.current) void fetchSettings();
+    }, 5 * 60 * 1000);
+
     return () => {
       isMountedRef.current = false;
       clearTimeout(safetyTimer);
       clearInterval(interval);
+      if (abortRef.current) abortRef.current.abort();
+
       window.removeEventListener('settings-change', handleSettingsChange);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [fetchSettings, loading]);
+  }, [fetchSettings]);
 
   return (
     <SettingsContext.Provider
@@ -294,7 +346,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function useSettings(usePublicEndpoint: boolean = false) {
-  const context = useContext(SettingsContext);
-  return context;
+// ============================================================
+// Hook
+// ============================================================
+export function useSettings() {
+  return useContext(SettingsContext);
 }

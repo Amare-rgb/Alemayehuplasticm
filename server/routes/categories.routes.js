@@ -2,9 +2,12 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
-const { requireAdmin, requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 
-// Shared select so every endpoint returns the same shape
+// ============================================================
+// Shared select — same shape for every endpoint
+// ✅ `status` and `visibility` fields REMOVED (not in schema)
+// ============================================================
 const CATEGORY_PUBLIC_SELECT = {
   id: true,
   name: true,
@@ -14,13 +17,19 @@ const CATEGORY_PUBLIC_SELECT = {
   icon: true,
   color: true,
   parentId: true,
-  status: true,
   createdAt: true,
   updatedAt: true,
 };
 
 // ============================================================
-// ADMIN — Get ALL categories (no status filter)
+// Helper — get authenticated user ID (JWT-aware)
+// ============================================================
+function getAuthUserId(req) {
+  return req.user?.id || req.userId || null;
+}
+
+// ============================================================
+// ADMIN — Get ALL categories
 // GET /api/categories/admin/all
 // ============================================================
 router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
@@ -45,22 +54,18 @@ router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // ============================================================
-// PUBLIC — Get only APPROVED categories with images
+// PUBLIC — Get all categories (no status filter anymore)
 // GET /api/categories/public
 // ============================================================
 router.get('/public', async (req, res) => {
   try {
-    // Fetch all approved categories (parents + children) in one query
     const categories = await prisma.category.findMany({
-      where: { status: 'APPROVED' },
       orderBy: [{ parentId: 'asc' }, { name: 'asc' }],
       select: {
         ...CATEGORY_PUBLIC_SELECT,
         _count: {
           select: {
-            products: {
-              where: { visibility: 'VISIBLE', status: 'APPROVED' },
-            },
+            products: true,
           },
         },
       },
@@ -74,10 +79,7 @@ router.get('/public', async (req, res) => {
 });
 
 // ============================================================
-// SHARED — Get categories (flat, or nested, or by parent)
-// GET /api/categories
-// GET /api/categories?parentId=xxx
-// GET /api/categories?includeChildren=true
+// SHARED — Get categories (flat, nested, or by parent)
 // ============================================================
 router.get('/', async (req, res) => {
   try {
@@ -86,7 +88,7 @@ router.get('/', async (req, res) => {
     // ── Subcategories of a given parent ──
     if (parentId) {
       const subcategories = await prisma.category.findMany({
-        where: { parentId, status: 'APPROVED' },
+        where: { parentId },
         orderBy: { name: 'asc' },
         select: CATEGORY_PUBLIC_SELECT,
       });
@@ -96,11 +98,10 @@ router.get('/', async (req, res) => {
     // ── Nested parent/children ──
     if (includeChildren === 'true') {
       const categories = await prisma.category.findMany({
-        where: { parentId: null, status: 'APPROVED' },
+        where: { parentId: null },
         select: {
           ...CATEGORY_PUBLIC_SELECT,
           children: {
-            where: { status: 'APPROVED' },
             select: {
               id: true,
               name: true,
@@ -115,7 +116,6 @@ router.get('/', async (req, res) => {
           ...(includeProducts === 'true'
             ? {
                 products: {
-                  where: { status: 'APPROVED', visibility: 'VISIBLE' },
                   orderBy: { createdAt: 'desc' },
                   take: 4,
                   select: {
@@ -138,7 +138,6 @@ router.get('/', async (req, res) => {
 
     // ── Flat list ──
     const categories = await prisma.category.findMany({
-      where: { status: 'APPROVED' },
       orderBy: { name: 'asc' },
       select: {
         ...CATEGORY_PUBLIC_SELECT,
@@ -154,7 +153,7 @@ router.get('/', async (req, res) => {
 });
 
 // ============================================================
-// GET /api/categories/:id — Single category with children + products
+// GET /api/categories/:id — single category with children + products
 // ============================================================
 router.get('/:id', async (req, res) => {
   try {
@@ -167,7 +166,6 @@ router.get('/:id', async (req, res) => {
       include: {
         children: { orderBy: { name: 'asc' } },
         products: {
-          where: { visibility: 'VISIBLE', status: 'APPROVED' },
           select: {
             id: true,
             name: true,
@@ -194,16 +192,7 @@ router.get('/:id', async (req, res) => {
 // ============================================================
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const {
-      name,
-      slug,
-      description,
-      parentId,
-      image,
-      icon,
-      color,
-      status,
-    } = req.body;
+    const { name, slug, description, parentId, image, icon, color } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
@@ -212,11 +201,13 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Slug is required' });
     }
 
-    const userId = req.session.user?.id || req.session.user?.userId;
+    // ✅ Get user ID from JWT middleware (not session)
+    const userId = getAuthUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
+    // Verify user exists
     const existingUser = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true },
@@ -228,8 +219,7 @@ router.post('/', requireAuth, async (req, res) => {
         .json({ error: 'Invalid user session. Please login again.' });
     }
 
-    // ✅ Normalize image path — keep it relative so the frontend can
-    //    resolve it via the /uploads rewrite in next.config.ts.
+    // Normalize image path
     let normalizedImage = image || null;
     if (normalizedImage && typeof normalizedImage === 'string') {
       normalizedImage = normalizedImage.trim();
@@ -241,6 +231,7 @@ router.post('/', requireAuth, async (req, res) => {
       if (!normalizedImage) normalizedImage = null;
     }
 
+    // ✅ `status` field REMOVED from create
     const category = await prisma.category.create({
       data: {
         name,
@@ -251,7 +242,6 @@ router.post('/', requireAuth, async (req, res) => {
         icon: icon || null,
         color: color || null,
         createdBy: existingUser.id,
-        status: status || 'APPROVED',
       },
     });
 
@@ -264,21 +254,11 @@ router.post('/', requireAuth, async (req, res) => {
 
 // ============================================================
 // UPDATE — PUT /api/categories/:id
-//   Required for the admin to change an existing category's image.
 // ============================================================
 router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      name,
-      slug,
-      description,
-      parentId,
-      image,
-      icon,
-      color,
-      status,
-    } = req.body;
+    const { name, slug, description, parentId, image, icon, color } = req.body;
 
     const existing = await prisma.category.findUnique({ where: { id } });
     if (!existing) {
@@ -292,7 +272,6 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     if (parentId !== undefined) data.parentId = parentId || null;
     if (icon !== undefined) data.icon = icon || null;
     if (color !== undefined) data.color = color || null;
-    if (status !== undefined) data.status = status;
 
     if (image !== undefined) {
       let normalizedImage = image;
@@ -317,101 +296,6 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error updating category:', error);
     res.status(500).json({ error: 'Failed to update category' });
-  }
-});
-
-// ============================================================
-// PATCH /api/categories/:id/status — Admin only
-// ============================================================
-router.patch('/:id/status', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (
-      !status ||
-      !['APPROVED', 'INACTIVE', 'HIDDEN', 'REJECTED', 'PENDING'].includes(
-        status
-      )
-    ) {
-      return res.status(400).json({ error: 'Invalid status value' });
-    }
-
-    const category = await prisma.category.update({
-      where: { id },
-      data: { status },
-    });
-
-    if (status === 'HIDDEN' || status === 'INACTIVE') {
-      await prisma.product.updateMany({
-        where: { categoryId: id },
-        data: { visibility: 'HIDDEN' },
-      });
-      await prisma.category.updateMany({
-        where: { parentId: id },
-        data: { status: 'INACTIVE' },
-      });
-    }
-
-    if (status === 'APPROVED') {
-      await prisma.product.updateMany({
-        where: { categoryId: id },
-        data: { visibility: 'VISIBLE' },
-      });
-      await prisma.category.updateMany({
-        where: { parentId: id },
-        data: { status: 'APPROVED' },
-      });
-    }
-
-    res.json({
-      success: true,
-      message: `Category ${
-        status === 'APPROVED' ? 'shown' : 'hidden'
-      } successfully`,
-      category,
-    });
-  } catch (error) {
-    console.error('Error updating category status:', error);
-    res.status(500).json({ error: 'Failed to update category status' });
-  }
-});
-
-// ============================================================
-// PATCH /api/categories/bulk-visibility — Admin only
-// ============================================================
-router.patch('/bulk-visibility', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { visibility, categoryIds } = req.body;
-
-    if (!visibility || !['VISIBLE', 'HIDDEN'].includes(visibility)) {
-      return res.status(400).json({ error: 'Invalid visibility value' });
-    }
-
-    if (!categoryIds || !Array.isArray(categoryIds) || categoryIds.length === 0) {
-      return res.status(400).json({ error: 'Category IDs are required' });
-    }
-
-    await prisma.category.updateMany({
-      where: { id: { in: categoryIds } },
-      data: { status: visibility === 'VISIBLE' ? 'APPROVED' : 'HIDDEN' },
-    });
-
-    const result = await prisma.product.updateMany({
-      where: { categoryId: { in: categoryIds } },
-      data: { visibility },
-    });
-
-    res.json({
-      success: true,
-      message: `Products in ${categoryIds.length} categor${
-        categoryIds.length === 1 ? 'y' : 'ies'
-      } ${visibility === 'VISIBLE' ? 'shown' : 'hidden'} successfully`,
-      count: result.count,
-    });
-  } catch (error) {
-    console.error('Error bulk updating category visibility:', error);
-    res.status(500).json({ error: 'Failed to update category visibility' });
   }
 });
 

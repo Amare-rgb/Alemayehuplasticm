@@ -3,12 +3,28 @@ const express = require('express');
 const router = express.Router();
 const slugify = require('slugify');
 const prisma = require('../lib/prisma');
-const { requireSeller, requireAdmin, requireAuth } = require('../middleware/auth');
+const {
+  requireAdmin,
+  requireAuth,
+} = require('../middleware/auth');
 
-// ✅ Get products for ADMIN (shows ALL including hidden)
+// ═══════════════════════════════════════════════════════════
+// NOTE: `status` and `visibility` fields were REMOVED from
+// Product and Category models. All products are public now.
+// ═══════════════════════════════════════════════════════════
+
+// ============================================================
+// GET /api/products/admin/all — Admin view (all products)
+// ============================================================
 router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 12, search, categoryId, subCategoryId, status, visibility } = req.query;
+    const {
+      page = 1,
+      limit = 12,
+      search,
+      categoryId,
+      subCategoryId,
+    } = req.query;
 
     const where = {};
 
@@ -22,8 +38,6 @@ router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
 
     if (categoryId) where.categoryId = categoryId;
     if (subCategoryId) where.subCategoryId = subCategoryId;
-    if (status) where.status = status;
-    if (visibility) where.visibility = visibility;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
@@ -35,15 +49,22 @@ router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
         take,
         orderBy: { createdAt: 'desc' },
         include: {
-          category: { select: { id: true, name: true, slug: true, status: true } },
-          subCategory: { select: { id: true, name: true, slug: true, status: true } },
+          category: { select: { id: true, name: true, slug: true } },
+          subCategory: { select: { id: true, name: true, slug: true } },
         },
       }),
       prisma.product.count({ where }),
     ]);
 
+    const productsWithNumbers = products.map((p) => ({
+      ...p,
+      price: Number(p.price),
+      discountPrice: p.discountPrice ? Number(p.discountPrice) : null,
+      pricePerUnit: p.pricePerUnit ? Number(p.pricePerUnit) : null,
+    }));
+
     res.json({
-      products,
+      products: productsWithNumbers,
       total,
       pages: Math.ceil(total / parseInt(limit)),
       page: parseInt(page),
@@ -54,19 +75,21 @@ router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// ✅ Get products for USERS (only VISIBLE and APPROVED)
+// ============================================================
+// GET /api/products/public — Public product list
+// ============================================================
 router.get('/public', async (req, res) => {
   try {
-    const { page = 1, limit = 12, search, categoryId, subCategoryId, sort } = req.query;
+    const {
+      page = 1,
+      limit = 12,
+      search,
+      categoryId,
+      subCategoryId,
+      sort,
+    } = req.query;
 
-    const where = {
-      visibility: 'VISIBLE',
-      status: 'APPROVED',
-      category: {
-        status: 'APPROVED'
-      },
-      ...(subCategoryId ? { subCategory: { status: 'APPROVED' } } : {})
-    };
+    const where = {};
 
     if (categoryId) where.categoryId = categoryId;
     if (subCategoryId) where.subCategoryId = subCategoryId;
@@ -101,8 +124,16 @@ router.get('/public', async (req, res) => {
       prisma.product.count({ where }),
     ]);
 
+    const productsWithNumbers = products.map((p) => ({
+      ...p,
+      price: Number(p.price),
+      discountPrice: p.discountPrice ? Number(p.discountPrice) : null,
+      pricePerUnit: p.pricePerUnit ? Number(p.pricePerUnit) : null,
+      salePrice: p.discountPrice ? Number(p.discountPrice) : null,
+    }));
+
     res.json({
-      products,
+      products: productsWithNumbers,
       total,
       pages: Math.ceil(total / parseInt(limit)),
       page: parseInt(page),
@@ -113,7 +144,9 @@ router.get('/public', async (req, res) => {
   }
 });
 
-// ✅ Get all products (shared for backward compatibility)
+// ============================================================
+// GET /api/products — Backward-compatible product list
+// ============================================================
 router.get('/', async (req, res) => {
   try {
     const {
@@ -125,20 +158,9 @@ router.get('/', async (req, res) => {
       minPrice,
       maxPrice,
       brand,
-      status: statusParam,
-      all = false
     } = req.query;
 
     const where = {};
-
-    // If not admin and not requesting all, only show visible & approved
-    if (!all && !statusParam) {
-      where.status = 'APPROVED';
-      where.visibility = 'VISIBLE';
-      where.category = { status: 'APPROVED' };
-    } else if (statusParam && statusParam !== 'ALL') {
-      where.status = statusParam;
-    }
 
     if (category) {
       where.category = { slug: category };
@@ -160,9 +182,12 @@ router.get('/', async (req, res) => {
 
     if (brand) where.brand = brand;
 
-    const orderBy = sort === 'price_asc' ? { price: 'asc' }
-      : sort === 'price_desc' ? { price: 'desc' }
-      : { createdAt: 'desc' };
+    const orderBy =
+      sort === 'price_asc'
+        ? { price: 'asc' }
+        : sort === 'price_desc'
+        ? { price: 'desc' }
+        : { createdAt: 'desc' };
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({
@@ -172,22 +197,35 @@ router.get('/', async (req, res) => {
         take: parseInt(limit),
         include: {
           category: {
-            select: { id: true, name: true, slug: true, description: true, image: true, parentId: true, status: true }
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              description: true,
+              image: true,
+              parentId: true,
+            },
           },
           subCategory: {
-            select: { id: true, name: true, slug: true, status: true }
+            select: { id: true, name: true, slug: true },
           },
         },
       }),
       prisma.product.count({ where }),
     ]);
 
-    const productsWithDetails = products.map(product => ({
+    const productsWithDetails = products.map((product) => ({
       ...product,
       price: Number(product.price),
-      discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
-      pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
-      salePrice: product.discountPrice ? Number(product.discountPrice) : null,
+      discountPrice: product.discountPrice
+        ? Number(product.discountPrice)
+        : null,
+      pricePerUnit: product.pricePerUnit
+        ? Number(product.pricePerUnit)
+        : null,
+      salePrice: product.discountPrice
+        ? Number(product.discountPrice)
+        : null,
     }));
 
     res.json({
@@ -202,7 +240,9 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ✅ Get single product (respects visibility for non-admins)
+// ============================================================
+// GET /api/products/:id — Single product
+// ============================================================
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -226,31 +266,15 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // Check if product is visible to public
-    const authHeader = req.headers.authorization;
-    let isAdmin = false;
-
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const jwt = require('jsonwebtoken');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret_key');
-        isAdmin = decoded.role === 'ADMIN';
-      } catch (err) {
-        // Token invalid, treat as non-admin
-      }
-    }
-
-    // If product is hidden and user is not admin, return 404
-    if (product.visibility === 'HIDDEN' && !isAdmin) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
     res.json({
       ...product,
       price: Number(product.price),
-      discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
-      pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
+      discountPrice: product.discountPrice
+        ? Number(product.discountPrice)
+        : null,
+      pricePerUnit: product.pricePerUnit
+        ? Number(product.pricePerUnit)
+        : null,
     });
   } catch (error) {
     console.error('Error fetching product:', error);
@@ -258,72 +282,14 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// ✅ Update product visibility (Admin only)
-router.patch('/:id/visibility', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { visibility } = req.body;
-
-    if (!visibility || !['VISIBLE', 'HIDDEN'].includes(visibility)) {
-      return res.status(400).json({ error: 'Invalid visibility value' });
-    }
-
-    const product = await prisma.product.update({
-      where: { id },
-      data: { visibility },
-    });
-
-    res.json({
-      success: true,
-      message: `Product ${visibility === 'VISIBLE' ? 'shown' : 'hidden'} successfully`,
-      product,
-    });
-  } catch (error) {
-    console.error('Error updating product visibility:', error);
-    res.status(500).json({ error: 'Failed to update product visibility' });
-  }
-});
-
-// ✅ Bulk update visibility (Admin only)
-router.post('/bulk-visibility', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { visibility, scope, categoryId } = req.body;
-
-    if (!visibility || !['VISIBLE', 'HIDDEN'].includes(visibility)) {
-      return res.status(400).json({ error: 'Invalid visibility value' });
-    }
-
-    let result;
-
-    if (scope === 'all') {
-      result = await prisma.product.updateMany({
-        data: { visibility },
-      });
-    } else if (scope === 'category' && categoryId) {
-      result = await prisma.product.updateMany({
-        where: { categoryId },
-        data: { visibility },
-      });
-    } else {
-      return res.status(400).json({ error: 'Invalid scope or missing categoryId' });
-    }
-
-    res.json({
-      success: true,
-      message: `Products ${visibility === 'VISIBLE' ? 'shown' : 'hidden'} successfully`,
-      count: result.count,
-    });
-  } catch (error) {
-    console.error('Error bulk updating visibility:', error);
-    res.status(500).json({ error: 'Failed to update product visibility' });
-  }
-});
-
-// ✅ Create product — with auto category image fill
+// ============================================================
+// POST /api/products — Create product
+// ============================================================
 router.post('/', requireAuth, async (req, res) => {
   try {
     const body = req.body;
-    const userId = req.session.user?.id || req.session.user?.userId;
+    const userId =
+      req.user?.id || req.user?.userId || req.session?.user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
@@ -331,44 +297,68 @@ router.post('/', requireAuth, async (req, res) => {
 
     // Handle sale price mapping
     let discountPriceValue = body.discountPrice;
-    if (body.salePrice !== undefined && body.salePrice !== null && body.salePrice !== '') {
+    if (
+      body.salePrice !== undefined &&
+      body.salePrice !== null &&
+      body.salePrice !== ''
+    ) {
       discountPriceValue = parseFloat(body.salePrice);
     }
-    if (discountPriceValue === '' || discountPriceValue === null || discountPriceValue === undefined) {
+    if (
+      discountPriceValue === '' ||
+      discountPriceValue === null ||
+      discountPriceValue === undefined
+    ) {
       discountPriceValue = null;
     }
 
     // Handle stock
     let stockValue = 0;
     if (body.stock !== undefined && body.stock !== null && body.stock !== '') {
-      stockValue = typeof body.stock === 'string' ? parseInt(body.stock, 10) : body.stock;
+      stockValue =
+        typeof body.stock === 'string' ? parseInt(body.stock, 10) : body.stock;
     }
 
     const productData = {
       name: body.name,
       description: body.description,
-      price: typeof body.price === 'string' ? parseFloat(body.price) : body.price,
+      price:
+        typeof body.price === 'string' ? parseFloat(body.price) : body.price,
       discountPrice: discountPriceValue,
       stock: stockValue,
-      sku: body.sku || `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      images: Array.isArray(body.images) && body.images.length > 0 ? body.images : ['/banners/images.jpeg'],
+      sku:
+        body.sku ||
+        `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      images:
+        Array.isArray(body.images) && body.images.length > 0
+          ? body.images
+          : ['/banners/carplastik.jpg'],
       tags: Array.isArray(body.tags) ? body.tags : [],
       warranty: body.warranty || null,
       videoUrl: body.videoUrl || null,
       sizes: body.sizes || null,
       colors: body.colors || null,
       brand: body.brand || null,
-      weight: body.weight ? (typeof body.weight === 'string' ? parseFloat(body.weight) : body.weight) : null,
+      weight: body.weight
+        ? typeof body.weight === 'string'
+          ? parseFloat(body.weight)
+          : body.weight
+        : null,
       estimatedDelivery: body.estimatedDelivery || null,
       unitOfMeasurement: body.unitOfMeasurement || 'pcs',
       durationTime: body.durationTime || '1h',
-      pricePerUnit: body.pricePerUnit ? (typeof body.pricePerUnit === 'string' ? parseFloat(body.pricePerUnit) : body.pricePerUnit) : null,
-      visibility: body.visibility || 'VISIBLE',
+      pricePerUnit: body.pricePerUnit
+        ? typeof body.pricePerUnit === 'string'
+          ? parseFloat(body.pricePerUnit)
+          : body.pricePerUnit
+        : null,
     };
 
     // Resolve category
     let resolvedCategory = await prisma.category.findFirst({
-      where: { OR: [{ id: body.categoryId }, { slug: body.categoryId }] }
+      where: {
+        OR: [{ id: body.categoryId }, { slug: body.categoryId }],
+      },
     });
 
     if (!resolvedCategory) {
@@ -376,11 +366,10 @@ router.post('/', requireAuth, async (req, res) => {
       if (!resolvedCategory) {
         resolvedCategory = await prisma.category.create({
           data: {
-            name: 'General Agriculture',
-            slug: 'general-agriculture',
-            description: 'General farm and agricultural supplies',
-            status: 'APPROVED',
-          }
+            name: 'General Plastic Products',
+            slug: 'general-plastic-products',
+            description: 'General plastic product category',
+          },
         });
       }
     }
@@ -388,15 +377,20 @@ router.post('/', requireAuth, async (req, res) => {
     let resolvedSubCategoryId = null;
     if (body.subCategoryId) {
       const foundSub = await prisma.category.findFirst({
-        where: { OR: [{ id: body.subCategoryId }, { slug: body.subCategoryId }] }
+        where: {
+          OR: [{ id: body.subCategoryId }, { slug: body.subCategoryId }],
+        },
       });
       if (foundSub) resolvedSubCategoryId = foundSub.id;
     }
 
-    const isAdmin = req.session.user?.role === 'ADMIN';
-
     // Generate slug
-    const baseSlug = slugify(productData.name, { lower: true, strict: true, trim: true }) || `product-${Date.now()}`;
+    const baseSlug =
+      slugify(productData.name, {
+        lower: true,
+        strict: true,
+        trim: true,
+      }) || `product-${Date.now()}`;
     let slug = baseSlug;
     let counter = 1;
     while (await prisma.product.findUnique({ where: { slug } })) {
@@ -410,16 +404,14 @@ router.post('/', requireAuth, async (req, res) => {
         slug,
         categoryId: resolvedCategory.id,
         subCategoryId: resolvedSubCategoryId,
-        status: isAdmin ? 'APPROVED' : 'PENDING',
       },
       include: {
         category: true,
         subCategory: true,
-      }
+      },
     });
 
-    // ✅ NEW: If the category has no image yet, use this product's first image.
-    //    Only fills empty slots — never overwrites an image the admin already set.
+    // Auto-fill category image if empty
     try {
       const firstImage =
         Array.isArray(productData.images) && productData.images.length > 0
@@ -427,9 +419,7 @@ router.post('/', requireAuth, async (req, res) => {
           : null;
 
       const isPlaceholder =
-        !firstImage ||
-        firstImage === '/banners/images.jpeg' ||
-        firstImage === '/placeholder-image.png';
+        !firstImage || firstImage === '/banners/carplastik.jpg';
 
       if (resolvedCategory && !resolvedCategory.image && !isPlaceholder) {
         const normalizedImage = firstImage.startsWith('http')
@@ -448,7 +438,10 @@ router.post('/', requireAuth, async (req, res) => {
         );
       }
     } catch (categoryImgErr) {
-      console.warn('⚠️ Could not auto-assign category image:', categoryImgErr);
+      console.warn(
+        '⚠️ Could not auto-assign category image:',
+        categoryImgErr
+      );
     }
 
     res.status(201).json({
@@ -456,82 +449,103 @@ router.post('/', requireAuth, async (req, res) => {
       product: {
         ...product,
         price: Number(product.price),
-        discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
-        pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
+        discountPrice: product.discountPrice
+          ? Number(product.discountPrice)
+          : null,
+        pricePerUnit: product.pricePerUnit
+          ? Number(product.pricePerUnit)
+          : null,
       },
-      message: isAdmin ? 'Product created and published!' : 'Product submitted for admin approval'
+      message: 'Product created successfully!',
     });
   } catch (error) {
     console.error('Product creation error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to create product',
       details: error.message,
     });
   }
 });
 
-// ✅ Update product
+// ============================================================
+// PUT /api/products/:id — Update product
+// ============================================================
 router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const body = req.body;
-    const userId = req.session.user?.id || req.session.user?.userId;
+    const userId =
+      req.user?.id || req.user?.userId || req.session?.user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const existingProduct = await prisma.product.findUnique({ where: { id } });
+    const existingProduct = await prisma.product.findUnique({
+      where: { id },
+    });
 
     if (!existingProduct) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // Check ownership
-    const isAdmin = req.session.user?.role === 'ADMIN';
-
-    // Prepare update data
     const updateData = {};
 
     if (body.name !== undefined) updateData.name = body.name;
-    if (body.description !== undefined) updateData.description = body.description;
-    if (body.price !== undefined) updateData.price = parseFloat(body.price);
+    if (body.description !== undefined)
+      updateData.description = body.description;
+    if (body.price !== undefined)
+      updateData.price = parseFloat(body.price);
     if (body.discountPrice !== undefined) {
-      updateData.discountPrice = body.discountPrice ? parseFloat(body.discountPrice) : null;
+      updateData.discountPrice = body.discountPrice
+        ? parseFloat(body.discountPrice)
+        : null;
     }
     if (body.pricePerUnit !== undefined) {
-      updateData.pricePerUnit = body.pricePerUnit ? parseFloat(body.pricePerUnit) : null;
+      updateData.pricePerUnit = body.pricePerUnit
+        ? parseFloat(body.pricePerUnit)
+        : null;
     }
     if (body.stock !== undefined) {
-      updateData.stock = typeof body.stock === 'string' ? parseInt(body.stock, 10) : body.stock;
+      updateData.stock =
+        typeof body.stock === 'string'
+          ? parseInt(body.stock, 10)
+          : body.stock;
     }
     if (body.images !== undefined) updateData.images = body.images;
-    if (body.tags !== undefined) updateData.tags = Array.isArray(body.tags) ? body.tags : [];
+    if (body.tags !== undefined)
+      updateData.tags = Array.isArray(body.tags) ? body.tags : [];
     if (body.brand !== undefined) updateData.brand = body.brand || null;
-    if (body.warranty !== undefined) updateData.warranty = body.warranty || null;
-    if (body.videoUrl !== undefined) updateData.videoUrl = body.videoUrl || null;
-    if (body.unitOfMeasurement !== undefined) updateData.unitOfMeasurement = body.unitOfMeasurement;
-    if (body.durationTime !== undefined) updateData.durationTime = body.durationTime || '1h';
+    if (body.warranty !== undefined)
+      updateData.warranty = body.warranty || null;
+    if (body.videoUrl !== undefined)
+      updateData.videoUrl = body.videoUrl || null;
+    if (body.unitOfMeasurement !== undefined)
+      updateData.unitOfMeasurement = body.unitOfMeasurement;
+    if (body.durationTime !== undefined)
+      updateData.durationTime = body.durationTime || '1h';
     if (body.weight !== undefined) {
-      updateData.weight = body.weight ? (typeof body.weight === 'string' ? parseFloat(body.weight) : body.weight) : null;
-    }
-    if (body.visibility !== undefined && isAdmin) {
-      updateData.visibility = body.visibility;
-    }
-    if (body.status !== undefined && isAdmin) {
-      updateData.status = body.status;
+      updateData.weight = body.weight
+        ? typeof body.weight === 'string'
+          ? parseFloat(body.weight)
+          : body.weight
+        : null;
     }
 
     if (body.categoryId) {
       const cat = await prisma.category.findFirst({
-        where: { OR: [{ id: body.categoryId }, { slug: body.categoryId }] },
+        where: {
+          OR: [{ id: body.categoryId }, { slug: body.categoryId }],
+        },
       });
       if (cat) updateData.categoryId = cat.id;
     }
 
     if (body.subCategoryId) {
       const subCat = await prisma.category.findFirst({
-        where: { OR: [{ id: body.subCategoryId }, { slug: body.subCategoryId }] },
+        where: {
+          OR: [{ id: body.subCategoryId }, { slug: body.subCategoryId }],
+        },
       });
       if (subCat) updateData.subCategoryId = subCat.id;
     }
@@ -545,7 +559,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       },
     });
 
-    // ✅ NEW: Also auto-fill the category image on update, if it's still empty
+    // Auto-fill category image if empty
     try {
       const firstImage =
         Array.isArray(updateData.images) && updateData.images.length > 0
@@ -553,11 +567,14 @@ router.put('/:id', requireAuth, async (req, res) => {
           : null;
 
       const isPlaceholder =
-        !firstImage ||
-        firstImage === '/banners/images.jpeg' ||
-        firstImage === '/placeholder-image.png';
+        !firstImage || firstImage === '/banners/carplastik.jpg';
 
-      if (updated.category && !updated.category.image && !isPlaceholder && firstImage) {
+      if (
+        updated.category &&
+        !updated.category.image &&
+        !isPlaceholder &&
+        firstImage
+      ) {
         const normalizedImage = firstImage.startsWith('http')
           ? firstImage
           : firstImage.startsWith('/')
@@ -568,13 +585,12 @@ router.put('/:id', requireAuth, async (req, res) => {
           where: { id: updated.category.id },
           data: { image: normalizedImage },
         });
-
-        console.log(
-          `🖼️ Category "${updated.category.name}" image auto-set from updated product: ${normalizedImage}`
-        );
       }
     } catch (categoryImgErr) {
-      console.warn('⚠️ Could not auto-assign category image on update:', categoryImgErr);
+      console.warn(
+        '⚠️ Could not auto-assign category image on update:',
+        categoryImgErr
+      );
     }
 
     res.json({
@@ -582,8 +598,12 @@ router.put('/:id', requireAuth, async (req, res) => {
       product: {
         ...updated,
         price: Number(updated.price),
-        discountPrice: updated.discountPrice ? Number(updated.discountPrice) : null,
-        pricePerUnit: updated.pricePerUnit ? Number(updated.pricePerUnit) : null,
+        discountPrice: updated.discountPrice
+          ? Number(updated.discountPrice)
+          : null,
+        pricePerUnit: updated.pricePerUnit
+          ? Number(updated.pricePerUnit)
+          : null,
       },
       message: 'Product updated successfully',
     });
@@ -593,30 +613,33 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// ✅ Delete product
+// ============================================================
+// DELETE /api/products/:id — Delete product
+// ============================================================
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.session.user?.id || req.session.user?.userId;
+    const userId =
+      req.user?.id || req.user?.userId || req.session?.user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const existingProduct = await prisma.product.findUnique({ where: { id } });
+    const existingProduct = await prisma.product.findUnique({
+      where: { id },
+    });
 
     if (!existingProduct) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // Delete related records
     await prisma.$transaction([
       prisma.review.deleteMany({ where: { productId: id } }),
       prisma.cartItem.deleteMany({ where: { productId: id } }),
       prisma.orderItem.deleteMany({ where: { productId: id } }),
     ]);
 
-    // Delete product
     await prisma.product.delete({ where: { id } });
 
     res.json({ success: true, message: 'Product deleted successfully' });

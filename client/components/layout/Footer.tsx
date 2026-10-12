@@ -8,17 +8,6 @@ import { usePathname } from "next/navigation";
 import { useSettings } from "@/hooks/useSettings";
 import { useLanguage } from "@/context/LanguageContext";
 
-function BrandMark() {
-  return (
-    <span className="brand-mark shrink-0" aria-hidden="true">
-      <span className="leaf leaf-one" />
-      <span className="leaf leaf-two" />
-      <span className="stem" />
-    </span>
-  );
-}
-
-
 const subscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
@@ -30,76 +19,70 @@ function useMounted() {
 export const Footer = () => {
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith("/admin") || false;
-  const { settings, loading } = useSettings();
+  const { settings } = useSettings();
   const { t } = useLanguage();
 
-  // Use consistent fallback values that match between server and client
-  const DEFAULT_EMAIL = 'info@genesisagri.com';
-  const DEFAULT_PHONE = '+251 900 000 000';
-  const DEFAULT_ADDRESS = 'Addis Ababa, Ethiopia';
-  const DEFAULT_SITE_NAME = 'Genesis Agri Business';
-  const DEFAULT_SITE_DESCRIPTION = '';
+  // ✅ Rebranded defaults — Alemayehu Plastic Manufacturing
+  const DEFAULT_EMAIL = "info@alemayehplastic.com";
+  const DEFAULT_PHONE = "+251 900 000 000";
+  const DEFAULT_ADDRESS = "Bahir Dar, Ethiopia";
+  const DEFAULT_SITE_NAME = "Alemayehu Plastic Manufacturing";
+  const DEFAULT_SITE_DESCRIPTION = "PLASTIC MANUFACTURING";
+  const DEFAULT_LOGO = "/banners/plastik.png";
 
   const mounted = useMounted();
 
   // Only use settings values after client-side mount
-  const contactEmail = mounted ? (settings?.contactEmail || DEFAULT_EMAIL) : DEFAULT_EMAIL;
-  const contactPhone = mounted ? (settings?.contactPhone || DEFAULT_PHONE) : DEFAULT_PHONE;
-  const contactAddress = mounted ? (settings?.contactAddress || DEFAULT_ADDRESS) : DEFAULT_ADDRESS;
-  const siteName = mounted ? (settings?.siteName || DEFAULT_SITE_NAME) : DEFAULT_SITE_NAME;
-  const logoUrl = mounted ? (settings?.logo || '') : '';
-  const siteDescription = mounted ? (settings?.siteDescription || DEFAULT_SITE_DESCRIPTION) : DEFAULT_SITE_DESCRIPTION;
-  const enableWhatsApp = mounted ? (settings?.enableWhatsApp || false) : false;
-  const whatsAppNumber = mounted ? (settings?.whatsAppNumber || '') : '';
+  const contactEmail = mounted
+    ? settings?.contactEmail || DEFAULT_EMAIL
+    : DEFAULT_EMAIL;
+  const contactPhone = mounted
+    ? settings?.contactPhone || DEFAULT_PHONE
+    : DEFAULT_PHONE;
+  const contactAddress = mounted
+    ? settings?.contactAddress || DEFAULT_ADDRESS
+    : DEFAULT_ADDRESS;
+  const siteName = mounted
+    ? settings?.siteName || DEFAULT_SITE_NAME
+    : DEFAULT_SITE_NAME;
+  const logoUrl = mounted ? settings?.logo || DEFAULT_LOGO : DEFAULT_LOGO;
+  const siteDescription = mounted
+    ? settings?.siteDescription || DEFAULT_SITE_DESCRIPTION
+    : DEFAULT_SITE_DESCRIPTION;
+  const enableWhatsApp = mounted ? settings?.enableWhatsApp || false : false;
+  const whatsAppNumber = mounted ? settings?.whatsAppNumber || "" : "";
 
   if (isAdminRoute) {
     return null;
   }
 
-  // Use a static year to avoid hydration mismatch
+  // Static year to avoid hydration mismatch
   const currentYear = 2026;
 
-  // Render content based on mounted state
   const renderContent = () => {
-    // This ensures both server and client render the same HTML initially
     const showDescription = mounted && siteDescription;
 
     return (
-      <footer className="bg-[#081b12] text-white">
+      <footer className="bg-[#1a1410] text-white">
         <div className="mx-auto grid w-[min(1180px,calc(100%-48px))] grid-cols-[2fr_1fr_1.4fr_1fr] gap-11 py-16 max-lg:grid-cols-3 max-sm:grid-cols-2">
           <div className="max-sm:col-span-2">
             <Link href="/" className="mb-5 flex items-center gap-3">
-              <div className="relative h-10 w-10 rounded-full overflow-hidden flex items-center justify-center bg-[#0b2419] border border-white/10 shadow-sm flex-shrink-0">
-                {logoUrl ? (
-                  <Image
-                    src={logoUrl}
-                    alt={siteName}
-                    width={40}
-                    height={40}
-                    className="h-full w-full object-cover"
-                    onError={(e) => {
-                      // Show fallback brand mark on error
-                      const parent = (e.currentTarget as HTMLElement).parentElement;
-                      if (parent) {
-                        const fallback = document.createElement('span');
-                        fallback.className = 'brand-mark shrink-0';
-                        fallback.innerHTML = '<span class="leaf leaf-one"></span><span class="leaf leaf-two"></span><span class="stem"></span>';
-                        parent.appendChild(fallback);
-                        (e.currentTarget as HTMLElement).style.display = 'none';
-                      }
-                    }}
-                  />
-                ) : (
-                  <BrandMark />
-                )}
+              <div className="relative h-10 w-10 rounded-full overflow-hidden flex items-center justify-center bg-[#2a1f18] border border-[#e0a83c]/25 shadow-sm flex-shrink-0">
+                <Image
+                  src={logoUrl}
+                  alt={siteName}
+                  width={40}
+                  height={40}
+                  className="h-full w-full object-cover"
+                />
               </div>
 
               <span className="grid gap-[3px] leading-none">
-                <strong className="text-[16px] tracking-[0.12em] font-serif">
+                <strong className="text-[16px] tracking-[0.12em] font-serif text-white">
                   {siteName.toUpperCase()}
                 </strong>
                 {showDescription && (
-                  <small className="text-[8px] tracking-[0.18em] opacity-75 line-clamp-1">
+                  <small className="text-[8px] tracking-[0.18em] text-white/60 line-clamp-1">
                     {siteDescription.toUpperCase()}
                   </small>
                 )}
@@ -107,14 +90,18 @@ export const Footer = () => {
             </Link>
 
             <p className="text-[11px] leading-[1.8] text-white/40">
-              {t("footer.tagline_1", "Fresh agriculture. Fair prices.")}
+              {t("footer.tagline_1", "Quality plastic. Built to last.")}
               <br />
-              {t("footer.tagline_2", "A shorter journey from farm to table.")}
+              {t(
+                "footer.tagline_2",
+                "A shorter journey from our factory to your hands."
+              )}
             </p>
           </div>
 
+          {/* Explore column — Tana Farm and Blog removed */}
           <div className="grid content-start gap-2">
-            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--lime)]">
+            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[#e0a83c]">
               {t("footer.explore", "Explore")}
             </h4>
 
@@ -126,10 +113,10 @@ export const Footer = () => {
             </Link>
 
             <Link
-              href="/#tana-farm"
+              href="/#facility"
               className="text-[11px] text-white/60 transition hover:text-white"
             >
-              {t("footer.tana_farm", "Tana Farm")}
+              {t("footer.our_facility", "Our Facility")}
             </Link>
 
             <Link
@@ -140,15 +127,16 @@ export const Footer = () => {
             </Link>
 
             <Link
-              href="/blog"
+              href="/shop"
               className="text-[11px] text-white/60 transition hover:text-white"
             >
-              {t("footer.our_blogs", "Our Blogs")}
+              {t("footer.shop", "Shop")}
             </Link>
           </div>
 
+          {/* Contact column */}
           <div className="grid content-start gap-2">
-            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--lime)]">
+            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[#e0a83c]">
               {t("footer.contact", "Contact")}
             </h4>
 
@@ -160,7 +148,7 @@ export const Footer = () => {
             </a>
 
             <a
-              href={`tel:${contactPhone.replace(/\s/g, '')}`}
+              href={`tel:${contactPhone.replace(/\s/g, "")}`}
               className="text-[11px] text-white/60 transition hover:text-white"
             >
               {contactPhone}
@@ -168,10 +156,10 @@ export const Footer = () => {
 
             {enableWhatsApp && whatsAppNumber && (
               <a
-                href={`https://wa.me/${whatsAppNumber.replace(/[^0-9]/g, '')}`}
+                href={`https://wa.me/${whatsAppNumber.replace(/[^0-9]/g, "")}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[11px] text-[var(--lime)] transition hover:underline"
+                className="text-[11px] text-[#e0a83c] transition hover:underline"
               >
                 {t("footer.whatsapp_support", "WhatsApp Support ↗")}
               </a>
@@ -182,8 +170,9 @@ export const Footer = () => {
             </span>
           </div>
 
+          {/* Social column */}
           <div className="grid content-start gap-2">
-            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--lime)]">
+            <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[#e0a83c]">
               {t("footer.follow", "Follow")}
             </h4>
 
@@ -191,31 +180,35 @@ export const Footer = () => {
               href="#"
               className="text-[11px] text-white/60 transition hover:text-white"
             >
-              Facebook ↗
+              Facebook 
             </a>
 
             <a
               href="#"
               className="text-[11px] text-white/60 transition hover:text-white"
             >
-              Instagram ↗
+              Instagram 
             </a>
 
             <a
               href="#"
               className="text-[11px] text-white/60 transition hover:text-white"
             >
-              Telegram ↗
+              Telegram 
             </a>
           </div>
         </div>
 
+        {/* Bottom bar */}
         <div className="mx-auto flex w-[min(1180px,calc(100%-48px))] justify-between border-t border-white/10 py-5 text-[9px] text-white/30 max-sm:flex-col max-sm:gap-2">
           <span>
-            © {currentYear} {siteName}. {t("footer.all_rights_reserved", "All rights reserved.")}
+            © {currentYear} {siteName}.{" "}
+            {t("footer.all_rights_reserved", "All rights reserved.")}
           </span>
 
-          <span>{t("footer.built_around", "Built around the farm-to-table idea.")}</span>
+          <span>
+            {t("footer.built_around", "Built around quality manufacturing.")}
+          </span>
         </div>
       </footer>
     );

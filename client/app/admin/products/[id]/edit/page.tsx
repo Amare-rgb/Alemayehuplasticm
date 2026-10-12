@@ -1,11 +1,17 @@
 // app/admin/products/[id]/edit/page.tsx
-'use client';
+"use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import Image from 'next/image';
-import axios, { AxiosError } from 'axios';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import axios, { AxiosError } from "axios";
 import {
   ArrowLeft,
   Save,
@@ -22,36 +28,36 @@ import {
   FolderPlus,
   Clock,
   Calendar,
-} from 'lucide-react';
+} from "lucide-react";
 
 // ============================================================
-// API base — strip trailing slash
+// API base
 // ============================================================
 const RAW_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'http://localhost:5000';
-const API_URL = RAW_API_BASE.replace(/\/+$/, '');
+  "http://localhost:5000";
+const API_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-const DEFAULT_IMAGE = '/placeholder.svg';
+const DEFAULT_IMAGE = "/banners/carplastik.jpg";
 
 // ============================================================
 // Shared image resolver
 // ============================================================
 function resolveImage(raw: unknown): string {
-  if (typeof raw !== 'string') return DEFAULT_IMAGE;
+  if (typeof raw !== "string") return DEFAULT_IMAGE;
   const s = raw.trim();
   if (!s) return DEFAULT_IMAGE;
 
-  if (s.startsWith('http://') || s.startsWith('https://')) return s;
-  if (s.startsWith('res.cloudinary.com/')) return `https://${s}`;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  if (s.startsWith('/uploads/') || s.startsWith('uploads/')) {
-    const clean = s.startsWith('/') ? s : `/${s}`;
+  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
+    const clean = s.startsWith("/") ? s : `/${s}`;
     return `${API_URL}${clean}`;
   }
 
-  if (!s.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
+  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
     return `${API_URL}/uploads/products/${s}`;
   }
 
@@ -63,16 +69,16 @@ function resolveImage(raw: unknown): string {
 // ============================================================
 const api = axios.create({
   baseURL: API_URL,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { "Content-Type": "application/json" },
   withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
   const token =
-    localStorage.getItem('token') ||
-    sessionStorage.getItem('token') ||
-    localStorage.getItem('authToken') ||
-    sessionStorage.getItem('authToken');
+    localStorage.getItem("token") ||
+    sessionStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    sessionStorage.getItem("authToken");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -81,14 +87,17 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('authToken');
-      sessionStorage.removeItem('token');
-      sessionStorage.removeItem('authToken');
-      localStorage.removeItem('user');
-      sessionStorage.removeItem('user');
-      if (typeof window !== 'undefined') {
-        window.location.href = '/auth/signin';
+      localStorage.removeItem("token");
+      localStorage.removeItem("authToken");
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("authToken");
+      localStorage.removeItem("user");
+      sessionStorage.removeItem("user");
+      if (typeof window !== "undefined") {
+        // Full-page redirect is intentional: we need to fully reset all
+        // React state after an auth failure.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.href = "/auth/signin";
       }
     }
     return Promise.reject(error);
@@ -126,56 +135,61 @@ interface EditProductPageProps {
 }
 
 // ============================================================
-// Options
+// Options — plastic-focused units
 // ============================================================
 const unitOptions = [
-  { value: 'kg', label: 'Kilogram (kg)' },
-  { value: 'g', label: 'Gram (g)' },
-  { value: 'lb', label: 'Pound (lb)' },
-  { value: 'oz', label: 'Ounce (oz)' },
-  { value: 'ton', label: 'Ton' },
-  { value: 'pcs', label: 'Pieces (pcs)' },
-  { value: 'pack', label: 'Pack' },
-  { value: 'box', label: 'Box' },
-  { value: 'bag', label: 'Bag' },
-  { value: 'bottle', label: 'Bottle' },
-  { value: 'liter', label: 'Liter (L)' },
-  { value: 'ml', label: 'Milliliter (ml)' },
-  { value: 'gallon', label: 'Gallon (gal)' },
-  { value: 'acre', label: 'Acre' },
-  { value: 'hectare', label: 'Hectare' },
+  { value: "pcs", label: "Pieces (pcs)" },
+  { value: "set", label: "Set" },
+  { value: "pack", label: "Pack" },
+  { value: "box", label: "Box" },
+  { value: "bag", label: "Bag" },
+  { value: "roll", label: "Roll" },
+  { value: "sheet", label: "Sheet" },
+  { value: "kg", label: "Kilogram (kg)" },
+  { value: "g", label: "Gram (g)" },
+  { value: "ton", label: "Ton" },
+  { value: "liter", label: "Liter (L)" },
+  { value: "ml", label: "Milliliter (ml)" },
+  { value: "m", label: "Meter (m)" },
+  { value: "cm", label: "Centimeter (cm)" },
+  { value: "inch", label: "Inch" },
+  { value: "unit", label: "Unit" },
 ];
 
 const durationOptions = [
-  { value: '30m', label: '30 Minutes' },
-  { value: '1h', label: '1 Hour' },
-  { value: '2h', label: '2 Hours' },
-  { value: '4h', label: '4 Hours' },
-  { value: '8h', label: '8 Hours' },
-  { value: '12h', label: '12 Hours' },
-  { value: '24h', label: '24 Hours' },
-  { value: '2d', label: '2 Days' },
-  { value: '3d', label: '3 Days' },
-  { value: '5d', label: '5 Days' },
-  { value: '7d', label: '7 Days' },
-  { value: '10d', label: '10 Days' },
-  { value: '14d', label: '14 Days' },
-  { value: '21d', label: '21 Days' },
-  { value: '30d', label: '30 Days' },
-  { value: '60d', label: '60 Days' },
-  { value: '90d', label: '90 Days' },
+  { value: "30m", label: "30 Minutes" },
+  { value: "1h", label: "1 Hour" },
+  { value: "2h", label: "2 Hours" },
+  { value: "4h", label: "4 Hours" },
+  { value: "8h", label: "8 Hours" },
+  { value: "12h", label: "12 Hours" },
+  { value: "24h", label: "24 Hours" },
+  { value: "2d", label: "2 Days" },
+  { value: "3d", label: "3 Days" },
+  { value: "5d", label: "5 Days" },
+  { value: "7d", label: "7 Days" },
+  { value: "10d", label: "10 Days" },
+  { value: "14d", label: "14 Days" },
+  { value: "21d", label: "21 Days" },
+  { value: "30d", label: "30 Days" },
+  { value: "60d", label: "60 Days" },
+  { value: "90d", label: "90 Days" },
 ];
 
 // ============================================================
 // Notification
 // ============================================================
 interface NotificationProps {
-  type: 'success' | 'error' | 'info' | 'warning';
+  type: "success" | "error" | "info" | "warning";
   message: string;
   onClose: () => void;
 }
 
-const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) => {
+const Notification: React.FC<NotificationProps> = ({
+  type,
+  message,
+  onClose,
+}) => {
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
@@ -188,11 +202,11 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
 
   const getIcon = () => {
     switch (type) {
-      case 'success':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case 'error':
+      case "success":
+        return <CheckCircle className="w-5 h-5 text-yellow-500" />;
+      case "error":
         return <XCircle className="w-5 h-5 text-red-500" />;
-      case 'warning':
+      case "warning":
         return <AlertCircle className="w-5 h-5 text-yellow-500" />;
       default:
         return <Info className="w-5 h-5 text-blue-500" />;
@@ -201,21 +215,21 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
 
   const getColors = () => {
     switch (type) {
-      case 'success':
-        return 'bg-green-50 border-green-200 text-green-800';
-      case 'error':
-        return 'bg-red-50 border-red-200 text-red-800';
-      case 'warning':
-        return 'bg-yellow-50 border-yellow-200 text-yellow-800';
+      case "success":
+        return "bg-yellow-50 border-yellow-200 text-yellow-800";
+      case "error":
+        return "bg-red-50 border-red-200 text-red-800";
+      case "warning":
+        return "bg-yellow-50 border-yellow-200 text-yellow-800";
       default:
-        return 'bg-blue-50 border-blue-200 text-blue-800';
+        return "bg-blue-50 border-blue-200 text-blue-800";
     }
   };
 
   return (
     <div
       className={`fixed top-4 right-4 z-50 transition-all duration-300 ${
-        isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'
+        isVisible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-full"
       }`}
     >
       <div
@@ -241,16 +255,14 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
 // Auth helpers
 // ============================================================
 const getToken = (): string | null => {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   return (
-    localStorage.getItem('token') ||
-    sessionStorage.getItem('token') ||
-    localStorage.getItem('authToken') ||
-    sessionStorage.getItem('authToken')
+    localStorage.getItem("token") ||
+    sessionStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    sessionStorage.getItem("authToken")
   );
 };
-
-const isAuthenticated = (): boolean => !!getToken();
 
 // ============================================================
 // Add Category Modal
@@ -270,11 +282,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
   onCategoryAdded,
   title,
   isSubCategory = false,
-  parentCategoryId = '',
+  parentCategoryId = "",
 }) => {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [slug, setSlug] = useState('');
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [slug, setSlug] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -282,25 +294,26 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
   const generateSlug = (value: string) =>
     value
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setName(value);
-    setSlug(value ? generateSlug(value) : '');
+    setSlug(value ? generateSlug(value) : "");
   };
 
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await api.get('/api/categories');
+      const response = await api.get("/api/categories");
       let categoriesData = [];
       if (Array.isArray(response.data)) categoriesData = response.data;
-      else if (response.data?.categories) categoriesData = response.data.categories;
+      else if (response.data?.categories)
+        categoriesData = response.data.categories;
       else if (response.data?.data) categoriesData = response.data.data;
       setCategories(categoriesData.filter((cat: Category) => !cat.parentId));
     } catch (err) {
-      console.log('Categories fetch error:', err);
+      console.log("Categories fetch error:", err);
     }
   }, []);
 
@@ -321,17 +334,17 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     try {
       const token = getToken();
       if (!token) {
-        setError('Authentication required');
+        setError("Authentication required");
         setLoading(false);
         return;
       }
       if (!name.trim()) {
-        setError('Name is required');
+        setError("Name is required");
         setLoading(false);
         return;
       }
       if (!slug.trim()) {
-        setError('Slug is required');
+        setError("Slug is required");
         setLoading(false);
         return;
       }
@@ -340,41 +353,41 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         name: string;
         slug: string;
         description?: string;
-        status: string;
         parentId?: string;
       } = {
         name: name.trim(),
         slug: slug.trim(),
         description: description.trim() || undefined,
-        status: 'APPROVED',
       };
 
       if (isSubCategory && parentCategoryId) {
         payload.parentId = parentCategoryId;
       }
 
-      const response = await api.post('/api/categories', payload, {
+      const response = await api.post("/api/categories", payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (response.data) {
         const newCategory = response.data.category || response.data;
         onCategoryAdded(newCategory);
-        setName('');
-        setDescription('');
-        setSlug('');
+        setName("");
+        setDescription("");
+        setSlug("");
         onClose();
       }
     } catch (err) {
-      console.error('Error creating category:', err);
+      console.error("Error creating category:", err);
       if (axios.isAxiosError(err)) {
         const errorMsg =
           err.response?.data?.error ||
           err.response?.data?.message ||
-          `Failed to create ${isSubCategory ? 'subcategory' : 'category'}`;
+          `Failed to create ${isSubCategory ? "subcategory" : "category"}`;
         setError(errorMsg);
       } else {
-        setError(`Failed to create ${isSubCategory ? 'subcategory' : 'category'}`);
+        setError(
+          `Failed to create ${isSubCategory ? "subcategory" : "category"}`
+        );
       }
     } finally {
       setLoading(false);
@@ -429,8 +442,10 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 value={name}
                 onChange={handleNameChange}
                 required
-                placeholder={`Enter ${isSubCategory ? 'subcategory' : 'category'} name`}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                placeholder={`Enter ${
+                  isSubCategory ? "subcategory" : "category"
+                } name`}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
               />
             </div>
             <div>
@@ -441,13 +456,17 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 type="text"
                 value={slug}
                 onChange={(e) =>
-                  setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, '-'))
+                  setSlug(
+                    e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, "-")
+                  )
                 }
                 required
                 placeholder="auto-generated"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm bg-gray-50"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm bg-gray-50"
               />
-              <p className="text-xs text-gray-400 mt-1">URL-friendly version</p>
+              <p className="text-xs text-gray-400 mt-1">
+                URL-friendly version
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -458,7 +477,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Description (optional)"
                 rows={3}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
               />
             </div>
             {error && (
@@ -479,11 +498,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
             <button
               type="submit"
               disabled={loading || !name.trim() || !slug.trim()}
-              className="px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 text-sm text-white bg-yellow-500 rounded-lg hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading
-                ? 'Creating...'
-                : `Create ${isSubCategory ? 'Subcategory' : 'Category'}`}
+                ? "Creating..."
+                : `Create ${isSubCategory ? "Subcategory" : "Category"}`}
             </button>
           </div>
         </form>
@@ -493,14 +512,14 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 };
 
 // ============================================================
-// SKU
+// SKU generator
 // ============================================================
 const generateSKU = () => {
-  const prefix = 'PRD';
+  const prefix = "APM";
   const timestamp = Date.now().toString().slice(-6);
   const random = Math.floor(Math.random() * 1000)
     .toString()
-    .padStart(3, '0');
+    .padStart(3, "0");
   return `${prefix}-${timestamp}-${random}`;
 };
 
@@ -516,7 +535,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{
-    type: 'success' | 'error' | 'info' | 'warning';
+    type: "success" | "error" | "info" | "warning";
     message: string;
   } | null>(null);
   const [productId, setProductId] = useState<string | null>(null);
@@ -524,27 +543,27 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   const [subCategories, setSubCategories] = useState<Category[]>([]);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
-  const [newSku, setNewSku] = useState<string>('');
+  const [newSku, setNewSku] = useState<string>("");
 
   const [authLoading, setAuthLoading] = useState(true);
   const [authed, setAuthed] = useState(false);
 
   const [formData, setFormData] = useState<ProductFormData>({
-    name: '',
-    description: '',
-    price: '',
-    discountPrice: '',
-    sku: '',
-    categoryId: '',
-    subCategoryId: '',
+    name: "",
+    description: "",
+    price: "",
+    discountPrice: "",
+    sku: "",
+    categoryId: "",
+    subCategoryId: "",
     tags: [],
     images: [],
-    weight: '',
-    unitOfMeasurement: 'kg',
-    durationTime: '1h',
+    weight: "",
+    unitOfMeasurement: "pcs",
+    durationTime: "1h",
   });
 
-  const [newTag, setNewTag] = useState('');
+  const [newTag, setNewTag] = useState("");
   const isMounted = useRef(true);
 
   const hasSetProductId = useRef(false);
@@ -556,10 +575,11 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   useEffect(() => {
     const checkAuth = () => {
       const token = getToken();
-      const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
+      const userData =
+        localStorage.getItem("user") || sessionStorage.getItem("user");
 
       if (!token) {
-        router.replace('/auth/signin');
+        router.replace("/auth/signin");
         setAuthLoading(false);
         return;
       }
@@ -567,17 +587,17 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
       if (userData) {
         try {
           const parsedUser = JSON.parse(userData);
-          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
-            router.replace('/');
+          if (parsedUser.role?.toUpperCase() !== "ADMIN") {
+            router.replace("/");
             setAuthLoading(false);
             return;
           }
           setAuthed(true);
         } catch {
-          router.replace('/auth/signin');
+          router.replace("/auth/signin");
         }
       } else {
-        router.replace('/auth/signin');
+        router.replace("/auth/signin");
       }
       setAuthLoading(false);
     };
@@ -595,7 +615,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   }, [initialSKU]);
 
   const showNotification = (
-    type: 'success' | 'error' | 'info' | 'warning',
+    type: "success" | "error" | "info" | "warning",
     message: string
   ) => setNotification({ type, message });
 
@@ -620,23 +640,18 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   // ── Fetch categories ────────────────────────────────────
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await api.get('/api/categories');
+      const response = await api.get("/api/categories");
       let categoriesData = [];
       if (Array.isArray(response.data)) categoriesData = response.data;
-      else if (response.data?.categories) categoriesData = response.data.categories;
+      else if (response.data?.categories)
+        categoriesData = response.data.categories;
       else if (response.data?.data) categoriesData = response.data.data;
       setCategories(categoriesData.filter((cat: Category) => !cat.parentId));
     } catch (err) {
-      console.log('Categories fetch error:', err);
+      console.log("Categories fetch error:", err);
     }
   }, []);
 
-  /**
-   * Fetch subcategories for a parent category.
-   * ✅ IMPORTANT: When parentId is empty, this clears the list.
-   *    We DON'T call it from a useEffect that also has a separate
-   *    "else clear" branch — that was the source of the React warning.
-   */
   const fetchSubCategories = useCallback(async (parentId: string) => {
     if (!parentId) {
       setSubCategories([]);
@@ -647,19 +662,23 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
       const response = await api.get(`/api/categories?parentId=${parentId}`);
       let subCategoriesData = [];
       if (Array.isArray(response.data)) subCategoriesData = response.data;
-      else if (response.data?.categories) subCategoriesData = response.data.categories;
+      else if (response.data?.categories)
+        subCategoriesData = response.data.categories;
       else if (response.data?.data) subCategoriesData = response.data.data;
       setSubCategories(subCategoriesData);
     } catch {
       try {
-        const response = await api.get('/api/categories');
+        const response = await api.get("/api/categories");
         let allData = [];
         if (Array.isArray(response.data)) allData = response.data;
-        else if (response.data?.categories) allData = response.data.categories;
+        else if (response.data?.categories)
+          allData = response.data.categories;
         else if (response.data?.data) allData = response.data.data;
-        setSubCategories(allData.filter((cat: Category) => cat.parentId === parentId));
+        setSubCategories(
+          allData.filter((cat: Category) => cat.parentId === parentId)
+        );
       } catch (err2) {
-        console.log('Subcategories fetch error:', err2);
+        console.log("Subcategories fetch error:", err2);
       }
     }
   }, []);
@@ -682,8 +701,11 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
 
         const token = getToken();
         if (!token) {
-          showNotification('error', 'Authentication required. Please login again.');
-          router.push('/auth/signin');
+          showNotification(
+            "error",
+            "Authentication required. Please login again."
+          );
+          router.push("/auth/signin");
           return;
         }
 
@@ -699,66 +721,71 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
 
         if (product) {
           hasFetchedProduct.current = true;
-          const categoryId = product.categoryId || product.category?.id || '';
-          const subCategoryId = product.subCategoryId || product.subCategory?.id || '';
+          const categoryId = product.categoryId || product.category?.id || "";
+          const subCategoryId =
+            product.subCategoryId || product.subCategory?.id || "";
 
           setFormData({
-            name: product.name || '',
-            description: product.description || '',
-            price: product.price?.toString() || '',
-            discountPrice: product.discountPrice?.toString() || '',
-            sku: product.sku || '',
+            name: product.name || "",
+            description: product.description || "",
+            price: product.price?.toString() || "",
+            discountPrice: product.discountPrice?.toString() || "",
+            sku: product.sku || "",
             categoryId,
             subCategoryId,
             tags: product.tags || [],
             images: product.images || [],
-            weight: product.weight?.toString() || '',
-            unitOfMeasurement: product.unitOfMeasurement || 'kg',
-            durationTime: product.durationTime || '1h',
+            weight: product.weight?.toString() || "",
+            unitOfMeasurement: product.unitOfMeasurement || "pcs",
+            durationTime: product.durationTime || "1h",
           });
 
           if (product.sku) setNewSku(product.sku);
 
-          // ✅ Load subcategories for the loaded product's category,
-          //    but only if it's actually a category with subcategories.
           if (categoryId) {
             void fetchSubCategories(categoryId);
           }
 
-          showNotification('success', 'Product loaded successfully');
+          showNotification("success", "Product loaded successfully");
         } else {
-          showNotification('error', 'Product not found');
-          setError('Product not found');
+          showNotification("error", "Product not found");
+          setError("Product not found");
         }
       } catch (err: unknown) {
-        console.error('❌ Fetch error:', err);
+        console.error("❌ Fetch error:", err);
         if (!isMounted.current) return;
 
         if (axios.isAxiosError(err)) {
           const axiosError = err as AxiosError<{ error: string }>;
           if (axiosError.response?.status === 404) {
-            showNotification('error', 'Product not found. Please check the product ID.');
+            showNotification(
+              "error",
+              "Product not found. Please check the product ID."
+            );
           } else if (
             axiosError.response?.status === 401 ||
             axiosError.response?.status === 403
           ) {
-            showNotification('error', 'Authentication failed. Please login again.');
-            localStorage.removeItem('token');
-            localStorage.removeItem('authToken');
-            sessionStorage.removeItem('token');
-            sessionStorage.removeItem('authToken');
-            router.push('/auth/signin');
+            showNotification(
+              "error",
+              "Authentication failed. Please login again."
+            );
+            localStorage.removeItem("token");
+            localStorage.removeItem("authToken");
+            sessionStorage.removeItem("token");
+            sessionStorage.removeItem("authToken");
+            router.push("/auth/signin");
           } else {
             showNotification(
-              'error',
+              "error",
               axiosError.response?.data?.error ||
                 `Failed to load product (Status: ${axiosError.response?.status})`
             );
           }
         } else {
           showNotification(
-            'error',
-            err instanceof Error ? err.message : 'An unexpected error occurred'
+            "error",
+            err instanceof Error ? err.message : "An unexpected error occurred"
           );
         }
       } finally {
@@ -770,14 +797,16 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   }, [productId, router, authed, fetchSubCategories]);
 
   // ── Image upload ────────────────────────────────────────
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const file = files[0];
     if (file.size > 10 * 1024 * 1024) {
-      showNotification('error', 'Image size must be less than 10MB');
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      showNotification("error", "Image size must be less than 10MB");
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
@@ -786,17 +815,17 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     try {
       const token = getToken();
       if (!token) {
-        showNotification('error', 'Authentication required');
+        showNotification("error", "Authentication required");
         return;
       }
 
       const uploadFormData = new FormData();
-      uploadFormData.append('image', file);
+      uploadFormData.append("image", file);
 
-      const response = await api.post('/api/upload', uploadFormData, {
+      const response = await api.post("/api/upload", uploadFormData, {
         headers: {
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data',
+          "Content-Type": "multipart/form-data",
         },
       });
 
@@ -807,41 +836,45 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
       else if (response.data?.image) imageUrl = response.data.image;
 
       if (imageUrl) {
-        setFormData((prev) => ({ ...prev, images: [...prev.images, imageUrl!] }));
-        showNotification('success', 'Image uploaded successfully');
+        setFormData((prev) => ({
+          ...prev,
+          images: [...prev.images, imageUrl!],
+        }));
+        showNotification("success", "Image uploaded successfully");
       } else {
-        showNotification('error', 'Failed to get image URL from server');
+        showNotification("error", "Failed to get image URL from server");
       }
     } catch (err) {
-      console.error('Error uploading image:', err);
+      console.error("Error uploading image:", err);
       if (axios.isAxiosError(err)) {
         const errorMsg =
           err.response?.data?.error ||
           err.response?.data?.message ||
-          'Failed to upload image';
-        showNotification('error', errorMsg);
+          "Failed to upload image";
+        showNotification("error", errorMsg);
       } else {
-        showNotification('error', 'Failed to upload image');
+        showNotification("error", "Failed to upload image");
       }
     } finally {
       setUploadingImage(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  /**
-   * ✅ FIXED: handleChange resets subcategories synchronously in the event
-   * handler (not in an effect). This is the React-recommended pattern.
-   */
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >
   ) => {
     const { name, value } = e.target;
 
-    if (name === 'categoryId') {
-      // Update category + reset the sub selection + kick off the fetch
-      setFormData((prev) => ({ ...prev, categoryId: value, subCategoryId: '' }));
-      void fetchSubCategories(value); // handles empty → clears list
+    if (name === "categoryId") {
+      setFormData((prev) => ({
+        ...prev,
+        categoryId: value,
+        subCategoryId: "",
+      }));
+      void fetchSubCategories(value);
       return;
     }
 
@@ -850,15 +883,21 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
 
   const handleAddTag = () => {
     if (newTag.trim() && !formData.tags.includes(newTag.trim())) {
-      setFormData((prev) => ({ ...prev, tags: [...prev.tags, newTag.trim()] }));
-      showNotification('success', `Tag "${newTag.trim()}" added`);
-      setNewTag('');
+      setFormData((prev) => ({
+        ...prev,
+        tags: [...prev.tags, newTag.trim()],
+      }));
+      showNotification("success", `Tag "${newTag.trim()}" added`);
+      setNewTag("");
     }
   };
 
   const handleRemoveTag = (tag: string) => {
-    setFormData((prev) => ({ ...prev, tags: prev.tags.filter((t) => t !== tag) }));
-    showNotification('info', `Tag "${tag}" removed`);
+    setFormData((prev) => ({
+      ...prev,
+      tags: prev.tags.filter((t) => t !== tag),
+    }));
+    showNotification("info", `Tag "${tag}" removed`);
   };
 
   const handleRemoveImage = (index: number) => {
@@ -866,18 +905,27 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
       ...prev,
       images: prev.images.filter((_, i) => i !== index),
     }));
-    showNotification('info', 'Image removed');
+    showNotification("info", "Image removed");
   };
 
   const handleCategoryAdded = (newCategory: Category) => {
     if (newCategory.parentId) {
       setSubCategories((prev) => [...prev, newCategory]);
-      setFormData((prev) => ({ ...prev, subCategoryId: newCategory.id }));
-      showNotification('success', `Subcategory "${newCategory.name}" created and selected`);
+      setFormData((prev) => ({
+        ...prev,
+        subCategoryId: newCategory.id,
+      }));
+      showNotification(
+        "success",
+        `Subcategory "${newCategory.name}" created and selected`
+      );
     } else {
       setCategories((prev) => [...prev, newCategory]);
       setFormData((prev) => ({ ...prev, categoryId: newCategory.id }));
-      showNotification('success', `Category "${newCategory.name}" created and selected`);
+      showNotification(
+        "success",
+        `Category "${newCategory.name}" created and selected`
+      );
     }
   };
 
@@ -885,7 +933,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     const newGeneratedSKU = generateSKU();
     setNewSku(newGeneratedSKU);
     setFormData((prev) => ({ ...prev, sku: newGeneratedSKU }));
-    showNotification('info', `New SKU generated: ${newGeneratedSKU}`);
+    showNotification("info", `New SKU generated: ${newGeneratedSKU}`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -896,8 +944,11 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     try {
       const token = getToken();
       if (!token) {
-        showNotification('error', 'Authentication required. Please login again.');
-        router.push('/auth/signin');
+        showNotification(
+          "error",
+          "Authentication required. Please login again."
+        );
+        router.push("/auth/signin");
         return;
       }
 
@@ -905,49 +956,61 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
         name: formData.name,
         description: formData.description,
         price: parseFloat(formData.price) || 0,
-        discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : null,
+        discountPrice: formData.discountPrice
+          ? parseFloat(formData.discountPrice)
+          : null,
         sku: formData.sku || newSku,
         categoryId: formData.categoryId,
         subCategoryId: formData.subCategoryId || undefined,
         tags: formData.tags,
         images: formData.images,
         weight: formData.weight ? parseFloat(formData.weight) : null,
-        unitOfMeasurement: formData.unitOfMeasurement || 'pcs',
-        durationTime: formData.durationTime || '1h',
+        unitOfMeasurement: formData.unitOfMeasurement || "pcs",
+        durationTime: formData.durationTime || "1h",
       };
 
-      const response = await api.put(`/api/products/${productId}`, submitData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await api.put(
+        `/api/products/${productId}`,
+        submitData,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       if (response.data.success) {
-        showNotification('success', 'Product updated successfully! 🎉');
-        setTimeout(() => router.push('/admin/products'), 1500);
+        showNotification("success", "Product updated successfully! 🎉");
+        setTimeout(() => router.push("/admin/products"), 1500);
       } else {
-        showNotification('error', response.data.error || 'Failed to update product');
+        showNotification(
+          "error",
+          response.data.error || "Failed to update product"
+        );
       }
     } catch (err: unknown) {
-      console.error('Error updating product:', err);
+      console.error("Error updating product:", err);
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{ error: string }>;
         if (axiosError.response?.status === 401) {
-          showNotification('error', 'Authentication failed. Please login again.');
-          localStorage.removeItem('token');
-          localStorage.removeItem('authToken');
-          sessionStorage.removeItem('token');
-          sessionStorage.removeItem('authToken');
-          router.push('/auth/signin');
+          showNotification(
+            "error",
+            "Authentication failed. Please login again."
+          );
+          localStorage.removeItem("token");
+          localStorage.removeItem("authToken");
+          sessionStorage.removeItem("token");
+          sessionStorage.removeItem("authToken");
+          router.push("/auth/signin");
         } else {
           showNotification(
-            'error',
+            "error",
             axiosError.response?.data?.error ||
               `Failed to update product (Status: ${axiosError.response?.status})`
           );
         }
       } else {
         showNotification(
-          'error',
-          err instanceof Error ? err.message : 'An unexpected error occurred'
+          "error",
+          err instanceof Error ? err.message : "An unexpected error occurred"
         );
       }
     } finally {
@@ -956,15 +1019,15 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   };
 
   const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'ETB',
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "ETB",
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount || 0);
 
   // ============================================================
-  // ProductImage
+  // ProductImage (nested component)
   // ============================================================
   const ProductImage: React.FC<{
     src: string | null;
@@ -973,24 +1036,26 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   }> = ({ src, alt, index }) => {
     const [prevSrc, setPrevSrc] = useState(src);
     const [imgSrc, setImgSrc] = useState(src);
-    const [stage, setStage] = useState<'primary' | 'placeholder' | 'dead'>('primary');
+    const [stage, setStage] = useState<"primary" | "placeholder" | "dead">(
+      "primary"
+    );
 
     if (src !== prevSrc) {
       setPrevSrc(src);
       setImgSrc(src);
-      setStage('primary');
+      setStage("primary");
     }
 
     const handleError = () => {
-      if (stage === 'primary') {
-        setStage('placeholder');
+      if (stage === "primary") {
+        setStage("placeholder");
         setImgSrc(DEFAULT_IMAGE);
       } else {
-        setStage('dead');
+        setStage("dead");
       }
     };
 
-    if (!imgSrc || stage === 'dead') {
+    if (!imgSrc || stage === "dead") {
       return (
         <div className="w-full h-full flex items-center justify-center bg-gray-100">
           <ImageIcon className="w-8 h-8 text-gray-400" />
@@ -1006,7 +1071,9 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
         height={200}
         className="w-full h-full object-cover"
         onError={handleError}
-        unoptimized={imgSrc.startsWith('/') || imgSrc.includes('images.unsplash.com')}
+        unoptimized={
+          imgSrc.startsWith("/") || imgSrc.includes("images.unsplash.com")
+        }
         priority={index === 0}
       />
     );
@@ -1017,7 +1084,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto"></div>
           <p className="mt-4 text-gray-600">Checking authentication...</p>
         </div>
       </div>
@@ -1030,7 +1097,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading product...</p>
         </div>
       </div>
@@ -1055,7 +1122,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
             </Link>
             <button
               onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
             >
               Retry
             </button>
@@ -1102,7 +1169,9 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Edit Product</h1>
+            <h1 className="text-lg font-semibold text-gray-900">
+              Edit Product
+            </h1>
             <p className="text-xs text-gray-500 mt-0.5">
               Update product details and inventory
             </p>
@@ -1129,8 +1198,10 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
           <div className="lg:col-span-2">
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-6">
-                <Package className="w-5 h-5 text-green-600" />
-                <h3 className="font-semibold text-gray-900">Product Information</h3>
+                <Package className="w-5 h-5 text-yellow-500" />
+                <h3 className="font-semibold text-gray-900">
+                  Product Information
+                </h3>
               </div>
 
               <div className="space-y-5">
@@ -1145,8 +1216,8 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                     value={formData.name}
                     onChange={handleChange}
                     required
-                    placeholder="e.g., Fresh Organic Bananas"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                    placeholder="e.g., Heavy-Duty Storage Bin"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                   />
                 </div>
 
@@ -1161,8 +1232,8 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                     onChange={handleChange}
                     rows={4}
                     required
-                    placeholder="Describe your product in detail..."
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                    placeholder="Describe your plastic product in detail..."
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                   />
                 </div>
 
@@ -1178,7 +1249,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                         value={formData.categoryId}
                         onChange={handleChange}
                         required
-                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                       >
                         <option value="">Select Category</option>
                         {categories.map((cat) => (
@@ -1206,7 +1277,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                         name="subCategoryId"
                         value={formData.subCategoryId}
                         onChange={handleChange}
-                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                         disabled={!formData.categoryId}
                       >
                         <option value="">Select Sub Category</option>
@@ -1220,7 +1291,10 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                         type="button"
                         onClick={() => {
                           if (!formData.categoryId) {
-                            showNotification('warning', 'Please select a category first');
+                            showNotification(
+                              "warning",
+                              "Please select a category first"
+                            );
                             return;
                           }
                           setShowSubCategoryModal(true);
@@ -1250,7 +1324,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                       name="sku"
                       value={formData.sku || newSku}
                       onChange={handleChange}
-                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                     />
                     <button
                       type="button"
@@ -1268,14 +1342,14 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     <div className="flex items-center space-x-2">
                       <Clock className="w-4 h-4 text-gray-500" />
-                      <span>Duration Time</span>
+                      <span>Listing Duration</span>
                     </div>
                   </label>
                   <select
                     name="durationTime"
-                    value={formData.durationTime || '1h'}
+                    value={formData.durationTime || "1h"}
                     onChange={handleChange}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                   >
                     {durationOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -1288,8 +1362,10 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                 {/* Weight + Unit */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Weight & Unit{' '}
-                    <span className="text-xs text-gray-400">(Example: 1 kg of bananas)</span>
+                    Weight & Unit{" "}
+                    <span className="text-xs text-gray-400">
+                      (e.g., 1 kg of plastic resin)
+                    </span>
                   </label>
                   <div className="flex space-x-2">
                     <div className="flex-1 relative">
@@ -1303,14 +1379,14 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                         onChange={handleChange}
                         step="0.01"
                         placeholder="0.00"
-                        className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                        className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       />
                     </div>
                     <select
                       name="unitOfMeasurement"
                       value={formData.unitOfMeasurement}
                       onChange={handleChange}
-                      className="w-48 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                      className="w-48 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                     >
                       {unitOptions.map((unit) => (
                         <option key={unit.value} value={unit.value}>
@@ -1339,7 +1415,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                         step="0.01"
                         required
                         placeholder="0.00"
-                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       />
                     </div>
                   </div>
@@ -1358,7 +1434,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                         onChange={handleChange}
                         step="0.01"
                         placeholder="Optional"
-                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       />
                     </div>
                   </div>
@@ -1373,7 +1449,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                     {formData.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-green-50 text-green-700 text-sm rounded-full border border-green-200"
+                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-yellow-50 text-yellow-700 text-sm rounded-full border border-yellow-200"
                       >
                         <span>{tag}</span>
                         <button
@@ -1386,7 +1462,9 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                       </span>
                     ))}
                     {formData.tags.length === 0 && (
-                      <span className="text-sm text-gray-400">No tags added</span>
+                      <span className="text-sm text-gray-400">
+                        No tags added
+                      </span>
                     )}
                   </div>
                   <div className="flex space-x-2">
@@ -1395,9 +1473,9 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                       value={newTag}
                       onChange={(e) => setNewTag(e.target.value)}
                       placeholder="Add a tag..."
-                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === "Enter") {
                           e.preventDefault();
                           handleAddTag();
                         }
@@ -1406,7 +1484,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                     <button
                       type="button"
                       onClick={handleAddTag}
-                      className="px-4 py-2.5 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 transition-colors text-sm whitespace-nowrap"
+                      className="px-4 py-2.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition-colors text-sm whitespace-nowrap"
                     >
                       Add Tag
                     </button>
@@ -1418,14 +1496,14 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex items-center space-x-2 px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  className="flex items-center space-x-2 px-6 py-2.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
                 >
                   {saving ? (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <Save className="w-4 h-4" />
                   )}
-                  <span>{saving ? 'Saving...' : 'Save Changes'}</span>
+                  <span>{saving ? "Saving..." : "Save Changes"}</span>
                 </button>
               </div>
             </div>
@@ -1436,8 +1514,10 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
             {/* Images */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
-                <ImageIcon className="w-4 h-4 text-green-600" />
-                <h3 className="font-semibold text-gray-900 text-sm">Images</h3>
+                <ImageIcon className="w-4 h-4 text-yellow-500" />
+                <h3 className="font-semibold text-gray-900 text-sm">
+                  Images
+                </h3>
                 <span className="text-xs text-gray-400 ml-auto">
                   {formData.images.length} uploaded
                 </span>
@@ -1467,15 +1547,15 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                 })}
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-green-500 transition-colors cursor-pointer group"
+                  className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-yellow-500 transition-colors cursor-pointer group"
                 >
                   <div className="text-center">
                     {uploadingImage ? (
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto" />
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500 mx-auto" />
                     ) : (
                       <>
-                        <Upload className="w-8 h-8 text-gray-400 mx-auto group-hover:text-green-500 transition-colors" />
-                        <span className="text-xs text-gray-500 group-hover:text-green-500 transition-colors">
+                        <Upload className="w-8 h-8 text-gray-400 mx-auto group-hover:text-yellow-500 transition-colors" />
+                        <span className="text-xs text-gray-500 group-hover:text-yellow-500 transition-colors">
                           Upload
                         </span>
                       </>
@@ -1502,24 +1582,25 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
                 <Calendar className="w-4 h-4 text-purple-600" />
-                <h3 className="font-semibold text-gray-900 text-sm">Duration Info</h3>
+                <h3 className="font-semibold text-gray-900 text-sm">
+                  Duration Info
+                </h3>
               </div>
               <div className="space-y-3">
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
                   <div className="flex items-center space-x-2">
                     <Info className="w-4 h-4 text-purple-600" />
                     <p className="text-xs text-purple-700">
-                      The duration determines how long this product will be active.
-                      After the duration ends, the product will be automatically
-                      archived.
+                      Product stays active for the selected duration.
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Duration:</span>
                   <span className="font-medium text-gray-900">
-                    {durationOptions.find((d) => d.value === formData.durationTime)
-                      ?.label || 'Not set'}
+                    {durationOptions.find(
+                      (d) => d.value === formData.durationTime
+                    )?.label || "Not set"}
                   </span>
                 </div>
               </div>
@@ -1528,7 +1609,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
             {/* Summary */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
-                <Info className="w-4 h-4 text-green-600" />
+                <Info className="w-4 h-4 text-yellow-500" />
                 <h3 className="font-semibold text-gray-900 text-sm">
                   Product Summary
                 </h3>
@@ -1537,13 +1618,13 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Product ID:</span>
                   <span className="font-medium text-gray-700">
-                    #{productId || 'N/A'}
+                    #{productId || "N/A"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Name:</span>
                   <span className="font-medium text-gray-700 truncate max-w-[140px]">
-                    {formData.name || 'Not set'}
+                    {formData.name || "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
@@ -1551,7 +1632,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   <span className="font-medium text-gray-700">
                     {formData.price
                       ? formatCurrency(parseFloat(formData.price))
-                      : 'Not set'}
+                      : "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
@@ -1559,21 +1640,22 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   <span className="font-medium text-gray-700">
                     {formData.discountPrice
                       ? formatCurrency(parseFloat(formData.discountPrice))
-                      : 'Not set'}
+                      : "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Category:</span>
                   <span className="font-medium text-gray-700 truncate max-w-[140px]">
-                    {categories.find((c) => c.id === formData.categoryId)?.name ||
-                      'Not set'}
+                    {categories.find((c) => c.id === formData.categoryId)
+                      ?.name || "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Subcategory:</span>
                   <span className="font-medium text-gray-700 truncate max-w-[140px]">
-                    {subCategories.find((c) => c.id === formData.subCategoryId)?.name ||
-                      'Not set'}
+                    {subCategories.find(
+                      (c) => c.id === formData.subCategoryId
+                    )?.name || "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
@@ -1581,7 +1663,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   <span className="font-medium text-gray-700">
                     {formData.weight
                       ? `${formData.weight} ${formData.unitOfMeasurement}`
-                      : 'Not set'}
+                      : "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1">

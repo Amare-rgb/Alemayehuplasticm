@@ -1,20 +1,10 @@
 // app/admin/dashboard/page.tsx
-'use client';
+"use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Link from 'next/link';
-import axios, { AxiosError } from 'axios';
-import {
-  CheckCircle,
-  Clock,
-  XCircle,
-  ArrowUpRight,
-  Download,
-  RefreshCw,
-  Activity,
-  BarChart3,
-  Eye,
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import axios, { AxiosError } from "axios";
+import { Download, RefreshCw } from "lucide-react";
 
 // ============================================================
 // Types
@@ -34,18 +24,15 @@ interface OrderItem {
 }
 
 interface Order {
-  id: string;              // internal cuid — no longer used for routing
-  orderNumber: number;     // ✅ sequential display number (1, 2, 3, …)
+  id: string;
+  orderNumber: number;
   user: {
     name: string;
     email: string;
   };
   items: OrderItem[];
   total: number;
-  status: string;
-  paymentStatus?: string;
   createdAt: string;
-  paymentMethod: string;
 }
 
 interface WeeklySale {
@@ -77,17 +64,17 @@ interface StatsCardProps {
 // Axios instance
 // ============================================================
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000",
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
 api.interceptors.request.use((config) => {
   const token =
-    localStorage.getItem('authToken') ||
-    sessionStorage.getItem('authToken') ||
-    localStorage.getItem('token');
+    localStorage.getItem("authToken") ||
+    sessionStorage.getItem("authToken") ||
+    localStorage.getItem("token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -98,12 +85,14 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('authToken');
-      sessionStorage.removeItem('authToken');
-      localStorage.removeItem('user');
-      sessionStorage.removeItem('user');
-      if (typeof window !== 'undefined') {
-        window.location.href = '/auth/signin';
+      localStorage.removeItem("authToken");
+      sessionStorage.removeItem("authToken");
+      localStorage.removeItem("user");
+      sessionStorage.removeItem("user");
+      if (typeof window !== "undefined") {
+        // Full-page redirect to fully reset React state on auth failure.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.href = "/auth/signin";
       }
     }
     return Promise.reject(error);
@@ -131,6 +120,7 @@ const StatsCard: React.FC<StatsCardProps> = ({ title, value, subtitle }) => {
 // Main component
 // ============================================================
 export default function DashboardPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<StatsData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -148,20 +138,20 @@ export default function DashboardPage() {
 
   const getAuthenticatedUser = useCallback((): User | null => {
     const token =
-      localStorage.getItem('authToken') ||
-      sessionStorage.getItem('authToken');
+      localStorage.getItem("authToken") ||
+      sessionStorage.getItem("authToken");
     const userData =
-      localStorage.getItem('user') || sessionStorage.getItem('user');
+      localStorage.getItem("user") || sessionStorage.getItem("user");
 
     if (!token) return null;
     if (!userData) return null;
 
     try {
       const parsedUser = JSON.parse(userData) as User;
-      if (parsedUser.role?.toUpperCase() !== 'ADMIN') return null;
+      if (parsedUser.role?.toUpperCase() !== "ADMIN") return null;
       return parsedUser;
     } catch (e) {
-      console.error('Error parsing user data:', e);
+      console.error("Error parsing user data:", e);
       return null;
     }
   }, []);
@@ -171,13 +161,13 @@ export default function DashboardPage() {
       setLoading(true);
 
       const token =
-        localStorage.getItem('authToken') ||
-        sessionStorage.getItem('authToken');
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("authToken");
       if (!token) {
-        throw new Error('No authentication token found');
+        throw new Error("No authentication token found");
       }
 
-      const response = await api.get('/api/admin/dashboard');
+      const response = await api.get("/api/admin/dashboard");
 
       if (!isMountedRef.current) return;
 
@@ -185,7 +175,7 @@ export default function DashboardPage() {
         setData(response.data);
         setError(null);
       } else {
-        setError('Invalid data format from API');
+        setError("Invalid data format from API");
       }
     } catch (err: unknown) {
       if (!isMountedRef.current) return;
@@ -196,23 +186,23 @@ export default function DashboardPage() {
           axiosError.response?.status === 401 ||
           axiosError.response?.status === 403
         ) {
-          localStorage.removeItem('authToken');
-          sessionStorage.removeItem('authToken');
-          window.location.replace('/auth/signin');
+          localStorage.removeItem("authToken");
+          sessionStorage.removeItem("authToken");
+          router.replace("/auth/signin");
           return;
         }
         setError(
-          axiosError.response?.data?.error || 'Failed to fetch dashboard data'
+          axiosError.response?.data?.error || "Failed to fetch dashboard data"
         );
       } else {
         setError(
-          err instanceof Error ? err.message : 'An unexpected error occurred'
+          err instanceof Error ? err.message : "An unexpected error occurred"
         );
       }
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (hasInitializedRef.current) return;
@@ -220,7 +210,7 @@ export default function DashboardPage() {
 
     const authenticatedUser = getAuthenticatedUser();
     if (!authenticatedUser) {
-      window.location.replace('/auth/signin');
+      router.replace("/auth/signin");
       return;
     }
 
@@ -228,43 +218,20 @@ export default function DashboardPage() {
       setUser(authenticatedUser);
       fetchDashboardData();
     }, 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      COMPLETED: 'bg-green-100 text-green-700',
-      PENDING: 'bg-yellow-100 text-yellow-700',
-      SHIPPED: 'bg-blue-100 text-blue-700',
-      CANCELLED: 'bg-red-100 text-red-700',
-      REJECTED: 'bg-gray-100 text-gray-700',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-700';
-  };
-
-  const getStatusIcon = (status: string) => {
-    const icons: Record<string, React.ReactNode> = {
-      COMPLETED: <CheckCircle className="w-4 h-4" />,
-      PENDING: <Clock className="w-4 h-4" />,
-      SHIPPED: <Activity className="w-4 h-4" />,
-      CANCELLED: <XCircle className="w-4 h-4" />,
-      REJECTED: <XCircle className="w-4 h-4" />,
-    };
-    return icons[status] || null;
-  };
+  }, [getAuthenticatedUser, fetchDashboardData, router]);
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
+    return new Date(dateString).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
     });
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'ETB',
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "ETB",
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount || 0);
@@ -274,7 +241,7 @@ export default function DashboardPage() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading dashboard...</p>
         </div>
       </div>
@@ -288,7 +255,7 @@ export default function DashboardPage() {
           <p className="text-red-600 mb-4">{error}</p>
           <button
             onClick={fetchDashboardData}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
           >
             Retry
           </button>
@@ -304,7 +271,7 @@ export default function DashboardPage() {
           <p className="text-gray-600 mb-4">No data available</p>
           <button
             onClick={fetchDashboardData}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
           >
             Refresh
           </button>
@@ -322,7 +289,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
           <p className="text-xs text-gray-500">
-            Welcome back, {user?.name || 'Admin'}!
+            Welcome back, {user?.name || "Admin"}!
           </p>
         </div>
         <div className="flex items-center space-x-3">
@@ -335,7 +302,7 @@ export default function DashboardPage() {
           </button>
           <button
             onClick={fetchDashboardData}
-            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-yellow-500 rounded-lg hover:bg-yellow-600 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Refresh</span>
@@ -351,107 +318,57 @@ export default function DashboardPage() {
         <StatsCard title="Total Customers" value={stats.customers || 0} />
       </div>
 
-      {/* Order Status Summary + Weekly Sales */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-gray-900 text-sm">Order Status</h3>
-            <BarChart3 className="w-4 h-4 text-gray-400" />
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                <span className="text-sm text-gray-600">Completed</span>
-              </div>
-              <span className="text-sm font-medium">
-                {stats.completedOrders || 0}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                <span className="text-sm text-gray-600">Pending</span>
-              </div>
-              <span className="text-sm font-medium">
-                {stats.pendingOrders || 0}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                <span className="text-sm text-gray-600">Shipped & Others</span>
-              </div>
-              <span className="text-sm font-medium">
-                {Math.max(
-                  (stats.orders || 0) -
-                    (stats.completedOrders || 0) -
-                    (stats.pendingOrders || 0),
-                  0
-                )}
-              </span>
-            </div>
-          </div>
+      {/* Weekly Sales Chart */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-900 text-sm">Weekly Sales</h3>
+          <span className="text-xs text-gray-500">Last 7 days</span>
         </div>
+        <div className="h-28 flex items-end space-x-2">
+          {weeklySales && weeklySales.length > 0 ? (
+            weeklySales.map((day, index) => {
+              const maxRevenue = Math.max(
+                ...weeklySales.map((d) => d.revenue || 0)
+              );
+              const heightPercentage =
+                maxRevenue > 0 ? (day.revenue / maxRevenue) * 100 : 0;
+              const dayLabel = new Date(day.date).toLocaleDateString("en-US", {
+                weekday: "short",
+              });
 
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-gray-900 text-sm">Weekly Sales</h3>
-            <span className="text-xs text-gray-500">Last 7 days</span>
-          </div>
-          <div className="h-28 flex items-end space-x-2">
-            {weeklySales && weeklySales.length > 0 ? (
-              weeklySales.map((day, index) => {
-                const maxRevenue = Math.max(
-                  ...weeklySales.map((d) => d.revenue || 0)
-                );
-                const heightPercentage =
-                  maxRevenue > 0 ? (day.revenue / maxRevenue) * 100 : 0;
-                const dayLabel = new Date(day.date).toLocaleDateString('en-US', {
-                  weekday: 'short',
-                });
-
-                return (
+              return (
+                <div
+                  key={index}
+                  className="flex-1 flex flex-col items-center space-y-1"
+                >
                   <div
-                    key={index}
-                    className="flex-1 flex flex-col items-center space-y-1"
-                  >
-                    <div
-                      className="w-full bg-green-600 rounded-t transition-all hover:bg-green-700"
-                      style={{
-                        height: `${Math.max(heightPercentage, 5)}%`,
-                        minHeight: '8px',
-                      }}
-                    ></div>
-                    <span className="text-xs text-gray-500">{dayLabel}</span>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="w-full text-center text-gray-400 text-sm">
-                No sales data available
-              </div>
-            )}
-          </div>
+                    className="w-full bg-yellow-500 rounded-t transition-all hover:bg-yellow-600"
+                    style={{
+                      height: `${Math.max(heightPercentage, 5)}%`,
+                      minHeight: "8px",
+                    }}
+                  ></div>
+                  <span className="text-xs text-gray-500">{dayLabel}</span>
+                </div>
+              );
+            })
+          ) : (
+            <div className="w-full text-center text-gray-400 text-sm">
+              No sales data available
+            </div>
+          )}
         </div>
       </div>
 
       {/* Recent Orders Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-gray-900 text-sm">Recent Orders</h3>
-            <p className="text-xs text-gray-500">
-              Latest transactions from your store
-            </p>
-          </div>
-          <Link
-            href="/admin/orders"
-            className="text-sm text-green-600 hover:text-green-700 font-medium flex items-center space-x-1"
-          >
-            <span>View All</span>
-            <ArrowUpRight className="w-4 h-4" />
-          </Link>
+        <div className="p-4 border-b border-gray-200">
+          <h3 className="font-semibold text-gray-900 text-sm">
+            Recent Orders
+          </h3>
+          <p className="text-xs text-gray-500">
+            Latest transactions from your store
+          </p>
         </div>
         <div className="overflow-x-auto">
           {recentOrders && recentOrders.length > 0 ? (
@@ -471,13 +388,7 @@ export default function DashboardPage() {
                     Total
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Date
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Action
                   </th>
                 </tr>
               </thead>
@@ -488,44 +399,21 @@ export default function DashboardPage() {
                     className="hover:bg-gray-50 transition-colors"
                   >
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      {/* ✅ Sequential order number instead of cuid */}
                       #{order.orderNumber}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
-                      {order.user?.name || order.user?.email || 'Unknown'}
+                      {order.user?.name || order.user?.email || "Unknown"}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
                       {order.items
                         ?.map((item) => item.product?.name)
-                        .join(', ') || 'N/A'}
+                        .join(", ") || "N/A"}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
                       {formatCurrency(order.total)}
                     </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${getStatusColor(
-                          order.status
-                        )}`}
-                      >
-                        {getStatusIcon(order.status)}
-                        <span className="capitalize">
-                          {order.status?.toLowerCase() || 'unknown'}
-                        </span>
-                      </span>
-                    </td>
                     <td className="px-4 py-3 text-sm text-gray-500">
                       {formatDate(order.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {/* ✅ Points to the list page — no 404 */}
-                      <Link
-                        href="/admin/orders"
-                        className="text-sm text-green-600 hover:text-green-700 font-medium flex items-center space-x-1"
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>View</span>
-                      </Link>
                     </td>
                   </tr>
                 ))}

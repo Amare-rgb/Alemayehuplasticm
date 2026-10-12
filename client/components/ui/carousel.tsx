@@ -95,12 +95,21 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api) return
-    onSelect(api)
+
+    // ✅ Defer the initial selection callback so we don't call setState
+    //    synchronously within the effect body (React 19 rule).
+    //    Embla also fires "select" on mount, so this is just a safety net.
+    const raf = requestAnimationFrame(() => {
+      onSelect(api)
+    })
+
     api.on("reInit", onSelect)
     api.on("select", onSelect)
 
     return () => {
-      api?.off("select", onSelect)
+      cancelAnimationFrame(raf)
+      api.off("reInit", onSelect)
+      api.off("select", onSelect)
     }
   }, [api, onSelect])
 

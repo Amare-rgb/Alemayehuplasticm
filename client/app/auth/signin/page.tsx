@@ -5,16 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/context/LanguageContext";
 
-function LeafMark() {
-  return (
-    <div className="brand-mark" aria-hidden="true">
-      <span className="leaf leaf-one" />
-      <span className="leaf leaf-two" />
-      <span className="stem" />
-    </div>
-  );
-}
-
 function EyeIcon({ open }: { open: boolean }) {
   if (open) {
     return (
@@ -66,21 +56,17 @@ export default function SignInPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    // Clear previous errors
     setError(null);
 
-    // Get form data
     const formData = new FormData(event.currentTarget);
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
 
-    // Basic validation
     if (!email || !password) {
       setError(t("auth.signin.error_fill_all", "Please fill in all fields."));
       return;
     }
 
-    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       setError(
@@ -95,14 +81,12 @@ export default function SignInPage() {
     setIsLoading(true);
 
     try {
-      // Get the base URL for the API
       const apiBaseUrl =
         process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
       console.log("🔐 Login attempt to:", `${apiBaseUrl}/api/auth/login`);
       console.log("📧 Email:", email);
 
-      // Call the auth login route
       const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
         method: "POST",
         headers: {
@@ -110,15 +94,11 @@ export default function SignInPage() {
           Accept: "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({
-          email,
-          password,
-        }),
+        body: JSON.stringify({ email, password }),
       });
 
       console.log("📡 Response status:", response.status);
 
-      // Get response text first to handle non-JSON responses
       const responseText = await response.text();
       console.log("📦 Raw response:", responseText);
 
@@ -136,7 +116,6 @@ export default function SignInPage() {
       }
 
       if (!response.ok) {
-        // Handle different error status codes
         if (response.status === 401) {
           throw new Error(
             data.error ||
@@ -181,24 +160,20 @@ export default function SignInPage() {
         }
       }
 
-      // Check if login was successful
       if (!data.success) {
         throw new Error(
           data.error ||
-            t("auth.signin.error_login_failed", "Login failed. Please try again.")
+            t(
+              "auth.signin.error_login_failed",
+              "Login failed. Please try again."
+            )
         );
       }
 
-      // Success - handle authentication
       console.log("✅ Login successful:", data);
       console.log("🔍 Token received:", data.token ? "Yes" : "No");
       console.log("🔍 User role:", data.user?.role);
 
-      // ============================================
-      // Store authentication data
-      // ============================================
-
-      // Store token
       if (data.token) {
         localStorage.setItem("authToken", data.token);
         localStorage.setItem("token", data.token);
@@ -207,13 +182,11 @@ export default function SignInPage() {
         console.log("✅ Token stored");
       }
 
-      // Store user data
       if (data.user) {
         const userData = data.user;
         localStorage.setItem("user", JSON.stringify(userData));
         sessionStorage.setItem("user", JSON.stringify(userData));
 
-        // Store role separately for quick access (ensure uppercase)
         if (userData.role) {
           const roleUpper = userData.role.toUpperCase();
           localStorage.setItem("userRole", roleUpper);
@@ -222,15 +195,9 @@ export default function SignInPage() {
         }
       }
 
-      // Notify any active context listeners
       window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new Event("auth-change"));
 
-      // ============================================
-      // Redirect logic with immediate execution
-      // ============================================
-
-      // Get role from stored data
       const userRole =
         data.user?.role?.toUpperCase() ||
         localStorage.getItem("userRole") ||
@@ -238,7 +205,6 @@ export default function SignInPage() {
 
       console.log("🔄 Redirecting with role:", userRole);
 
-      // Determine redirect URL
       let redirectUrl = "/shop";
       if (userRole === "ADMIN") {
         redirectUrl = "/admin/dashboard";
@@ -248,10 +214,8 @@ export default function SignInPage() {
 
       console.log("🚀 Redirecting to:", redirectUrl);
 
-      // Use window.location.replace for immediate redirect (prevents back button issues)
-      setTimeout(() => {
-        window.location.replace(redirectUrl);
-      }, 200);
+      // ✅ Use router.replace for internal navigation
+      router.replace(redirectUrl);
     } catch (err) {
       const errorMessage =
         err instanceof Error
@@ -271,126 +235,47 @@ export default function SignInPage() {
     <main className="relative flex min-h-screen overflow-hidden bg-[var(--cream)]">
       {/* Decorative background */}
       <div
-        className="pointer-events-none absolute -left-40 -top-40 h-[28rem] w-[28rem] rounded-full bg-[#b9d873]/20 blur-3xl"
+        className="pointer-events-none absolute -left-40 -top-40 h-[28rem] w-[28rem] rounded-full bg-[#e0a83c]/20 blur-3xl"
         aria-hidden="true"
       />
-
       <div
-        className="pointer-events-none absolute -bottom-48 -right-40 h-[32rem] w-[32rem] rounded-full bg-[#28633e]/10 blur-3xl"
+        className="pointer-events-none absolute -bottom-48 -right-40 h-[32rem] w-[32rem] rounded-full bg-[#3a2a1e]/10 blur-3xl"
         aria-hidden="true"
       />
 
-      {/* Left visual panel */}
-      <section className="relative hidden min-h-screen w-[48%] overflow-hidden bg-[#123523] lg:flex">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{
-            backgroundImage:
-              "url('https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=1800&q=85')",
-          }}
-        />
-
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0b2419]/95 via-[#123523]/75 to-[#123523]/25" />
-
-        <div className="relative z-10 flex w-full flex-col justify-between p-12 xl:p-16">
-          <Link href="/" className="inline-flex items-center gap-3">
-            <LeafMark />
-
-            <div>
-              <div className="font-serif-heading text-2xl font-semibold tracking-tight text-[#f6f3e9]">
-                {t("auth.signin.brand_name", "Genesis")}
-              </div>
-              <div className="-mt-1 text-[9px] font-bold uppercase tracking-[0.28em] text-[#b9d873]">
-                {t("auth.signin.brand_sub", "Agro-business")}
-              </div>
-            </div>
-          </Link>
-
-          <div className="max-w-lg pb-8">
-            <div className="mb-6 flex items-center gap-2 text-[#b9d873]">
-              <span className="h-px w-10 bg-[#b9d873]" />
-              <span className="text-xs font-bold uppercase tracking-[0.22em]">
-                {t("auth.signin.panel_tagline", "Farm to family")}
-              </span>
-            </div>
-
-            <h1 className="font-serif-heading text-5xl font-medium leading-[1.02] tracking-[-0.04em] text-[#f6f3e9] xl:text-6xl">
-              {t("auth.signin.panel_title_line1", "Fresh food,")}
-              <br />
-              <span className="text-[#b9d873]">
-                {t("auth.signin.panel_title_line2", "closer to you.")}
-              </span>
-            </h1>
-
-            <p className="mt-7 max-w-md text-base leading-7 text-[#f6f3e9]/70">
-              {t(
-                "auth.signin.panel_desc",
-                "Shop quality agricultural products directly from the source, without unnecessary middlemen and inflated prices."
-              )}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4 text-sm text-[#f6f3e9]/55">
-            <span className="h-2 w-2 rounded-full bg-[#b9d873]" />
-            {t(
-              "auth.signin.panel_footer",
-              "Fresh produce. Fair prices. Direct from the farm."
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* Form panel */}
-      <section className="relative flex min-h-screen flex-1 items-center justify-center px-5 py-10 sm:px-8 lg:px-12">
+      {/* Centered form */}
+      <section className="relative flex min-h-screen flex-1 items-center justify-center px-5 py-8 sm:px-8 lg:px-12">
         <div className="w-full max-w-md">
-          {/* Mobile logo */}
-          <div className="mb-10 flex justify-center lg:hidden">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#123523]">
-                <LeafMark />
-              </div>
-
-              <div>
-                <div className="font-serif-heading text-2xl font-semibold text-[#123523]">
-                  {t("auth.signin.brand_name", "Genesis")}
-                </div>
-                <div className="-mt-1 text-[9px] font-bold uppercase tracking-[0.28em] text-[#28633e]">
-                  {t("auth.signin.brand_sub", "Agro-business")}
-                </div>
-              </div>
-            </Link>
-          </div>
-
-          <div className="rounded-[2rem] border border-[rgba(20,33,25,.09)] bg-white p-7 shadow-[0_25px_70px_rgba(18,53,35,.10)] sm:p-9">
-            <div className="mb-8">
-              <div className="mb-3 inline-flex rounded-full bg-[#f6f3e9] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#28633e]">
+          <div className="rounded-[2rem] border border-[#3a2a1e]/10 bg-white p-6 shadow-[0_25px_70px_rgba(58,42,30,.10)] sm:p-8">
+            <div className="mb-6">
+              <div className="mb-3 inline-flex rounded-full bg-[#faf6ee] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#b98a3e]">
                 {t("auth.signin.form_badge", "Welcome back")}
               </div>
 
-              <h2 className="font-serif-heading text-4xl font-medium tracking-[-0.035em] text-[#123523]">
+              <h2 className="font-serif-heading text-3xl font-medium tracking-[-0.035em] text-[#1a1410]">
                 {t("auth.signin.form_title", "Sign in")}
               </h2>
 
-              <p className="mt-3 text-sm leading-6 text-[#69736b]">
+              <p className="mt-2 text-sm leading-6 text-[#7a6a58]">
                 {t(
                   "auth.signin.form_subtitle",
-                  "Access your Genesis Agro-business account and continue shopping fresh."
+                  "Access your account and continue shopping."
                 )}
               </p>
             </div>
 
             {/* Error Message */}
             {error && (
-              <div className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 border border-red-200">
+              <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 border border-red-200">
                 {error}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label
                   htmlFor="email"
-                  className="mb-2 block text-sm font-semibold text-[#123523]"
+                  className="mb-1.5 block text-sm font-semibold text-[#1a1410]"
                 >
                   {t("auth.signin.email", "Email")}
                 </label>
@@ -406,22 +291,22 @@ export default function SignInPage() {
                   )}
                   required
                   disabled={isLoading}
-                  className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20 disabled:opacity-60"
+                  className="h-12 w-full rounded-2xl border border-[#3a2a1e]/10 bg-[#faf6ee]/60 px-4 text-sm text-[#1a1410] outline-none transition placeholder:text-[#7a6a58]/60 focus:border-[#b98a3e] focus:bg-white focus:ring-4 focus:ring-[#e0a83c]/20 disabled:opacity-60"
                 />
               </div>
 
               <div>
-                <div className="mb-2 flex items-center justify-between">
+                <div className="mb-1.5 flex items-center justify-between">
                   <label
                     htmlFor="password"
-                    className="block text-sm font-semibold text-[#123523]"
+                    className="block text-sm font-semibold text-[#1a1410]"
                   >
                     {t("auth.signin.password", "Password")}
                   </label>
 
                   <Link
                     href="/forgot-password"
-                    className="text-xs font-semibold text-[#28633e] transition-colors hover:text-[#123523]"
+                    className="text-xs font-semibold text-[#b98a3e] transition-colors hover:text-[#1a1410]"
                   >
                     {t("auth.signin.forgot_password", "Forgot password?")}
                   </Link>
@@ -439,7 +324,7 @@ export default function SignInPage() {
                     )}
                     required
                     disabled={isLoading}
-                    className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 pr-12 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20 disabled:opacity-60"
+                    className="h-12 w-full rounded-2xl border border-[#3a2a1e]/10 bg-[#faf6ee]/60 px-4 pr-12 text-sm text-[#1a1410] outline-none transition placeholder:text-[#7a6a58]/60 focus:border-[#b98a3e] focus:bg-white focus:ring-4 focus:ring-[#e0a83c]/20 disabled:opacity-60"
                   />
 
                   <button
@@ -451,7 +336,7 @@ export default function SignInPage() {
                         : t("auth.signin.show_password", "Show password")
                     }
                     disabled={isLoading}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#69736b] transition-colors hover:text-[#123523] disabled:opacity-50"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#7a6a58] transition-colors hover:text-[#1a1410] disabled:opacity-50"
                   >
                     <EyeIcon open={showPassword} />
                   </button>
@@ -464,10 +349,10 @@ export default function SignInPage() {
                   checked={rememberMe}
                   onChange={(event) => setRememberMe(event.target.checked)}
                   disabled={isLoading}
-                  className="h-4 w-4 rounded border-[#19472d]/20 accent-[#28633e] disabled:opacity-50"
+                  className="h-4 w-4 rounded border-[#3a2a1e]/20 accent-[#b98a3e] disabled:opacity-50"
                 />
 
-                <span className="text-sm text-[#69736b]">
+                <span className="text-sm text-[#7a6a58]">
                   {t("auth.signin.remember_me", "Remember me")}
                 </span>
               </label>
@@ -475,7 +360,7 @@ export default function SignInPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="flex h-14 w-full items-center justify-center rounded-2xl bg-[#123523] px-5 text-sm font-bold text-[#f6f3e9] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#19472d] hover:shadow-lg disabled:opacity-70 disabled:hover:-translate-y-0 disabled:hover:shadow-none"
+                className="flex h-12 w-full items-center justify-center rounded-2xl bg-[#1a1410] px-5 text-sm font-bold text-[#faf6ee] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#2a1f18] hover:shadow-lg disabled:opacity-70 disabled:hover:-translate-y-0 disabled:hover:shadow-none"
               >
                 {isLoading ? (
                   <>
@@ -507,37 +392,37 @@ export default function SignInPage() {
               </button>
             </form>
 
-            <div className="my-7 flex items-center gap-4">
-              <div className="h-px flex-1 bg-[#19472d]/10" />
-              <span className="text-xs text-[#69736b]">
+            <div className="my-5 flex items-center gap-4">
+              <div className="h-px flex-1 bg-[#3a2a1e]/10" />
+              <span className="text-xs text-[#7a6a58]">
                 {t("auth.signin.or", "OR")}
               </span>
-              <div className="h-px flex-1 bg-[#19472d]/10" />
+              <div className="h-px flex-1 bg-[#3a2a1e]/10" />
             </div>
 
-            <p className="text-center text-sm text-[#69736b]">
+            <p className="text-center text-sm text-[#7a6a58]">
               {t("auth.signin.no_account", "Don't have an account?")}{" "}
               <Link
                 href="/auth/register"
-                className="font-bold text-[#28633e] hover:text-[#123523]"
+                className="font-bold text-[#b98a3e] hover:text-[#1a1410]"
               >
                 {t("auth.signin.create_one", "Create one")}
               </Link>
             </p>
           </div>
 
-          <p className="mt-6 text-center text-xs leading-5 text-[#69736b]">
+          <p className="mt-4 text-center text-xs leading-5 text-[#7a6a58]">
             {t("auth.signin.terms_notice", "By continuing, you agree to our")}{" "}
             <Link
               href="/terms"
-              className="font-semibold text-[#28633e] hover:text-[#123523]"
+              className="font-semibold text-[#b98a3e] hover:text-[#1a1410]"
             >
               {t("auth.signin.terms", "Terms")}
             </Link>{" "}
             {t("auth.signin.terms_and", "and")}{" "}
             <Link
               href="/privacy"
-              className="font-semibold text-[#28633e] hover:text-[#123523]"
+              className="font-semibold text-[#b98a3e] hover:text-[#1a1410]"
             >
               {t("auth.signin.privacy_policy", "Privacy Policy")}
             </Link>

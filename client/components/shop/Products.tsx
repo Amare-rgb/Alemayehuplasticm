@@ -5,13 +5,27 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Product, products as fallbackProducts } from "@/data/products";
-import { ArrowUpRight, Search } from "lucide-react";
+import { ArrowUpRight, Search, X } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 
-export type { Product };
+// ✅ Local type — no dependency on `@/data/products`
+export interface Product {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  description: string;
+  price: number;
+  discountPrice: number | null;
+  unit: string;
+  stock: number;
+  featured?: boolean;
+  badge?: string;
+  images: string[];
+  liters?: number | null;
+}
 
-type SortOption = "featured" | "price-low" | "price-high" | "name";
+type SortOption = "size-low" | "size-high" | "price-low" | "price-high" | "name";
 
 interface CategoryOption {
   id: string;
@@ -20,7 +34,6 @@ interface CategoryOption {
   parentId?: string | null;
 }
 
-/* Raw shape returned by the backend /api/products/public endpoint */
 interface ApiProduct {
   id: string;
   slug?: string;
@@ -33,74 +46,140 @@ interface ApiProduct {
   stock?: number | null;
   isFeatured?: boolean;
   images?: string[] | null;
+  liters?: number | string | null;
+  volume?: number | string | null;
+  size?: string | null;
+  capacity?: string | null;
 }
 
-/* -------------------------------------------------------------------------- */
-/*  API BASE URL                                                              */
-/*  – strips trailing slash so `${API_BASE_URL}${path}` never double-slashes  */
-/*  – falls back to localhost only when nothing is configured                 */
-/* -------------------------------------------------------------------------- */
+// ────────────────────────────────────────────────────────────────────────────
+// API base
+// ────────────────────────────────────────────────────────────────────────────
 const RAW_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "http://localhost:5000";
 const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-/* Local placeholder that MUST exist in /public/placeholder.svg               */
-const DEFAULT_IMAGE = "/placeholder.svg";
-
-/* Last-resort remote fallback if the local placeholder ever 404s             */
+// ✅ Rebranded defaults
+const DEFAULT_IMAGE = "/banners/carplastik.jpg";
 const FALLBACK_REMOTE_IMAGE =
-  "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+  "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?auto=format&fit=crop&w=1200&q=85";
 
-/* -------------------------------------------------------------------------- */
-/*  Image URL resolver                                                        */
-/*  Priority:                                                                 */
-/*    1. Absolute http(s) URL    → used as-is (Cloudinary, S3, Unsplash, …)   */
-/*    2. Cloudinary path w/o proto → prepend https://                         */
-/*    3. Legacy /uploads/...     → prepend backend origin (will 404 if not    */
-/*                                 migrated — that's expected, it makes the   */
-/*                                 problem visible instead of hiding it)      */
-/*    4. Bare filename           → assume it's a product image                */
-/*    5. Anything else           → DEFAULT_IMAGE                              */
-/* -------------------------------------------------------------------------- */
+// ────────────────────────────────────────────────────────────────────────────
+// Liter detection helpers
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extract a numeric liter value from a product.
+ * Priority:
+ *   1. Explicit numeric field (liters / volume / capacity)
+ *   2. Parsed from "size" string
+ *   3. Parsed from name / description
+ *
+ * Returns null if no liter measurement can be found.
+ */
+function detectLiters(product: {
+  name?: string;
+  description?: string;
+  liters?: number | string | null;
+  volume?: number | string | null;
+  size?: string | null;
+  capacity?: string | null;
+}): number | null {
+  const tryParse = (val: unknown): number | null => {
+    if (typeof val === "number" && !isNaN(val) && val > 0) return val;
+    if (typeof val === "string") {
+      const m = val.match(
+        /(\d+(?:\.\d+)?)\s*(?:l|lt|ltr|liter|litre|liters|litres)\b/i
+      );
+      if (m) {
+        const n = parseFloat(m[1]);
+        return isNaN(n) ? null : n;
+      }
+    }
+    return null;
+  };
+
+  // 1. Explicit numeric fields
+  const direct = tryParse(product.liters) ?? tryParse(product.volume);
+  if (direct) return direct;
+
+  // 2. Size string (e.g. "20L", "5 Liter", "10 Litres")
+  const fromSize = tryParse(product.size) ?? tryParse(product.capacity);
+  if (fromSize) return fromSize;
+
+  // 3. Parse from name + description
+  const haystack = `${product.name || ""} ${product.description || ""}`;
+  const matches = haystack.match(
+    /(\d+(?:\.\d+)?)\s*(?:l|lt|ltr|liter|litre|liters|litres)\b/i
+  );
+  if (matches) {
+    const n = parseFloat(matches[1]);
+    if (!isNaN(n) && n > 0) return n;
+  }
+
+  return null;
+}
+
+/**
+ * Group a raw liter value into a filter bucket label.
+ * Products without a detectable liter value are excluded from the liter filter.
+ */
+function literBucket(liters: number): string {
+  if (liters < 1) return "Under 1L";
+  if (liters <= 1) return "1L";
+  if (liters <= 2) return "2L";
+  if (liters <= 5) return "5L";
+  if (liters <= 10) return "10L";
+  if (liters <= 20) return "20L";
+  if (liters <= 25) return "25L";
+  if (liters <= 30) return "30L";
+  if (liters <= 50) return "50L";
+  if (liters <= 100) return "100L";
+  if (liters <= 200) return "200L";
+  if (liters <= 1000) return "1000L (IBC)";
+  return "Over 1000L";
+}
+
+/**
+ * Parse a numeric liter value out of a bucket label.
+ * Used for sorting the filter chips.
+ */
+function parseBucketValue(label: string): number {
+  if (label === "Under 1L") return 0.5;
+  if (label === "Over 1000L") return 99999;
+  const m = label.match(/(\d+(?:\.\d+)?)/);
+  return m ? parseFloat(m[1]) : 0;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Image resolver
+// ────────────────────────────────────────────────────────────────────────────
 function resolveImage(raw: unknown): string {
   if (typeof raw !== "string") return DEFAULT_IMAGE;
   const s = raw.trim();
   if (!s) return DEFAULT_IMAGE;
 
-  // 1. Already absolute
   if (s.startsWith("http://") || s.startsWith("https://")) return s;
-
-  // 2. Cloudinary host without protocol
+  if (s.startsWith("data:")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  // 3. Legacy local uploads — keep pointing at the backend so that IF you
-  //    add back a temporary static route it will work; otherwise it 404s
-  //    cleanly and ProductImage swaps to the placeholder.
   if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
     const clean = s.startsWith("/") ? s : `/${s}`;
     return `${API_BASE_URL}${clean}`;
   }
 
-  // 4. Bare filename (e.g. "1791567294493-a0bb.jpeg")
-  //    Some legacy rows store only the filename.
   if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
     return `${API_BASE_URL}/uploads/products/${s}`;
   }
 
-  // 5. Anything else — bail to placeholder
   return DEFAULT_IMAGE;
 }
 
-/* -------------------------------------------------------------------------- */
-/*  STABLE PRODUCT IMAGE                                                      */
-/*  – Square box from parent (aspect-square) → zero layout shift              */
-/*  – fill + object-cover + object-center → no distortion                     */
-/*  – Local assets (placeholder) skip Next.js optimizer via `unoptimized`     */
-/*  – On error: placeholder → remote fallback → give up (renders broken img)  */
-/*  – State adjusted during render (React-recommended pattern, no useEffect)  */
-/* -------------------------------------------------------------------------- */
+// ────────────────────────────────────────────────────────────────────────────
+// Product image with 3-stage fallback
+// ────────────────────────────────────────────────────────────────────────────
 const ProductImage: React.FC<{
   src: string;
   alt: string;
@@ -108,11 +187,10 @@ const ProductImage: React.FC<{
 }> = ({ src, alt, priority = false }) => {
   const [prevSrc, setPrevSrc] = useState(src);
   const [imgSrc, setImgSrc] = useState(src);
-  const [stage, setStage] = useState<"primary" | "placeholder" | "remote" | "dead">(
-    "primary"
-  );
+  const [stage, setStage] = useState<
+    "primary" | "placeholder" | "remote" | "dead"
+  >("primary");
 
-  // Reset when the parent passes a new src
   if (src !== prevSrc) {
     setPrevSrc(src);
     setImgSrc(src);
@@ -127,13 +205,10 @@ const ProductImage: React.FC<{
       setStage("remote");
       setImgSrc(FALLBACK_REMOTE_IMAGE);
     } else {
-      // Remote also failed — stop retrying
       setStage("dead");
     }
   };
 
-  // Local public assets and the Unsplash fallback should bypass Next.js's
-  // image optimizer — otherwise /_next/image tries to fetch them and 500s.
   const isLocalAsset = imgSrc.startsWith("/");
   const isUnsplash = imgSrc.includes("images.unsplash.com");
 
@@ -152,9 +227,9 @@ const ProductImage: React.FC<{
   );
 };
 
-/* -------------------------------------------------------------------------- */
-/*  MAIN COMPONENT                                                            */
-/* -------------------------------------------------------------------------- */
+// ────────────────────────────────────────────────────────────────────────────
+// Main component
+// ────────────────────────────────────────────────────────────────────────────
 export default function Products() {
   const { t } = useLanguage();
   const searchParams = useSearchParams();
@@ -166,16 +241,17 @@ export default function Products() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [selectedCategory, setSelectedCategory] = useState<string>(initialCategoryParam);
+  const [selectedCategory, setSelectedCategory] =
+    useState<string>(initialCategoryParam);
+  const [selectedLiter, setSelectedLiter] = useState<string>("All");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortOption>("featured");
+  // ✅ Default sort changed from "featured" to "size-low"
+  const [sort, setSort] = useState<SortOption>("size-low");
 
+  // ✅ Simplified category label
   const getCategoryLabel = (catName: string) => {
     const lower = catName.toLowerCase();
     if (lower === "all") return t("shop.category_all", "All");
-    if (lower === "vegetables") return t("home.cat_veg_title", "Vegetables");
-    if (lower === "fruits") return t("home.cat_fruit_title", "Fruits");
-    if (lower === "cereals") return t("home.cat_cereal_title", "Cereals");
     return catName;
   };
 
@@ -199,12 +275,14 @@ export default function Products() {
           const list = Array.isArray(data) ? data : data?.categories || [];
           if (isMounted && list.length > 0) {
             const top = list.filter((c: CategoryOption) => !c.parentId);
-            const items = (top.length > 0 ? top : list).map((c: CategoryOption) => ({
-              id: c.id,
-              name: c.name,
-              slug: c.slug || c.name.toLowerCase(),
-              parentId: c.parentId || null,
-            }));
+            const items = (top.length > 0 ? top : list).map(
+              (c: CategoryOption) => ({
+                id: c.id,
+                name: c.name,
+                slug: c.slug || c.name.toLowerCase(),
+                parentId: c.parentId || null,
+              })
+            );
             setCategoriesList(items);
           }
         }
@@ -241,7 +319,7 @@ export default function Products() {
 
         if (Array.isArray(rawProducts) && rawProducts.length > 0) {
           const mapped: Product[] = (rawProducts as ApiProduct[]).map((p) => {
-            const categoryName = p.category?.name || "Produce";
+            const categoryName = p.category?.name || "Plastic Products";
 
             const imageList: string[] =
               Array.isArray(p.images) && p.images.length > 0
@@ -249,8 +327,20 @@ export default function Products() {
                 : [DEFAULT_IMAGE];
 
             const price = Number(p.price) || 0;
-            const discountPrice = p.discountPrice ? Number(p.discountPrice) : null;
+            const discountPrice = p.discountPrice
+              ? Number(p.discountPrice)
+              : null;
             const stock = typeof p.stock === "number" ? p.stock : 0;
+
+            // ✅ Detect liters from API data
+            const liters = detectLiters({
+              name: p.name,
+              description: p.description || "",
+              liters: p.liters,
+              volume: p.volume,
+              size: p.size,
+              capacity: p.capacity,
+            });
 
             return {
               id: p.id,
@@ -260,22 +350,25 @@ export default function Products() {
               description: p.description || "",
               price,
               discountPrice,
-              unit: p.unitOfMeasurement || "kg",
+              unit: p.unitOfMeasurement || "pcs",
               stock,
               featured: Boolean(discountPrice || p.isFeatured),
-              badge: discountPrice ? "Special Offer" : undefined,
+              badge: discountPrice ? "Sale" : undefined,
               images: imageList,
+              liters,
             };
           });
           setProducts(mapped);
         } else {
-          setProducts(fallbackProducts || []);
+          setProducts([]);
         }
       } catch (err) {
-        console.warn("Backend products fetch error, using fallback products:", err);
+        console.warn("Backend products fetch error:", err);
         if (isMounted) {
-          setError(err instanceof Error ? err.message : "Failed to load products");
-          setProducts(fallbackProducts || []);
+          setError(
+            err instanceof Error ? err.message : "Failed to load products"
+          );
+          setProducts([]);
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -287,6 +380,25 @@ export default function Products() {
       isMounted = false;
     };
   }, []);
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Liter filter options — built from actual products in the catalogue
+  // ────────────────────────────────────────────────────────────────────────
+  const literTabs = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach((p) => {
+      if (p.liters && p.liters > 0) {
+        set.add(literBucket(p.liters));
+      }
+    });
+
+    const sorted = Array.from(set).sort(
+      (a, b) => parseBucketValue(a) - parseBucketValue(b)
+    );
+
+    // Only show the liter filter if at least one product has a liter value
+    return sorted.length > 0 ? ["All", ...sorted] : [];
+  }, [products]);
 
   const categoryTabs = useMemo(() => {
     const set = new Set<string>(["All"]);
@@ -309,19 +421,35 @@ export default function Products() {
         productCat.includes(normalizedCategory) ||
         normalizedCategory.includes(productCat);
 
+      const matchesLiter =
+        selectedLiter === "All" ||
+        (product.liters != null &&
+          product.liters > 0 &&
+          literBucket(product.liters) === selectedLiter);
+
       const matchesSearch =
         !normalizedSearch ||
         product.name.toLowerCase().includes(normalizedSearch) ||
         product.description.toLowerCase().includes(normalizedSearch) ||
         product.category.toLowerCase().includes(normalizedSearch);
 
-      return matchesCategory && matchesSearch;
+      return matchesCategory && matchesLiter && matchesSearch;
     });
 
     return [...filtered].sort((a, b) => {
       const priceA = a.discountPrice ?? a.price;
       const priceB = b.discountPrice ?? b.price;
+
+      // Products without a liter value go to the end for size sorts
+      const litersA = a.liters ?? Number.POSITIVE_INFINITY;
+      const litersB = b.liters ?? Number.POSITIVE_INFINITY;
+
       switch (sort) {
+        case "size-low":
+          return litersA - litersB;
+        case "size-high":
+          // Reverse: treat missing as -Infinity so they go last
+          return (b.liters ?? -1) - (a.liters ?? -1);
         case "price-low":
           return priceA - priceB;
         case "price-high":
@@ -329,38 +457,43 @@ export default function Products() {
         case "name":
           return a.name.localeCompare(b.name);
         default:
-          return Number(b.featured) - Number(a.featured);
+          return 0;
       }
     });
-  }, [products, selectedCategory, search, sort]);
+  }, [products, selectedCategory, selectedLiter, search, sort]);
+
+  const hasActiveFilters =
+    selectedCategory.toLowerCase() !== "all" ||
+    selectedLiter !== "All" ||
+    search.trim() !== "";
 
   return (
-    <main className="min-h-screen bg-[var(--cream)]">
+    <main className="min-h-screen bg-[#faf6ee]">
       {/* Hero */}
-      <section className="relative overflow-hidden bg-[#123523] px-5 pb-16 pt-28 sm:px-8 lg:px-12 lg:pb-20 lg:pt-36">
+      <section className="relative overflow-hidden bg-[#1a1410] px-5 pb-16 pt-28 sm:px-8 lg:px-12 lg:pb-20 lg:pt-36">
         <div
-          className="pointer-events-none absolute -right-24 -top-40 h-[32rem] w-[32rem] rounded-full bg-[#b9d873]/10 blur-3xl"
+          className="pointer-events-none absolute -right-24 -top-40 h-[32rem] w-[32rem] rounded-full bg-[#e0a83c]/10 blur-3xl"
           aria-hidden="true"
         />
         <div
-          className="pointer-events-none absolute -bottom-40 -left-40 h-[30rem] w-[30rem] rounded-full bg-[#72a84d]/10 blur-3xl"
+          className="pointer-events-none absolute -bottom-40 -left-40 h-[30rem] w-[30rem] rounded-full bg-[#b98a3e]/10 blur-3xl"
           aria-hidden="true"
         />
 
         <div className="relative mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <h1 className="font-serif-heading text-5xl font-medium leading-[0.98] tracking-[-0.045em] text-[#f6f3e9] sm:text-6xl lg:text-7xl">
-              {t("shop.hero_title_1", "Fresh Harvest,")}
+            <h1 className="font-serif-heading text-5xl font-medium leading-[0.98] tracking-[-0.045em] text-[#faf6ee] sm:text-6xl lg:text-7xl">
+              {t("shop.hero_title_1", "Precision Plastic,")}
               <br />
-              <span className="text-[#b9d873]">
-                {t("shop.hero_title_2", "straight from the source.")}
+              <span className="text-[#e0a83c]">
+                {t("shop.hero_title_2", "straight from the factory.")}
               </span>
             </h1>
 
-            <p className="mt-6 max-w-2xl text-base leading-7 text-[#f6f3e9]/75 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-7 text-[#faf6ee]/75 sm:text-lg">
               {t(
                 "shop.hero_subtitle",
-                "Explore nutrient-dense vegetables, orchard fruits, highland cereals, and farm produce sourced directly from farmers with zero middlemen."
+                "Explore durable containers, household plastic items, industrial components, packaging solutions and custom-manufactured plastic products from Alemayehu Plastic Manufacturing."
               )}
             </p>
           </div>
@@ -371,10 +504,10 @@ export default function Products() {
       <section className="px-5 py-12 sm:px-8 lg:px-12 lg:py-16">
         <div className="mx-auto max-w-7xl">
           {/* Controls Bar */}
-          <div className="mb-8 rounded-3xl border border-[rgba(20,33,25,.09)] bg-white p-4 shadow-[0_15px_45px_rgba(18,53,35,.06)] sm:p-5">
+          <div className="mb-8 rounded-3xl border border-[#3a2a1e]/10 bg-white p-4 shadow-[0_15px_45px_rgba(58,42,30,.06)] sm:p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="relative w-full lg:max-w-md">
-                <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#69736b]">
+                <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7a6a58]">
                   <Search size={18} />
                 </div>
                 <input
@@ -383,9 +516,9 @@ export default function Products() {
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={t(
                     "shop.search_placeholder",
-                    "Search fresh harvest, crops, produce..."
+                    "Search plastic products, containers, packaging..."
                   )}
-                  className="h-11 w-full rounded-xl border border-[#19472d]/10 bg-[#f6f3e9]/60 pl-11 pr-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
+                  className="h-11 w-full rounded-xl border border-[#3a2a1e]/10 bg-[#faf6ee]/60 pl-11 pr-4 text-sm text-[#1a1410] outline-none transition placeholder:text-[#7a6a58]/60 focus:border-[#b98a3e] focus:bg-white focus:ring-4 focus:ring-[#e0a83c]/20"
                 />
               </div>
 
@@ -393,7 +526,8 @@ export default function Products() {
                 <div className="flex flex-wrap gap-2">
                   {categoryTabs.map((category) => {
                     const active =
-                      selectedCategory.toLowerCase() === category.toLowerCase();
+                      selectedCategory.toLowerCase() ===
+                      category.toLowerCase();
                     return (
                       <button
                         key={category}
@@ -401,8 +535,8 @@ export default function Products() {
                         onClick={() => setSelectedCategory(category)}
                         className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
                           active
-                            ? "bg-[#123523] text-[#f6f3e9] shadow-md"
-                            : "bg-[#f6f3e9] text-[#69736b] hover:bg-[#eae5d7] hover:text-[#123523]"
+                            ? "bg-[#1a1410] text-[#e0a83c] shadow-md"
+                            : "bg-[#faf6ee] text-[#7a6a58] hover:bg-[#f0e8d8] hover:text-[#1a1410]"
                         }`}
                       >
                         {getCategoryLabel(category)}
@@ -411,13 +545,17 @@ export default function Products() {
                   })}
                 </div>
 
+                {/* ✅ Sort dropdown — now liter-based */}
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortOption)}
-                  className="h-10 rounded-full border border-[#19472d]/10 bg-[#f6f3e9] px-4 text-xs font-semibold text-[#123523] outline-none focus:border-[#28633e]"
+                  className="h-10 rounded-full border border-[#3a2a1e]/10 bg-[#faf6ee] px-4 text-xs font-semibold text-[#1a1410] outline-none focus:border-[#b98a3e]"
                 >
-                  <option value="featured">
-                    {t("shop.sort_featured", "Featured First")}
+                  <option value="size-low">
+                    {t("shop.sort_size_low", "Size: Small → Large")}
+                  </option>
+                  <option value="size-high">
+                    {t("shop.sort_size_high", "Size: Large → Small")}
                   </option>
                   <option value="price-low">
                     {t("shop.sort_price_low", "Price: Low to High")}
@@ -425,17 +563,51 @@ export default function Products() {
                   <option value="price-high">
                     {t("shop.sort_price_high", "Price: High to Low")}
                   </option>
-                  <option value="name">{t("shop.sort_name", "Name A–Z")}</option>
+                  <option value="name">
+                    {t("shop.sort_name", "Name A–Z")}
+                  </option>
                 </select>
               </div>
             </div>
+
+            {/* ✅ Liter / Volume filter row — only shown when products have liter data */}
+            {literTabs.length > 0 && (
+              <div className="mt-4 flex flex-col gap-2 border-t border-[#3a2a1e]/10 pt-4 sm:flex-row sm:items-center sm:gap-4">
+                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#b98a3e]">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#e0a83c]" />
+                  {t("shop.filter_by_size", "Filter by Size")}
+                </span>
+
+                <div className="flex flex-wrap gap-2">
+                  {literTabs.map((liter) => {
+                    const active = selectedLiter === liter;
+                    return (
+                      <button
+                        key={liter}
+                        type="button"
+                        onClick={() => setSelectedLiter(liter)}
+                        className={`rounded-full px-3 py-1 text-[11px] font-bold transition-all duration-200 ${
+                          active
+                            ? "bg-[#b98a3e] text-white shadow-md"
+                            : "bg-[#faf6ee] text-[#7a6a58] hover:bg-[#f0e8d8] hover:text-[#1a1410]"
+                        }`}
+                      >
+                        {liter === "All"
+                          ? t("shop.size_all", "All Sizes")
+                          : liter}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Results Summary */}
-          <div className="mb-5 flex items-center justify-between">
-            <p className="text-sm text-[#69736b]">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-[#7a6a58]">
               {t("shop.showing", "Showing")}{" "}
-              <span className="font-bold text-[#123523]">
+              <span className="font-bold text-[#1a1410]">
                 {filteredProducts.length}
               </span>{" "}
               {filteredProducts.length === 1
@@ -445,31 +617,42 @@ export default function Products() {
                 <span>
                   {" "}
                   {t("shop.in", "in")}{" "}
-                  <strong className="text-[#123523] capitalize">
+                  <strong className="text-[#1a1410] capitalize">
                     {getCategoryLabel(selectedCategory)}
                   </strong>
                 </span>
               )}
+              {selectedLiter !== "All" && (
+                <span>
+                  {" "}
+                  · <strong className="text-[#1a1410]">{selectedLiter}</strong>
+                </span>
+              )}
             </p>
 
-            {selectedCategory.toLowerCase() !== "all" && (
+            {hasActiveFilters && (
               <button
                 type="button"
-                onClick={() => setSelectedCategory("All")}
-                className="text-xs font-semibold text-[#28633e] hover:underline"
+                onClick={() => {
+                  setSelectedCategory("All");
+                  setSelectedLiter("All");
+                  setSearch("");
+                }}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-[#b98a3e] hover:underline"
               >
-                {t("shop.reset_filter", "Reset category filter")}
+                <X size={12} />
+                {t("shop.reset_filter", "Reset all filters")}
               </button>
             )}
           </div>
 
-          {/* Grid — 2 / 3 / 4 columns */}
+          {/* Grid */}
           {loading ? (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <div
                   key={i}
-                  className="overflow-hidden rounded-2xl border border-[rgba(20,33,25,.09)] bg-white p-2.5 animate-pulse"
+                  className="overflow-hidden rounded-2xl border border-[#3a2a1e]/10 bg-white p-2.5 animate-pulse"
                 >
                   <div className="aspect-square w-full rounded-xl bg-gray-200" />
                   <div className="mt-3 space-y-1.5">
@@ -493,7 +676,8 @@ export default function Products() {
                   : product.price;
                 const discountPercent = hasDiscount
                   ? Math.round(
-                      ((product.price - product.discountPrice!) / product.price) *
+                      ((product.price - product.discountPrice!) /
+                        product.price) *
                         100
                     )
                   : 0;
@@ -503,11 +687,11 @@ export default function Products() {
                 return (
                   <div
                     key={product.id}
-                    className="group flex flex-col overflow-hidden rounded-2xl border border-[rgba(20,33,25,.09)] bg-white shadow-[0_8px_24px_rgba(18,53,35,.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_40px_rgba(18,53,35,.12)]"
+                    className="group flex flex-col overflow-hidden rounded-2xl border border-[#3a2a1e]/10 bg-white shadow-[0_8px_24px_rgba(58,42,30,.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_40px_rgba(58,42,30,.12)]"
                   >
                     <Link
                       href={`/shop/${encodeURIComponent(product.slug)}`}
-                      className="relative block aspect-square w-full overflow-hidden bg-[#0b2419]"
+                      className="relative block aspect-square w-full overflow-hidden bg-[#2a1f18]"
                     >
                       <ProductImage
                         src={imageUrl}
@@ -515,12 +699,17 @@ export default function Products() {
                         priority={isAboveTheFold}
                       />
 
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b2419]/55 via-transparent to-transparent" />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#1a1410]/55 via-transparent to-transparent" />
 
                       <div className="absolute left-2 top-2 flex flex-wrap gap-1">
-                        <span className="rounded-full bg-white/95 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#123523] shadow-sm backdrop-blur">
+                        <span className="rounded-full bg-white/95 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#1a1410] shadow-sm backdrop-blur">
                           {getCategoryLabel(product.category)}
                         </span>
+                        {product.liters != null && product.liters > 0 && (
+                          <span className="rounded-full bg-[#1a1410]/85 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#e0a83c] shadow-sm backdrop-blur">
+                            {literBucket(product.liters)}
+                          </span>
+                        )}
                         {hasDiscount && (
                           <span className="rounded-full bg-red-600 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm">
                             -{discountPercent}%
@@ -528,13 +717,15 @@ export default function Products() {
                         )}
                       </div>
 
-                      <span className="absolute bottom-2 left-2 rounded-full bg-[#123523]/85 px-2 py-0.5 text-[9px] font-medium text-white backdrop-blur">
+                      <span className="absolute bottom-2 left-2 rounded-full bg-[#1a1410]/85 px-2 py-0.5 text-[9px] font-medium text-white backdrop-blur">
                         {isAvailable
-                          ? `${t("shop.in_stock", "In Stock")} (${product.stock})`
+                          ? `${t("shop.in_stock", "In Stock")} (${
+                              product.stock
+                            })`
                           : t("shop.out_of_stock", "Out of stock")}
                       </span>
 
-                      <span className="absolute bottom-2 right-2 flex h-7 w-7 translate-y-2 items-center justify-center rounded-full bg-[var(--lime)] text-[#123523] opacity-0 shadow-md transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+                      <span className="absolute bottom-2 right-2 flex h-7 w-7 translate-y-2 items-center justify-center rounded-full bg-[#e0a83c] text-[#1a1410] opacity-0 shadow-md transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
                         <ArrowUpRight size={14} strokeWidth={2.4} />
                       </span>
                     </Link>
@@ -545,26 +736,26 @@ export default function Products() {
                           href={`/shop/${encodeURIComponent(product.slug)}`}
                           className="block"
                         >
-                          <h2 className="line-clamp-1 text-sm font-bold leading-tight text-[#123523] transition-colors group-hover:text-[#28633e]">
+                          <h2 className="line-clamp-1 text-sm font-bold leading-tight text-[#1a1410] transition-colors group-hover:text-[#b98a3e]">
                             {product.name}
                           </h2>
                         </Link>
 
-                        <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[#69736b]">
+                        <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[#7a6a58]">
                           {product.description ||
                             t(
                               "shop.default_card_desc",
-                              "Naturally grown and carefully harvested farm produce."
+                              "Durable plastic product engineered for everyday use."
                             )}
                         </p>
                       </div>
 
                       <div className="mt-2.5 flex items-baseline justify-between gap-2">
                         <div className="flex items-baseline gap-1">
-                          <span className="text-base font-bold text-[#123523]">
+                          <span className="text-base font-bold text-[#1a1410]">
                             ETB {displayPrice.toLocaleString()}
                           </span>
-                          <span className="text-[10px] text-[#69736b]">
+                          <span className="text-[10px] text-[#7a6a58]">
                             /{product.unit}
                           </span>
                         </div>
@@ -580,14 +771,14 @@ export default function Products() {
               })}
             </div>
           ) : (
-            <div className="rounded-3xl border border-dashed border-[#19472d]/20 bg-white px-6 py-16 text-center shadow-sm">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#f6f3e9] text-[#28633e]">
+            <div className="rounded-3xl border border-dashed border-[#3a2a1e]/20 bg-white px-6 py-16 text-center shadow-sm">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#faf6ee] text-[#b98a3e]">
                 <Search size={22} />
               </div>
-              <h3 className="font-serif-heading text-xl font-bold text-[#123523]">
-                {t("shop.no_products_title", "No agricultural products found")}
+              <h3 className="font-serif-heading text-xl font-bold text-[#1a1410]">
+                {t("shop.no_products_title", "No plastic products found")}
               </h3>
-              <p className="mx-auto mt-2 max-w-md text-xs leading-6 text-[#69736b]">
+              <p className="mx-auto mt-2 max-w-md text-xs leading-6 text-[#7a6a58]">
                 {t(
                   "shop.no_products_desc",
                   "We couldn't find any items matching your current filters. Try adjusting your search query or choosing another category."
@@ -598,11 +789,19 @@ export default function Products() {
                 onClick={() => {
                   setSearch("");
                   setSelectedCategory("All");
+                  setSelectedLiter("All");
                 }}
-                className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#123523] px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-[#f6f3e9] transition hover:bg-[#19472d]"
+                className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#1a1410] px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-[#e0a83c] transition hover:bg-[#2a1f18]"
               >
                 {t("shop.clear_filters", "Clear all filters")}
               </button>
+            </div>
+          )}
+
+          {/* Error message (only shows if backend fails) */}
+          {error && !loading && filteredProducts.length === 0 && (
+            <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600">
+              {error}
             </div>
           )}
         </div>

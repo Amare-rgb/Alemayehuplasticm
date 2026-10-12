@@ -18,46 +18,6 @@ enum Role {
   ADMIN
 }
 
-enum ProductStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-enum ProductVisibility {
-  VISIBLE
-  HIDDEN
-}
-
-enum OrderStatus {
-  PENDING
-  SHIPPED
-  COMPLETED
-  CANCELLED
-  REJECTED
-}
-
-enum PaymentStatus {
-  PENDING
-  PAID
-  FAILED
-  REFUNDED
-}
-
-enum CategoryStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  INACTIVE
-  HIDDEN
-}
-
-enum ArticleStatus {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
-}
-
 model User {
   id        String   @id @default(cuid())
   name      String
@@ -78,10 +38,8 @@ model User {
   cartItems          CartItem[]
   reviews            Review[]
   addresses          Address[]
-  blogPosts          BlogPost[]
-  categories         Category[]      @relation("CategoryCreator")
-  approvedCategories Category[]      @relation("CategoryApprover")
-  articles           Article[]       @relation("ArticleAuthor")
+  categories         Category[]    @relation("CategoryCreator")
+  articles           Article[]     @relation("ArticleAuthor")
   chatMessages       ChatMessage[]
 
   @@index([role])
@@ -152,27 +110,21 @@ model AdminProfile {
 }
 
 model Category {
-  id              String         @id @default(cuid())
-  name            String         @unique
-  slug            String         @unique
-  description     String?
-  image           String?
-  icon            String?
-  color           String?
-  parentId        String?
-  status          CategoryStatus @default(PENDING)
-  createdBy       String?
-  approvedBy      String?
-  approvedAt      DateTime?
-  rejectedAt      DateTime?
-  rejectionReason String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  image       String?
+  icon        String?
+  color       String?
+  parentId    String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children    Category[] @relation("CategoryTree")
   creator     User?      @relation("CategoryCreator", fields: [createdBy], references: [id])
-  approver    User?      @relation("CategoryApprover", fields: [approvedBy], references: [id])
   products    Product[]
   subProducts Product[]  @relation("ProductSubCategory")
 
@@ -180,44 +132,38 @@ model Category {
 }
 
 model Product {
-  id                String            @id @default(cuid())
+  id                String   @id @default(cuid())
   name              String
-  slug              String            @unique
-  description       String            @db.Text
-  price             Decimal           @db.Decimal(10, 2)
-  discountPrice     Decimal?          @db.Decimal(10, 2)
-  stock             Int               @default(0)
-  sku               String            @unique
+  slug              String   @unique
+  description       String   @db.Text
+  price             Decimal  @db.Decimal(10, 2)
+  discountPrice     Decimal? @db.Decimal(10, 2)
+  stock             Int      @default(0)
+  sku               String   @unique
   images            String[]
-  status            ProductStatus     @default(PENDING)
-  visibility        ProductVisibility @default(VISIBLE)
-  adminNote         String?
   categoryId        String
   subCategoryId     String?
   tags              String[]
   warranty          String?
   videoUrl          String?
-  unitOfMeasurement String            @default("pcs")
+  unitOfMeasurement String   @default("pcs")
   sizes             String?
   colors            String?
   brand             String?
   weight            Float?
   estimatedDelivery String?
-  rejectionReason   String?
-  durationTime      String?           @default("1h")
-  pricePerUnit      Decimal?          @db.Decimal(10, 2)
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  durationTime      String?  @default("1h")
+  pricePerUnit      Decimal? @db.Decimal(10, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  category    Category   @relation(fields: [categoryId], references: [id])
-  subCategory Category?  @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
+  category    Category    @relation(fields: [categoryId], references: [id])
+  subCategory Category?   @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
   cartItems   CartItem[]
   orderItems  OrderItem[]
   reviews     Review[]
 
   @@index([categoryId])
-  @@index([status])
-  @@index([visibility])
   @@index([sku])
   @@map("products")
 }
@@ -248,39 +194,25 @@ model CartItem {
 }
 
 // ============================================
-// ORDER MODEL
+// ORDER MODEL — payment tracking removed
 // ============================================
 model Order {
-  id              String        @id @default(cuid())
-  orderNumber     Int           @unique @default(autoincrement())
+  id          String   @id @default(cuid())
+  orderNumber Int      @unique @default(autoincrement())
 
-  userId          String
-  total           Decimal       @db.Decimal(10, 2)
-  status          OrderStatus   @default(PENDING)
-  paymentStatus   PaymentStatus @default(PENDING)
-  addressId       String
+  userId      String
+  total       Decimal  @db.Decimal(10, 2)
+  addressId   String
 
-  // Payment info persisted from checkout
-  paymentMethod   String?
-  paymentRef      String?
-  paymentProof    String?       @db.Text
-
-  stripeSessionId String?
-  notes           String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user    User        @relation(fields: [userId], references: [id])
   address Address     @relation(fields: [addressId], references: [id])
   items   OrderItem[]
 
-  @@unique([paymentMethod, paymentRef], name: "uniq_payment_ref_per_method")
-
   @@index([userId])
-  @@index([status])
-  @@index([paymentStatus])
-  @@index([paymentMethod])
-  @@index([paymentRef])
   @@index([orderNumber])
   @@index([createdAt])
   @@map("orders")
@@ -336,72 +268,54 @@ model Address {
   @@map("addresses")
 }
 
-model BlogPost {
-  id        String   @id @default(cuid())
-  title     String
-  slug      String   @unique
-  content   String   @db.Text
-  excerpt   String?
-  image     String?
-  video     String?
-  category  String   @default("Agriculture")
-  readTime  Int      @default(3)
-  published Boolean  @default(true)
-  views     Int      @default(0)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-
-  @@index([authorId])
-  @@map("blog_posts")
-}
-
+// ============================================
+// ARTICLE MODEL — status approval removed
+// ============================================
 model Article {
-  id           String        @id @default(cuid())
+  id           String   @id @default(cuid())
   title        String
   author       String
   summary      String?
-  content      String        @db.Text
-  note         String?       @db.Text
+  content      String   @db.Text
+  note         String?  @db.Text
 
   pdfUrl       String?
   pdfFileName  String?
   pdfFileSize  Int?
 
-  status       ArticleStatus @default(PUBLISHED)
-  views        Int           @default(0)
-  downloads    Int           @default(0)
+  views        Int      @default(0)
+  downloads    Int      @default(0)
   tags         String[]
   createdBy    String?
-  publishedAt  DateTime      @default(now())
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  publishedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  authorUser   User?         @relation("ArticleAuthor", fields: [createdBy], references: [id])
+  authorUser   User?    @relation("ArticleAuthor", fields: [createdBy], references: [id])
 
-  @@index([status, createdAt])
   @@index([author])
   @@index([createdBy])
   @@map("articles")
 }
 
+// ============================================
+// SETTINGS MODEL — rebranded for Alemayehu Plastic
+// ============================================
 model Settings {
   id                   String   @id @default(cuid())
-  siteName             String   @default("Genesis Agri Business")
-  siteDescription      String?  @default("Agriculture marketplace connecting farmers and buyers")
-  adminEmail           String   @default("admin@genesisagri.com")
-  adminPhone           String?  @default("+1 (555) 123-4567")
-  address              String?  @default("123 Farm Road, Nairobi, Kenya")
-  timezone             String   @default("Africa/Nairobi")
+  siteName             String   @default("Alemayehu Plastic Manufacturing")
+  siteDescription      String?  @default("Quality plastic products manufactured in Ethiopia")
+  adminEmail           String   @default("admin@alemayehplastic.com")
+  adminPhone           String?  @default("+251 900 000 000")
+  address              String?  @default("Bahir Dar, Ethiopia")
+  timezone             String   @default("Africa/Addis_Ababa")
   dateFormat           String   @default("MM/DD/YYYY")
-  storeName            String   @default("Genesis Agri Business")
-  storeEmail           String   @default("info@genesisagri.com")
-  storePhone           String?  @default("+1 (555) 123-4567")
-  storeAddress         String?  @default("123 Farm Road, Nairobi, Kenya")
+  storeName            String   @default("Alemayehu Plastic Manufacturing")
+  storeEmail           String   @default("info@alemayehplastic.com")
+  storePhone           String?  @default("+251 900 000 000")
+  storeAddress         String?  @default("Bahir Dar, Ethiopia")
   currency             String   @default("ETB")
-  taxRate              Float    @default(16)
+  taxRate              Float    @default(15)
   logo                 String?  @default("")
   favicon              String?  @default("")
   twoFactorAuth        Boolean  @default(false)
@@ -411,21 +325,21 @@ model Settings {
   productNotifications Boolean  @default(true)
   userNotifications    Boolean  @default(true)
   marketingEmails      Boolean  @default(false)
-  themeColor           String   @default("#22c55e")
+  themeColor           String   @default("#e0a83c")
   darkMode             Boolean  @default(false)
 
-  contactEmail         String?  @default("support@genesisagri.com")
-  contactPhone         String?  @default("+1 (555) 123-4567")
-  contactAddress       String?  @default("123 Agriculture Way, Farming District, FC 12345")
-  contactHours         String?  @default("Mon-Fri: 8:00 AM - 6:00 PM")
+  contactEmail         String?  @default("support@alemayehplastic.com")
+  contactPhone         String?  @default("+251 900 000 000")
+  contactAddress       String?  @default("Bahir Dar, Ethiopia")
+  contactHours         String?  @default("Mon-Sat: 8:00 AM - 6:00 PM")
   contactMapEmbed      String?  @default("")
   enableContactForm    Boolean  @default(true)
   enableWhatsApp       Boolean  @default(true)
-  whatsAppNumber       String?  @default("+254700000000")
+  whatsAppNumber       String?  @default("+251900000000")
   enableLiveChat       Boolean  @default(false)
-  emergencyPhone       String?  @default("+1 (555) 999-9999")
-  supportEmail         String?  @default("support@genesisagri.com")
-  infoEmail            String?  @default("info@genesisagri.com")
+  emergencyPhone       String?  @default("+251 900 000 000")
+  supportEmail         String?  @default("support@alemayehplastic.com")
+  infoEmail            String?  @default("info@alemayehplastic.com")
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

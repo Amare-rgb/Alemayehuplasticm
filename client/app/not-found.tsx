@@ -1,300 +1,79 @@
-"use client";
-
+// app/not-found.tsx
 import Link from "next/link";
-import Image from "next/image";
-import { ArrowUpRight, Home, ShoppingBag, BookOpen, Info, Phone } from "lucide-react";
-import { useSettings } from "@/context/SettingsContext";
-import { useSyncExternalStore } from "react";
-
-/* ─── Brand mark (leaf logo) — mirrors the one in Navbar/Footer ─── */
-function BrandMark({ size = 1 }: { size?: number }) {
-  const w = 28 * size;
-  const h = 32 * size;
-  return (
-    <span
-      className="brand-mark shrink-0"
-      aria-hidden="true"
-      style={{ width: w, height: h }}
-    >
-      <span className="leaf leaf-one" style={{ width: 15 * size, height: 22 * size }} />
-      <span className="leaf leaf-two" style={{ width: 15 * size, height: 22 * size }} />
-      <span className="stem" style={{ height: 26 * size, left: 13 * size, top: 5 * size }} />
-    </span>
-  );
-}
-
-/* ─── Floating leaf SVG decoration ─── */
-function FloatingLeaf({
-  className,
-  delay = 0,
-  size = 60,
-  opacity = 0.08,
-}: {
-  className?: string;
-  delay?: number;
-  size?: number;
-  opacity?: number;
-}) {
-  return (
-    <span
-      className={`pointer-events-none absolute ${className}`}
-      style={{ animationDelay: `${delay}s` }}
-    >
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 60 60"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        style={{ opacity }}
-      >
-        <ellipse
-          cx="22"
-          cy="18"
-          rx="18"
-          ry="28"
-          fill="#b9d873"
-          transform="rotate(-25 22 18)"
-        />
-        <ellipse
-          cx="38"
-          cy="28"
-          rx="15"
-          ry="22"
-          fill="#b9d873"
-          transform="rotate(45 38 28)"
-          style={{ opacity: 0.7 }}
-        />
-        <rect x="29" y="10" width="2.5" height="36" rx="1.25" fill="#b9d873" transform="rotate(20 29 10)" />
-      </svg>
-    </span>
-  );
-}
-
-/* ─── Quick-link cards ─── */
-const quickLinks = [
-  { href: "/", label: "Home", desc: "Back to where it all begins", icon: Home },
-  { href: "/shop", label: "Shop Fresh", desc: "Browse all produce & crops", icon: ShoppingBag },
-  { href: "/about", label: "About Us", desc: "Our story & mission", icon: Info },
-  { href: "/blog", label: "Blog", desc: "Agri-insights & farm news", icon: BookOpen },
-  { href: "/contact", label: "Contact", desc: "Get in touch with us", icon: Phone },
-];
-
-// Use the same mounted detection as other components
-const subscribe = () => () => {};
-const getClientSnapshot = () => true;
-const getServerSnapshot = () => false;
-
-function useMounted() {
-  return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
-}
+import { Home, ShoppingBag, Mail, ArrowLeft } from "lucide-react";
 
 export default function NotFound() {
-  const { settings } = useSettings();
-  const isMounted = useMounted();
-
-  // Only use settings values after client-side mount
-  const siteName = isMounted ? (settings?.siteName || 'Genesis Agri Business') : 'Genesis Agri Business';
-  const logoUrl = isMounted ? (settings?.logo || '') : '';
-
   return (
-    <main
-      className="relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden px-6 py-24"
-      style={{ background: "var(--cream)" }}
-    >
-      {/* ── Decorative floating leaves ─────────────────────────── */}
-      <FloatingLeaf className="left-[5%] top-[8%] animate-[floatA_9s_ease-in-out_infinite]" size={90} opacity={0.09} delay={0} />
-      <FloatingLeaf className="right-[7%] top-[14%] animate-[floatB_11s_ease-in-out_infinite]" size={64} opacity={0.06} delay={1.5} />
-      <FloatingLeaf className="left-[12%] bottom-[10%] animate-[floatB_13s_ease-in-out_infinite]" size={50} opacity={0.07} delay={3} />
-      <FloatingLeaf className="right-[4%] bottom-[18%] animate-[floatA_10s_ease-in-out_infinite]" size={78} opacity={0.05} delay={0.8} />
-      <FloatingLeaf className="left-[38%] top-[3%] animate-[floatB_8s_ease-in-out_infinite]" size={36} opacity={0.08} delay={2} />
-
-      {/* ── Large decorative "404" background text ─────────────── */}
-      <span
-        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none font-serif text-[clamp(160px,28vw,360px)] font-black leading-none tracking-[-0.05em]"
-        style={{ color: "var(--green-950)", opacity: 0.04 }}
-        aria-hidden="true"
-      >
-        404
-      </span>
-
-      {/* ── Main card ──────────────────────────────────────────── */}
-      <div className="relative z-10 flex flex-col items-center text-center">
-        {/* Brand logo - FIXED for hydration consistency */}
-        <Link href="/" className="group mb-8 flex items-center gap-3 no-underline">
-          {/* Always render a div container, content changes conditionally */}
-          <div className="relative h-12 w-12 rounded-full overflow-hidden flex items-center justify-center bg-white/10 border border-[var(--line)] shadow-sm flex-shrink-0">
-            {logoUrl ? (
-              <Image
-                src={logoUrl}
-                alt={siteName}
-                width={48}
-                height={48}
-                className="h-full w-full object-cover"
-                priority
-                onError={(e) => {
-                  console.error('Logo failed to load:', logoUrl);
-                  // Show fallback brand mark on error
-                  const parent = (e.currentTarget as HTMLElement).parentElement;
-                  if (parent) {
-                    const fallback = document.createElement('span');
-                    fallback.className = 'brand-mark shrink-0';
-                    fallback.innerHTML = `
-                      <span class="leaf leaf-one" style="width:15px;height:22px"></span>
-                      <span class="leaf leaf-two" style="width:15px;height:22px"></span>
-                      <span class="stem" style="height:26px;left:13px;top:5px"></span>
-                    `;
-                    parent.appendChild(fallback);
-                    (e.currentTarget as HTMLElement).style.display = 'none';
-                  }
-                }}
-              />
-            ) : (
-              <BrandMark size={1.5} />
-            )}
-          </div>
-          <span className="grid gap-[3px] leading-none text-left">
-            <strong
-              className="text-[20px] tracking-[0.12em] font-serif"
-              style={{ color: "var(--green-900)" }}
-            >
-              {siteName.toUpperCase()}
-            </strong>
-            {settings?.siteDescription && isMounted && (
-              <small
-                className="text-[8px] tracking-[0.2em]"
-                style={{ color: "var(--muted)" }}
-              >
-                AGRO-BUSINESS
-              </small>
-            )}
+    <main className="min-h-screen bg-[#faf6ee] flex items-center justify-center px-5 py-16">
+      <div className="w-full max-w-lg text-center">
+        {/* Big 404 with gold accent */}
+        <div className="relative mb-6">
+          <span className="block font-serif-heading text-[120px] sm:text-[160px] font-bold leading-none tracking-[-0.05em] text-[#1a1410]/10 select-none">
+            404
           </span>
-        </Link>
-
-        {/* Error badge */}
-        <span
-          className="mb-5 inline-block rounded-full px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em]"
-          style={{
-            background: "var(--green-950)",
-            color: "var(--lime)",
-          }}
-        >
-          Error 404 — Page Not Found
-        </span>
+          <span className="absolute inset-0 flex items-center justify-center font-serif-heading text-6xl sm:text-7xl font-bold tracking-[-0.04em] text-[#1a1410]">
+            4<span className="text-[#e0a83c]">0</span>4
+          </span>
+        </div>
 
         {/* Heading */}
-        <h1
-          className="mb-4 text-[clamp(40px,7vw,72px)] font-normal leading-[1.05] tracking-[-0.025em]"
-          style={{ fontFamily: "var(--serif)", color: "var(--ink)" }}
-        >
-          Lost in the fields?
+        <h1 className="font-serif-heading text-2xl sm:text-3xl font-bold text-[#1a1410] tracking-[-0.03em]">
+          Page Not Found
         </h1>
 
-        {/* Sub-copy */}
-        <p
-          className="mb-10 max-w-[480px] text-[15px] leading-relaxed"
-          style={{ color: "var(--muted)" }}
-        >
-          The page you&apos;re looking for has wandered off — it may have been
-          moved, harvested, or never planted here. Let&rsquo;s get you back on
-          the right path.
+        {/* Subtitle */}
+        <p className="mt-3 text-sm leading-6 text-[#7a6a58] max-w-md mx-auto">
+          Sorry, we couldnt find the page you were looking for. It may have
+          been moved, renamed, or never existed.
         </p>
 
-        {/* Primary CTAs */}
-        <div className="mb-16 flex flex-wrap items-center justify-center gap-3">
+        {/* Divider */}
+        <div className="my-8 flex items-center justify-center gap-3">
+          <span className="h-px w-12 bg-[#3a2a1e]/15" />
+          <span className="h-1.5 w-1.5 rounded-full bg-[#e0a83c]" />
+          <span className="h-px w-12 bg-[#3a2a1e]/15" />
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link
             href="/"
-            id="not-found-home-cta"
-            className="group flex items-center gap-3 rounded-full px-7 py-3.5 text-sm font-bold uppercase tracking-[0.08em] text-white shadow-lg transition-all duration-300 hover:scale-[1.03] hover:shadow-xl"
-            style={{ background: "var(--green-900)" }}
+            className="inline-flex h-12 w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-[#1a1410] px-6 text-sm font-bold text-white transition hover:bg-[#2a1f18] hover:text-[#e0a83c]"
           >
-            Go Home
-            <span
-              className="flex h-7 w-7 items-center justify-center rounded-full transition-transform duration-300 group-hover:rotate-45"
-              style={{ background: "var(--lime)", color: "var(--green-950)" }}
-            >
-              <ArrowUpRight size={14} strokeWidth={2.5} />
-            </span>
+            <Home size={16} />
+            Back to Home
           </Link>
 
           <Link
             href="/shop"
-            id="not-found-shop-cta"
-            className="flex items-center gap-2 rounded-full border px-7 py-3.5 text-sm font-semibold transition-all duration-300 hover:scale-[1.03] hover:shadow-md"
-            style={{
-              borderColor: "var(--green-700)",
-              color: "var(--green-800)",
-            }}
+            className="inline-flex h-12 w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-[#3a2a1e]/15 bg-white px-6 text-sm font-bold text-[#1a1410] transition hover:border-[#b98a3e] hover:text-[#b98a3e]"
           >
-            Shop Fresh
+            <ShoppingBag size={16} />
+            Browse Products
           </Link>
         </div>
 
-        {/* Divider */}
-        <div className="mb-8 flex w-full max-w-[640px] items-center gap-4">
-          <span className="h-px flex-1" style={{ background: "var(--line)" }} />
-          <span
-            className="text-[10px] font-bold uppercase tracking-[0.2em]"
-            style={{ color: "var(--muted)" }}
+        {/* Contact hint */}
+        <p className="mt-8 text-xs text-[#7a6a58]">
+          Need help?{" "}
+          <Link
+            href="/contact"
+            className="inline-flex items-center gap-1 font-semibold text-[#b98a3e] hover:text-[#1a1410]"
           >
-            Or explore
-          </span>
-          <span className="h-px flex-1" style={{ background: "var(--line)" }} />
-        </div>
+            <Mail size={12} />
+            Contact our team
+          </Link>
+        </p>
 
-        {/* Quick-links grid */}
-        <div className="grid w-full max-w-[640px] grid-cols-2 gap-3 sm:grid-cols-3">
-          {quickLinks.map(({ href, label, desc, icon: Icon }, i) => (
-            <Link
-              key={href}
-              href={href}
-              id={`not-found-link-${label.toLowerCase().replace(/\s+/g, "-")}`}
-              className="group flex flex-col gap-2.5 rounded-2xl border p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
-              style={{
-                borderColor: "var(--line)",
-                background: "white",
-                transitionDelay: `${i * 60}ms`,
-              }}
-            >
-              <span
-                className="flex h-9 w-9 items-center justify-center rounded-xl"
-                style={{ background: "var(--cream-dark)" }}
-              >
-                <Icon
-                  size={17}
-                  style={{ color: "var(--green-800)" }}
-                  className="transition-transform duration-300 group-hover:scale-110"
-                />
-              </span>
-              <span>
-                <strong
-                  className="block text-[13px] font-semibold leading-snug"
-                  style={{ color: "var(--ink)" }}
-                >
-                  {label}
-                </strong>
-                <span className="text-[11px] leading-snug" style={{ color: "var(--muted)" }}>
-                  {desc}
-                </span>
-              </span>
-            </Link>
-          ))}
-        </div>
+        {/* Back link */}
+        <Link
+          href="/"
+          className="mt-4 inline-flex items-center gap-1 text-[11px] text-[#7a6a58] hover:text-[#1a1410]"
+        >
+          <ArrowLeft size={12} />
+          Go back
+        </Link>
       </div>
-
-      {/* ── Keyframe animations ────────────────────────────────── */}
-      <style>{`
-        @keyframes floatA {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          33%       { transform: translateY(-18px) rotate(6deg); }
-          66%       { transform: translateY(-8px) rotate(-4deg); }
-        }
-        @keyframes floatB {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          40%       { transform: translateY(-14px) rotate(-8deg); }
-          70%       { transform: translateY(-22px) rotate(3deg); }
-        }
-      `}</style>
     </main>
   );
 }

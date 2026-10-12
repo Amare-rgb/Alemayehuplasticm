@@ -12,6 +12,9 @@ import React, {
 import en from '@/locales/en.json';
 import am from '@/locales/am.json';
 
+// ============================================================
+// Types
+// ============================================================
 export type Language = 'en' | 'am';
 
 interface LanguageContextType {
@@ -21,6 +24,10 @@ interface LanguageContextType {
   t: (key: string, fallback?: string) => string;
 }
 
+// ============================================================
+// Context (with safe defaults so components outside the provider
+// don't crash — they just get English fallbacks)
+// ============================================================
 const LanguageContext = createContext<LanguageContextType>({
   language: 'en',
   setLanguage: () => {},
@@ -30,9 +37,10 @@ const LanguageContext = createContext<LanguageContextType>({
 
 const STORAGE_KEY = 'site_lang';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// External store — reads language from localStorage without triggering effects
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================
+// External store — read the language from localStorage without
+// triggering effects or setState on mount (SSR-safe)
+// ============================================================
 const subscribe = (callback: () => void) => {
   if (typeof window === 'undefined') return () => {};
 
@@ -57,9 +65,9 @@ const getClientSnapshot = (): Language => {
 
 const getServerSnapshot = (): Language => 'en';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Nested dictionary resolver — no `any`
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================
+// Nested dictionary resolver
+// ============================================================
 type Dict = { [key: string]: string | Dict };
 
 function resolveKey(dict: unknown, keys: string[]): string | null {
@@ -81,24 +89,27 @@ function resolveKey(dict: unknown, keys: string[]): string | null {
   return typeof current === 'string' ? current : null;
 }
 
+// ✅ Ensure the imported JSON shape is treated as Dict safely
 const translations: Record<Language, Dict> = {
   en: en as unknown as Dict,
   am: am as unknown as Dict,
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================
 // Provider
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  // ✅ useSyncExternalStore reads localStorage without a mount-time setState
+  // Read the persisted language without a mount-time setState
   const storedLanguage = useSyncExternalStore(
     subscribe,
     getClientSnapshot,
     getServerSnapshot
   );
 
-  // Local override state — set when the user clicks EN/አማ in this tab
-  const [overrideLanguage, setOverrideLanguage] = useState<Language | null>(null);
+  // Local override — set when the user toggles EN / አማ in this tab
+  const [overrideLanguage, setOverrideLanguage] = useState<Language | null>(
+    null
+  );
 
   // Effective language: local override wins, otherwise the stored value
   const language: Language = overrideLanguage ?? storedLanguage;
@@ -109,7 +120,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     try {
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, lang);
-        window.dispatchEvent(new CustomEvent('language-change', { detail: lang }));
+        // Broadcast so other tabs / components can react
+        window.dispatchEvent(
+          new CustomEvent('language-change', { detail: lang })
+        );
       }
     } catch {
       // Ignore storage errors (private mode, quota, etc.)
@@ -121,20 +135,20 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setLanguage(next);
   }, [language, setLanguage]);
 
-  // ✅ Pure — no effects, no setState
+  // Translation function — no effects, no setState
   const t = useCallback(
     (key: string, fallback?: string): string => {
       const keys = key.split('.');
 
-      // Try active language first
+      // 1. Try the active language first
       const activeValue = resolveKey(translations[language], keys);
       if (activeValue !== null) return activeValue;
 
-      // Fall back to English
+      // 2. Fall back to English
       const englishValue = resolveKey(translations.en, keys);
       if (englishValue !== null) return englishValue;
 
-      // Final fallback
+      // 3. Final fallback — the string passed by the caller
       return fallback || key;
     },
     [language]
@@ -157,6 +171,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ============================================================
+// Hook
+// ============================================================
 export function useLanguage() {
   const context = useContext(LanguageContext);
   if (!context) {

@@ -1,7 +1,8 @@
 // middleware/upload.js
 //
-// Upload middlewares that store images on Cloudinary (permanent storage)
-// instead of Railway's disk (which is erased on every deploy).
+// Upload middlewares that store images on the LOCAL DISK.
+// Files are saved to:  <project-root>/uploads/<folder>/<filename>
+// and served at:       http://<server>/uploads/<folder>/<filename>
 //
 // Same exports and field names as before:
 //   uploadSingle     → field "image"      (products)
@@ -12,55 +13,45 @@
 //   handleUpload     → error-handling wrapper
 //
 // IMPORTANT: after a successful upload, use  req.file.url  (or
-// req.files[i].url) as the image address. It is a permanent
-// https://res.cloudinary.com/... link. Do NOT build "/uploads/..." paths
-// from file.filename anymore.
-//
-// Railway variables:
-//   CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
-//   (or CLOUDINARY_URL), optional CLOUDINARY_FOLDER
+// req.files[i].url). It is a relative path like:
+//   /uploads/products/1712-abc123.jpg
+// The frontend must prepend the API base URL to display it:
+//   http://localhost:5000/uploads/products/1712-abc123.jpg
 
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
-const { v2: cloudinary } = require('cloudinary');
 
-// ── Cloudinary setup ────────────────────────────────────────────────────
-const hasCloudinary = !!(
-  process.env.CLOUDINARY_URL ||
-  (process.env.CLOUDINARY_CLOUD_NAME &&
-    process.env.CLOUDINARY_API_KEY &&
-    process.env.CLOUDINARY_API_SECRET)
-);
+// ── Upload root + subfolders ───────────────────────────────────────────
+const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
 
-const CLOUD_FOLDER = (process.env.CLOUDINARY_FOLDER || 'genesis-agri')
-  .trim()
-  .replace(/^\/+|\/+$/g, '');
+const SUBFOLDERS = {
+  image: 'products',
+  images: 'products',
+  product: 'products',
+  avatar: 'avatars',
+  documents: 'documents',
+  document: 'documents',
+  receipt: 'receipts',
+  article: 'articles',
+};
 
-if (hasCloudinary) {
-  if (process.env.CLOUDINARY_URL) {
-    cloudinary.config({ secure: true });
-  } else {
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-      secure: true,
-    });
+// Create all folders on startup
+const ALL_FOLDERS = ['products', 'avatars', 'documents', 'receipts', 'articles'];
+for (const folder of ALL_FOLDERS) {
+  const dir = path.join(UPLOAD_ROOT, folder);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`📁 Created upload folder: ${dir}`);
   }
-} else {
-  console.error(
-    '❌ middleware/upload.js: Cloudinary is NOT configured.\n' +
-      '   Set CLOUDINARY_URL OR CLOUDINARY_CLOUD_NAME + CLOUDINARY_API_KEY + CLOUDINARY_API_SECRET.\n' +
-      '   All uploads through this middleware will fail with 503.'
-  );
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 const makeError = (code, message) =>
   Object.assign(new Error(message), { code });
 
-// File filter — only images
+// File filter — images + PDFs
 const fileFilter = (req, file, cb) => {
   const validTypes = [
     'image/jpeg',
@@ -70,6 +61,7 @@ const fileFilter = (req, file, cb) => {
     'image/gif',
     'image/avif',
     'image/svg+xml',
+    'application/pdf',
   ];
 
   const validExtensions = [
@@ -80,6 +72,7 @@ const fileFilter = (req, file, cb) => {
     '.gif',
     '.avif',
     '.svg',
+    '.pdf',
   ];
 
   const ext = path.extname(file.originalname).toLowerCase();
@@ -89,97 +82,67 @@ const fileFilter = (req, file, cb) => {
   } else {
     cb(
       new Error(
-        'Invalid file type. Allowed: JPEG, PNG, WEBP, GIF, AVIF, SVG'
+        'Invalid file type. Allowed: JPEG, PNG, WEBP, GIF, AVIF, SVG, PDF'
       )
     );
   }
 };
 
-const uploadBufferToCloudinary = (buffer, { folder, publicId }) =>
-  new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder,
-        public_id: publicId,
-        resource_type: 'image',
-        overwrite: false,
-        invalidate: true,
-      },
-      (error, result) => {
-        if (error) return reject(error);
-        return resolve(result);
-      }
-    );
-    stream.end(buffer);
-  });
+// ── Disk storage ────────────────────────────────────────────────────────
+const diskStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Pick subfolder based on the field name
+    const folder = SUBFOLDERS[file.fieldname] || 'products';
+    const dir = path.join(UPLOAD_ROOT, folder);
 
-// Collect every uploaded file, whatever multer mode was used
-const collectFiles = (req) => {
-  if (req.file) return [req.file];
-  if (Array.isArray(req.files)) return req.files;
-  if (req.files && typeof req.files === 'object') {
-    return Object.values(req.files).flat();
-  }
-  return [];
-};
-
-// Send one file (held in memory) to Cloudinary and add
-// url / path / filename / publicId to the multer file object.
-const storeFile = async (file) => {
-  if (!hasCloudinary) {
-    throw makeError(
-      'STORAGE_NOT_CONFIGURED',
-      'Image storage is not configured on the server.'
-    );
-  }
-
-  const isAvatar = file.fieldname === 'avatar';
-  const folder = isAvatar ? 'avatars' : 'products';
-  const prefix = isAvatar ? 'avatar' : 'product';
-  const baseName = `${prefix}-${Date.now()}-${crypto
-    .randomBytes(6)
-    .toString('hex')}`;
-
-  try {
-    const result = await uploadBufferToCloudinary(file.buffer, {
-      folder: `${CLOUD_FOLDER}/${folder}`,
-      publicId: baseName,
-    });
-    // Overwrite the multer file fields with Cloudinary values
-    file.url = result.secure_url;
-    file.path = result.secure_url;
-    file.publicId = result.public_id;
-    file.public_id = result.public_id;
-    file.filename = baseName;
-    file.location = result.secure_url;
-  } catch (err) {
-    console.error(
-      '❌ Cloudinary upload failed:',
-      err && err.message ? err.message : err
-    );
-    throw makeError('STORAGE_FAILED', 'Failed to store the image.');
-  }
-};
-
-// multer (memory) + storeFile → one normal (req, res, next) middleware
-const withStorage = (multerMiddleware) => (req, res, next) => {
-  multerMiddleware(req, res, async (err) => {
-    if (err) return next(err);
-    try {
-      const files = collectFiles(req);
-      for (const file of files) {
-        await storeFile(file);
-      }
-      return next();
-    } catch (storageErr) {
-      return next(storageErr);
+    // Make sure it exists (defensive — it should already)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+    cb(null, unique);
+  },
+});
+
+// ── Attach a URL to each saved file ─────────────────────────────────────
+// After multer writes the file to disk, we compute a public URL and
+// attach it to `req.file.url` (and each item of `req.files`).
+const attachUrls = (req, res, next) => {
+  const addUrl = (file) => {
+    if (!file || !file.path) return;
+    const rel = path.relative(UPLOAD_ROOT, file.path).split(path.sep).join('/');
+    file.url = `/uploads/${rel}`;
+    file.location = file.url;
+    file.secure_url = file.url;
+  };
+
+  if (req.file) addUrl(req.file);
+
+  if (Array.isArray(req.files)) {
+    req.files.forEach(addUrl);
+  } else if (req.files && typeof req.files === 'object') {
+    Object.values(req.files).forEach((arr) => {
+      if (Array.isArray(arr)) arr.forEach(addUrl);
+    });
+  }
+  next();
+};
+
+// Compose: multer → attach URLs → next()
+const withStorage = (multerMiddleware) => (req, res, next) => {
+  multerMiddleware(req, res, (err) => {
+    if (err) return next(err);
+    return attachUrls(req, res, next);
   });
 };
 
-// ── Multer instances (files are kept in memory first) ───────────────────
-const memoryProducts = multer({
-  storage: multer.memoryStorage(),
+// ── Multer instances ────────────────────────────────────────────────────
+const single = multer({
+  storage: diskStorage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10 MB
     files: 1,
@@ -187,20 +150,11 @@ const memoryProducts = multer({
   fileFilter,
 });
 
-const memoryAvatars = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5 MB
-    files: 1,
-  },
-  fileFilter,
-});
-
-const memoryMultiple = multer({
-  storage: multer.memoryStorage(),
+const multiple = multer({
+  storage: diskStorage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10 MB each
-    files: 5,
+    files: 10,
   },
   fileFilter,
 });
@@ -208,23 +162,23 @@ const memoryMultiple = multer({
 // ── Exported middlewares ────────────────────────────────────────────────
 
 // Products — field name 'image'
-const uploadSingle = withStorage(memoryProducts.single('image'));
+const uploadSingle = withStorage(single.single('image'));
 
 // Avatars — field name 'avatar'
-const uploadAvatar = withStorage(memoryAvatars.single('avatar'));
+const uploadAvatar = withStorage(single.single('avatar'));
 
 // Multiple documents
-const uploadDocuments = withStorage(memoryMultiple.array('documents', 5));
+const uploadDocuments = withStorage(multiple.array('documents', 5));
 
 // Multiple images
-const uploadMultiple = withStorage(memoryMultiple.array('images', 5));
+const uploadMultiple = withStorage(multiple.array('images', 5));
 
 // Backward-compatible "upload" object
 const upload = {
-  single: (field) => withStorage(memoryProducts.single(field)),
-  array: (field, max) => withStorage(memoryMultiple.array(field, max)),
-  fields: (fields) => withStorage(memoryMultiple.fields(fields)),
-  any: () => withStorage(memoryMultiple.any()),
+  single: (field) => withStorage(single.single(field)),
+  array: (field, max) => withStorage(multiple.array(field, max)),
+  fields: (fields) => withStorage(multiple.fields(fields)),
+  any: () => withStorage(multiple.any()),
 };
 
 // ── Error-handling wrapper ──────────────────────────────────────────────
@@ -248,19 +202,6 @@ const handleUpload = (uploadMiddleware) => {
           return res.status(400).json({
             error: 'Too many files.',
             code: 'TOO_MANY_FILES',
-          });
-        }
-        if (err.code === 'STORAGE_NOT_CONFIGURED') {
-          return res.status(503).json({
-            error:
-              'Image storage is not configured on the server. Please contact the administrator.',
-            code: 'STORAGE_NOT_CONFIGURED',
-          });
-        }
-        if (err.code === 'STORAGE_FAILED') {
-          return res.status(500).json({
-            error: 'Failed to store the image. Please try again.',
-            code: 'STORAGE_FAILED',
           });
         }
         if (err.message && err.message.includes('Invalid file type')) {

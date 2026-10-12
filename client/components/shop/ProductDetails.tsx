@@ -1,62 +1,72 @@
 // components/shop/ProductDetails.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { Product } from "@/data/products";
-import { useCart } from "@/context/CartContext";
 import { useLanguage } from "@/context/LanguageContext";
+
+// ✅ Local type — no dependency on `@/data/products`
+export interface Product {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  description: string;
+  price: number;
+  discountPrice: number | null;
+  unit: string;
+  stock: number;
+  featured?: boolean;
+  badge?: string;
+  images: string[];
+}
 
 type ProductDetailsProps = {
   product: Product;
 };
 
-/* -------------------------------------------------------------------------- */
-/*  IMAGE RESOLUTION — same logic as Products.tsx so URLs are handled 1:1     */
-/* -------------------------------------------------------------------------- */
-
+// ────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ────────────────────────────────────────────────────────────────────────────
 const RAW_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "http://localhost:5000";
 const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-const DEFAULT_IMAGE = "/placeholder.svg";
+const DEFAULT_IMAGE = "/banners/carplastik.jpg";
 const FALLBACK_REMOTE_IMAGE =
-  "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85";
+  "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?auto=format&fit=crop&w=1200&q=85";
+
+// ✅ Replace with your real business phone number
+const BUSINESS_PHONE = "+251 900 000 000";
+const BUSINESS_PHONE_TEL = BUSINESS_PHONE.replace(/\s/g, "");
 
 function resolveImage(raw: unknown): string {
   if (typeof raw !== "string") return DEFAULT_IMAGE;
   const s = raw.trim();
   if (!s) return DEFAULT_IMAGE;
 
-  // 1. Absolute URL (Cloudinary, S3, etc.)
   if (s.startsWith("http://") || s.startsWith("https://")) return s;
-
-  // 2. Cloudinary path without protocol
+  if (s.startsWith("data:")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  // 3. Legacy local uploads (will 404 if backend no longer serves /uploads)
   if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
     const clean = s.startsWith("/") ? s : `/${s}`;
     return `${API_BASE_URL}${clean}`;
   }
 
-  // 4. Bare filename
   if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
     return `${API_BASE_URL}/uploads/products/${s}`;
   }
 
-  // 5. Anything else
   return DEFAULT_IMAGE;
 }
 
-/* -------------------------------------------------------------------------- */
-/*  ICONS                                                                     */
-/* -------------------------------------------------------------------------- */
-
+// ────────────────────────────────────────────────────────────────────────────
+// Icons
+// ────────────────────────────────────────────────────────────────────────────
 function ArrowLeft() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
@@ -81,43 +91,6 @@ function CheckIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-function MinusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-      <path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-      <path
-        d="M12 5v14M5 12h14"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function CartIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
-      <path
-        d="M3 4h2l1.7 10.2a2 2 0 0 0 2 1.8h7.8a2 2 0 0 0 2-1.6L20 7H6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="9" cy="20" r="1.2" fill="currentColor" />
-      <circle cx="17" cy="20" r="1.2" fill="currentColor" />
     </svg>
   );
 }
@@ -151,25 +124,49 @@ function PhoneIcon() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/*  STABLE IMAGE                                                              */
-/*  3-stage fallback: primary → placeholder → remote → dead                   */
-/*  Local/Unsplash assets skip Next.js optimizer via `unoptimized`            */
-/* -------------------------------------------------------------------------- */
+function ZoomInIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="m20 20-3.5-3.5M11 8v6M8 11h6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6" aria-hidden="true">
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stable image with 3-stage fallback
+// ────────────────────────────────────────────────────────────────────────────
 const ProductImage: React.FC<{
   src: string;
   alt: string;
   className?: string;
   priority?: boolean;
-}> = ({ src, alt, className = "", priority = false }) => {
+  contain?: boolean;
+}> = ({ src, alt, className = "", priority = false, contain = false }) => {
   const [prevSrc, setPrevSrc] = useState(src);
   const [imgSrc, setImgSrc] = useState(src);
-  const [stage, setStage] = useState<"primary" | "placeholder" | "remote" | "dead">(
-    "primary"
-  );
+  const [stage, setStage] = useState<
+    "primary" | "placeholder" | "remote" | "dead"
+  >("primary");
 
-  // Reset when parent passes a new src — React-recommended pattern
   if (src !== prevSrc) {
     setPrevSrc(src);
     setImgSrc(src);
@@ -190,7 +187,9 @@ const ProductImage: React.FC<{
 
   if (stage === "dead") {
     return (
-      <div className={`flex items-center justify-center bg-gray-200 ${className}`}>
+      <div
+        className={`flex items-center justify-center bg-gray-200 ${className}`}
+      >
         <span className="text-xs text-gray-400">No image</span>
       </div>
     );
@@ -205,7 +204,9 @@ const ProductImage: React.FC<{
       alt={alt}
       fill
       unoptimized={isLocalAsset || isUnsplash}
-      className={`object-cover object-center ${className}`}
+      className={`${
+        contain ? "object-contain" : "object-cover"
+      } object-center ${className}`}
       onError={handleError}
       sizes="(max-width: 768px) 100vw, 50vw"
       loading={priority ? "eager" : "lazy"}
@@ -214,17 +215,72 @@ const ProductImage: React.FC<{
   );
 };
 
-/* -------------------------------------------------------------------------- */
-/*  MAIN COMPONENT                                                            */
-/* -------------------------------------------------------------------------- */
+// ────────────────────────────────────────────────────────────────────────────
+// Fullscreen image viewer (lightbox)
+// ────────────────────────────────────────────────────────────────────────────
+function ImageLightbox({
+  src,
+  alt,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
 
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/95 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close fullscreen image"
+        className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+      >
+        <CloseIcon />
+      </button>
+
+      <div
+        className="relative h-full w-full max-h-[92vh] max-w-[92vw]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Image
+          src={src}
+          alt={alt}
+          fill
+          unoptimized
+          className="object-contain"
+          sizes="100vw"
+        />
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Main component
+// ────────────────────────────────────────────────────────────────────────────
 export default function ProductDetails({ product }: ProductDetailsProps) {
-  const router = useRouter();
-  const { addToCart } = useCart();
   const { t } = useLanguage();
 
   const [selectedImage, setSelectedImage] = useState(0);
-  const [quantity, setQuantity] = useState(1);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const effectivePrice =
     product.discountPrice !== null &&
@@ -233,12 +289,6 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
       ? product.discountPrice
       : product.price;
 
-  const total = useMemo(
-    () => effectivePrice * quantity,
-    [effectivePrice, quantity]
-  );
-
-  // ✅ Resolve every image URL exactly once
   const images = useMemo(() => {
     const raw = Array.isArray(product.images) ? product.images : [];
     const resolved = raw.map(resolveImage).filter(Boolean);
@@ -248,74 +298,14 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
   const safeIndex = Math.min(Math.max(selectedImage, 0), images.length - 1);
   const currentImage = images[safeIndex];
 
-  const decreaseQuantity = () => {
-    setQuantity((current) => Math.max(1, current - 1));
-  };
-
-  const increaseQuantity = () => {
-    setQuantity((current) =>
-      product.stock > 0 ? Math.min(product.stock, current + 1) : current + 1
-    );
-  };
-
-  const handleQuantityInputChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const val = parseInt(e.target.value, 10);
-    if (isNaN(val) || val < 1) {
-      setQuantity(1);
-    } else if (product.stock > 0 && val > product.stock) {
-      setQuantity(product.stock);
-    } else {
-      setQuantity(val);
-    }
-  };
-
-  const handleAddToCart = () => {
-    addToCart(
-      {
-        id: product.id,
-        name: product.name,
-        slug: product.slug,
-        price: product.price,
-        discountPrice: product.discountPrice,
-        unit: product.unit,
-        images: product.images,
-        stock: product.stock,
-        category: product.category,
-      },
-      quantity,
-      true
-    );
-  };
-
-  const handleBuyNow = () => {
-    addToCart(
-      {
-        id: product.id,
-        name: product.name,
-        slug: product.slug,
-        price: product.price,
-        discountPrice: product.discountPrice,
-        unit: product.unit,
-        images: product.images,
-        stock: product.stock,
-        category: product.category,
-      },
-      quantity,
-      false
-    );
-    router.push("/cart");
-  };
-
   return (
-    <main className="min-h-screen bg-[var(--cream)]">
+    <main className="min-h-screen bg-[#faf6ee]">
       {/* Top navigation */}
-      <div className="border-b border-[#19472d]/10 bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-4 sm:px-8 lg:px-12">
+      <div className="border-b border-[#3a2a1e]/10 bg-white">
+        <div className="mx-auto max-w-7xl px-5 py-3 sm:px-8 lg:px-12">
           <Link
             href="/shop"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-[#28633e] transition hover:text-[#123523]"
+            className="inline-flex items-center gap-2 text-xs font-semibold text-[#b98a3e] transition hover:text-[#1a1410]"
           >
             <ArrowLeft />
             {t("product.back_to_products", "Back to products")}
@@ -323,34 +313,48 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
         </div>
       </div>
 
-      <section className="px-5 py-10 sm:px-8 sm:py-14 lg:px-12 lg:py-16">
+      <section className="px-5 py-8 sm:px-8 sm:py-10 lg:px-12 lg:py-12">
         <div className="mx-auto max-w-7xl">
-          <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
+          <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14">
             {/* Image Gallery */}
             <div>
-              <div className="relative overflow-hidden rounded-[2rem] bg-white shadow-[0_20px_65px_rgba(18,53,35,.09)]">
-                <div className="relative aspect-square overflow-hidden bg-[#0b2419]">
+              {/* Main image — no white background, click to open fullscreen */}
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(true)}
+                aria-label={t("product.view_fullscreen", "View full image")}
+                className="group relative block w-full overflow-hidden rounded-2xl bg-[#f5f0e6] shadow-[0_20px_65px_rgba(58,42,30,.09)]"
+              >
+                <div className="relative aspect-square overflow-hidden">
                   <ProductImage
                     key={currentImage}
                     src={currentImage}
                     alt={product.name}
                     className="w-full h-full"
                     priority={true}
+                    contain
                   />
 
                   {product.badge && (
-                    <span className="absolute left-6 top-6 rounded-full bg-[#f6f3e9]/95 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-[#28633e] shadow-sm backdrop-blur">
-                      {product.badge === "Special Offer"
-                        ? t("product.special_offer", "Special Offer")
+                    <span className="absolute left-4 top-4 rounded-full bg-[#faf6ee]/95 px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.15em] text-[#b98a3e] shadow-sm backdrop-blur">
+                      {product.badge === "Special Offer" ||
+                      product.badge === "Sale"
+                        ? t("product.special_offer", "Sale")
                         : product.badge}
                     </span>
                   )}
-                </div>
-              </div>
 
-              {/* Thumbnails */}
+                  {/* Zoom hint */}
+                  <span className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-[10px] font-semibold text-white opacity-0 backdrop-blur transition group-hover:opacity-100">
+                    <ZoomInIcon />
+                    {t("product.tap_to_zoom", "Tap to zoom")}
+                  </span>
+                </div>
+              </button>
+
+              {/* Thumbnails — click to select + open fullscreen */}
               {images.length > 1 && (
-                <div className="mt-4 grid grid-cols-4 gap-3">
+                <div className="mt-3 grid grid-cols-4 gap-2.5">
                   {images.map((image, index) => {
                     const active = safeIndex === index;
 
@@ -358,10 +362,13 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
                       <button
                         key={`${image}-${index}`}
                         type="button"
-                        onClick={() => setSelectedImage(index)}
-                        className={`relative aspect-square overflow-hidden rounded-2xl border-2 transition-all ${
+                        onClick={() => {
+                          setSelectedImage(index);
+                          setLightboxOpen(true);
+                        }}
+                        className={`relative aspect-square overflow-hidden rounded-xl border-2 bg-[#f5f0e6] transition-all ${
                           active
-                            ? "border-[#28633e] shadow-md"
+                            ? "border-[#b98a3e] shadow-md"
                             : "border-transparent opacity-70 hover:opacity-100"
                         }`}
                         aria-label={`View image ${index + 1}`}
@@ -371,6 +378,7 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
                           alt={`${product.name} ${index + 1}`}
                           className="w-full h-full"
                           priority={false}
+                          contain
                         />
                       </button>
                     );
@@ -381,175 +389,126 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
 
             {/* Product Information */}
             <div className="flex flex-col justify-center">
-              <div className="mb-4 flex items-center gap-3">
-                <span className="rounded-full bg-[#123523] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#f6f3e9]">
+              <div className="mb-3 flex items-center gap-2.5">
+                <span className="rounded-full bg-[#1a1410] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.15em] text-[#e0a83c]">
                   {product.category}
                 </span>
 
-                <span className="text-xs font-medium text-[#69736b]">
-                  {t("product.direct_from_farm", "Direct from verified farm")}
+                <span className="text-[11px] font-medium text-[#7a6a58]">
+                  {t("product.direct_from_factory", "Direct from our factory")}
                 </span>
               </div>
 
-              <h1 className="font-serif-heading text-4xl sm:text-5xl font-medium leading-[0.98] tracking-[-0.045em] text-[#123523]">
+              <h1 className="font-serif-heading text-3xl sm:text-4xl font-medium leading-[1.02] tracking-[-0.04em] text-[#1a1410]">
                 {product.name}
               </h1>
 
-              <p className="mt-5 text-base leading-7 text-[#69736b]">
+              <p className="mt-4 text-sm leading-6 text-[#7a6a58]">
                 {product.description}
               </p>
 
-              <div className="my-6 h-px bg-[#19472d]/10" />
+              <div className="my-5 h-px bg-[#3a2a1e]/10" />
 
               {/* Price */}
-              <div className="flex items-baseline gap-3">
-                <span className="font-serif-heading text-4xl font-semibold tracking-[-0.035em] text-[#123523]">
+              <div className="flex items-baseline gap-2.5">
+                <span className="font-serif-heading text-3xl font-semibold tracking-[-0.035em] text-[#1a1410]">
                   ETB {effectivePrice.toLocaleString()}
                 </span>
 
-                <span className="text-sm text-[#69736b]">
+                <span className="text-xs text-[#7a6a58]">
                   {t("product.per", "per")} {product.unit}
                 </span>
 
-                {product.discountPrice && product.discountPrice < product.price && (
-                  <span className="text-sm text-gray-400 line-through">
-                    ETB {product.price.toLocaleString()}
-                  </span>
-                )}
+                {product.discountPrice &&
+                  product.discountPrice < product.price && (
+                    <span className="text-xs text-gray-400 line-through">
+                      ETB {product.price.toLocaleString()}
+                    </span>
+                  )}
               </div>
 
               {/* Stock */}
-              <div className="mt-3 flex items-center gap-2 text-sm">
+              <div className="mt-2.5 flex items-center gap-2 text-xs">
                 <span
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    product.stock > 0 ? "bg-[#72a84d]" : "bg-red-500"
+                  className={`h-2 w-2 rounded-full ${
+                    product.stock > 0 ? "bg-[#e0a83c]" : "bg-red-500"
                   }`}
                 />
 
-                <span className="text-[#69736b] font-medium text-xs">
+                <span className="text-[#7a6a58] font-medium">
                   {product.stock > 0
-                    ? `${product.stock} ${product.unit}s ${t(
-                        "product.in_harvest_stock",
-                        "currently in harvest stock"
+                    ? `${product.stock} ${product.unit} ${t(
+                        "product.in_production_stock",
+                        "currently in production stock"
                       )}`
                     : t("product.out_of_stock", "Currently out of stock")}
                 </span>
               </div>
 
-              {/* Quantity Selector */}
-              <div className="mt-8">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-bold uppercase tracking-[0.15em] text-[#28633e]">
-                    {t("product.select_quantity", "Select Quantity")} ({product.unit})
-                  </label>
-                  <span className="text-[11px] text-[#69736b]">
-                    {t("product.quantity_hint", "Type directly or use + / -")}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center rounded-2xl border border-[#19472d]/15 bg-white p-1 shadow-sm focus-within:ring-2 focus-within:ring-[#b9d873]">
-                    <button
-                      type="button"
-                      onClick={decreaseQuantity}
-                      disabled={quantity <= 1}
-                      aria-label="Decrease quantity"
-                      className="flex h-11 w-11 items-center justify-center rounded-xl text-[#123523] transition hover:bg-[#f6f3e9] disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <MinusIcon />
-                    </button>
-
-                    <input
-                      type="number"
-                      min={1}
-                      max={product.stock > 0 ? product.stock : 9999}
-                      value={quantity}
-                      onChange={handleQuantityInputChange}
-                      className="h-11 w-20 text-center text-base font-bold text-[#123523] bg-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={increaseQuantity}
-                      disabled={product.stock > 0 && quantity >= product.stock}
-                      aria-label="Increase quantity"
-                      className="flex h-11 w-11 items-center justify-center rounded-xl text-[#123523] transition hover:bg-[#f6f3e9] disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <PlusIcon />
-                    </button>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="block text-xs uppercase tracking-[0.12em] text-[#69736b]">
-                      {t("product.subtotal", "Subtotal")}
-                    </span>
-
-                    <span className="font-serif-heading text-2xl font-bold text-[#123523]">
-                      ETB {total.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="mt-7 flex flex-col sm:flex-row items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleAddToCart}
-                  disabled={product.stock <= 0}
-                  className="flex h-14 w-full sm:flex-1 items-center justify-center gap-2.5 rounded-2xl border-2 border-[#123523] bg-white px-6 text-sm font-bold text-[#123523] shadow-sm transition-all duration-200 hover:bg-[#f6f3e9] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-40"
+              {/* Contact CTA */}
+              <div className="mt-6 flex flex-col sm:flex-row items-center gap-3">
+                <Link
+                  href="/contact"
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#1a1410] px-6 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-[#2a1f18] hover:text-[#e0a83c] hover:shadow-xl"
                 >
-                  <CartIcon />
-                  <span>{t("product.add_to_cart", "Add to Cart")}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleBuyNow}
-                  disabled={product.stock <= 0}
-                  className="flex h-14 w-full sm:flex-1 items-center justify-center gap-2.5 rounded-2xl bg-[#123523] px-6 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-[#19472d] hover:text-[var(--lime)] hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <span>{t("product.buy_now", "Buy Now")}</span>
+                  <span>{t("product.request_quote", "Request a Quote")}</span>
                   <span className="text-base font-bold">→</span>
-                </button>
+                </Link>
               </div>
 
               {/* Benefits */}
-              <div className="mt-7 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl bg-white p-4">
+              <div className="mt-6 grid gap-2.5 sm:grid-cols-3">
+                <div className="rounded-xl bg-white p-3.5">
                   <TruckIcon />
-                  <p className="mt-3 text-xs font-bold uppercase tracking-wider text-[#123523]">
-                    {t("product.benefit_fresh_title", "Farm Fresh")}
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-[#1a1410]">
+                    {t("product.benefit_delivery_title", "Fast Delivery")}
                   </p>
-                  <p className="mt-1 text-xs leading-5 text-[#69736b]">
-                    {t("product.benefit_fresh_desc", "Freshly sourced.")}
+                  <p className="mt-0.5 text-[11px] leading-4 text-[#7a6a58]">
+                    {t(
+                      "product.benefit_delivery_desc",
+                      "Direct from our factory."
+                    )}
                   </p>
                 </div>
 
-                <div className="rounded-2xl bg-white p-4">
+                <div className="rounded-xl bg-white p-3.5">
                   <CheckIcon />
-                  <p className="mt-3 text-xs font-bold uppercase tracking-wider text-[#123523]">
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-[#1a1410]">
                     {t("product.benefit_price_title", "Fair Price")}
                   </p>
-                  <p className="mt-1 text-xs leading-5 text-[#69736b]">
+                  <p className="mt-0.5 text-[11px] leading-4 text-[#7a6a58]">
                     {t("product.benefit_price_desc", "No reseller markup.")}
                   </p>
                 </div>
 
-                <div className="rounded-2xl bg-white p-4">
+                {/* Phone card — clickable tel: link */}
+                <a
+                  href={`tel:${BUSINESS_PHONE_TEL}`}
+                  className="rounded-xl bg-white p-3.5 transition hover:bg-[#faf6ee]"
+                  aria-label={`Call ${BUSINESS_PHONE}`}
+                >
                   <PhoneIcon />
-                  <p className="mt-3 text-xs font-bold uppercase tracking-wider text-[#123523]">
-                    {t("product.benefit_support_title", "Support")}
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-[#1a1410]">
+                    {t("product.benefit_phone_title", "Call Us")}
                   </p>
-                  <p className="mt-1 text-xs leading-5 text-[#69736b]">
-                    {t("product.benefit_support_desc", "We're here to help.")}
+                  <p className="mt-0.5 text-[11px] leading-4 font-semibold text-[#b98a3e]">
+                    {BUSINESS_PHONE}
                   </p>
-                </div>
+                </a>
               </div>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Fullscreen lightbox */}
+      {lightboxOpen && (
+        <ImageLightbox
+          src={currentImage}
+          alt={product.name}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
     </main>
   );
 }

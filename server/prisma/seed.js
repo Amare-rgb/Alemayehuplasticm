@@ -5,475 +5,184 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database...');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🌱 Seeding Alemayehu Plastic Manufacturing...\n');
 
   // ========================================
-  // 1. CREATE ADMIN USER WITH PROFILE
+  // 1. ADMIN USER
   // ========================================
   const adminPassword = await bcrypt.hash('admin@123', 12);
+
   const admin = await prisma.user.upsert({
-    where: { email: 'admingen@gmail.com' },
+    where: { email: 'admin@alemayehplastic.com' },
     update: {
       password: adminPassword,
       role: 'ADMIN',
-      name: 'Genesis Admin',
-      phone: '+1 555 123 4567',
-      avatar: 'https://ui-avatars.com/api/?name=Genesis+Admin&background=22c55e&color=fff&size=128',
-      profile: {
-        upsert: {
-          create: {
-            shopName: 'Genesis Admin',
-            shopDesc: 'Main administrator account',
-            isVerified: true,
-            isAdmin: true,
-            adminRole: 'super_admin',
-            permissions: ['manage_all', 'manage_users', 'manage_products', 'manage_orders'],
-            status: 'active',
-            address: '123 Admin Street, Nairobi, Kenya',
-            phone: '+1 555 123 4567',
-          },
-          update: {
-            shopName: 'Genesis Admin',
-            shopDesc: 'Main administrator account',
-            isVerified: true,
-            isAdmin: true,
-            adminRole: 'super_admin',
-            permissions: ['manage_all', 'manage_users', 'manage_products', 'manage_orders'],
-            status: 'active',
-            address: '123 Admin Street, Nairobi, Kenya',
-            phone: '+1 555 123 4567',
-          }
-        }
-      }
+      name: 'Alemayehu Admin',
     },
     create: {
-      name: 'Genesis Admin',
-      email: 'admingen@gmail.com',
+      name: 'Alemayehu Admin',
+      email: 'admin@alemayehplastic.com',
       password: adminPassword,
       role: 'ADMIN',
-      phone: '+1 555 123 4567',
-      avatar: 'https://ui-avatars.com/api/?name=Genesis+Admin&background=22c55e&color=fff&size=128',
-      profile: {
-        create: {
-          shopName: 'Genesis Admin',
-          shopDesc: 'Main administrator account',
-          isVerified: true,
-          isAdmin: true,
-          adminRole: 'super_admin',
-          permissions: ['manage_all', 'manage_users', 'manage_products', 'manage_orders'],
-          status: 'active',
-          address: '123 Admin Street, Nairobi, Kenya',
-          phone: '+1 555 123 4567',
-        }
-      }
+      phone: '+251 900 000 000',
+      address: 'Bahir Dar, Ethiopia',
     },
   });
-  console.log('✅ Admin user created:');
-  console.log(`    Email: ${admin.email}`);
-  console.log(`    Name: ${admin.name}`);
-  console.log(`    Role: ${admin.role}`);
-  console.log(`    Password: admin@123`);
+
+  console.log('✅ Admin user created');
+  console.log(`   Email:    ${admin.email}`);
+  console.log(`   Password: admin@123\n`);
 
   // ========================================
-  // 2. CREATE REGULAR USER WITH PROFILE
+  // 2. REGULAR USER
   // ========================================
   const userPassword = await bcrypt.hash('user@123', 12);
+
   const user = await prisma.user.upsert({
-    where: { email: 'user@genesissagri.com' },
+    where: { email: 'user@alemayehplastic.com' },
     update: {
       password: userPassword,
       role: 'USER',
-      name: 'Genesis Customer',
-      phone: '+1 555 987 6543',
-      avatar: 'https://ui-avatars.com/api/?name=Genesis+Customer&background=3b82f6&color=fff&size=128',
-      profile: {
-        upsert: {
-          create: {
-            shopName: 'Customer Shop',
-            shopDesc: 'Regular customer account',
-            isVerified: false,
-            isAdmin: false,
-            status: 'active',
-            address: '456 Customer Street, Nairobi, Kenya',
-            phone: '+1 555 987 6543',
-          },
-          update: {
-            shopName: 'Customer Shop',
-            shopDesc: 'Regular customer account',
-            isVerified: false,
-            isAdmin: false,
-            status: 'active',
-            address: '456 Customer Street, Nairobi, Kenya',
-            phone: '+1 555 987 6543',
-          }
-        }
-      }
+      name: 'Test Customer',
     },
     create: {
-      name: 'Genesis Customer',
-      email: 'user@genesissagri.com',
+      name: 'Test Customer',
+      email: 'user@alemayehplastic.com',
       password: userPassword,
       role: 'USER',
-      phone: '+1 555 987 6543',
-      avatar: 'https://ui-avatars.com/api/?name=Genesis+Customer&background=3b82f6&color=fff&size=128',
-      profile: {
-        create: {
-          shopName: 'Customer Shop',
-          shopDesc: 'Regular customer account',
-          isVerified: false,
-          isAdmin: false,
-          status: 'active',
-          address: '456 Customer Street, Nairobi, Kenya',
-          phone: '+1 555 987 6543',
-        }
-      }
+      phone: '+251 911 000 000',
+      address: 'Bahir Dar, Ethiopia',
     },
   });
-  console.log('\n Regular user created:');
-  console.log(`    Email: ${user.email}`);
-  console.log(`    Name: ${user.name}`);
-  console.log(`    Role: ${user.role}`);
-  console.log(`    Password: user@123`);
+
+  console.log('✅ Regular user created');
+  console.log(`   Email:    ${user.email}`);
+  console.log(`   Password: user@123\n`);
 
   // ========================================
-  // 3. VERIFY PASSWORDS
+  // 3. CATEGORIES
   // ========================================
-  console.log('\n Verifying passwords...');
-  const verifyAdmin = await bcrypt.compare('admin@123', admin.password);
-  const verifyUser = await bcrypt.compare('user@123', user.password);
-  
-  console.log(`   Admin password valid: ${verifyAdmin ? '✅' : '❌'}`);
-  console.log(`   User password valid: ${verifyUser ? '✅' : '❌'}`);
+  // ⚠️ MOCK CATEGORIES REMOVED
+  // Add your real categories here later, or create them from the admin dashboard.
+  const categories = [];
 
-  // ========================================
-  // 4. CREATE CATEGORIES
-  // ========================================
-  console.log('\n Creating categories...');
-  
-  const categories = [
-    { name: 'Vegetables', slug: 'vegetables', description: 'Fresh vegetables', icon: '🥬' },
-    { name: 'Fruits', slug: 'fruits', description: 'Fresh fruits', icon: '🍎' },
-    { name: 'Dairy', slug: 'dairy', description: 'Dairy products', icon: '🥛' },
-    { name: 'Grains', slug: 'grains', description: 'Grains and cereals', icon: '🌾' },
-    { name: 'Meat', slug: 'meat', description: 'Fresh meat', icon: '🥩' },
-    { name: 'Fertilizers', slug: 'fertilizers', description: 'Organic and chemical fertilizers', icon: '🧪' },
-    { name: 'Seeds', slug: 'seeds', description: 'High-quality seeds', icon: '🌱' },
-    { name: 'Equipment', slug: 'equipment', description: 'Farming equipment', icon: '🔧' },
-  ];
+  const categoryMap = {};
 
   for (const cat of categories) {
-    await prisma.category.upsert({
+    const created = await prisma.category.upsert({
       where: { slug: cat.slug },
-      update: {
-        name: cat.name,
-        description: cat.description,
-        icon: cat.icon,
-        status: 'APPROVED',
-        approvedBy: admin.id,
-        approvedAt: new Date(),
-      },
-      create: {
-        name: cat.name,
-        slug: cat.slug,
-        description: cat.description,
-        icon: cat.icon,
-        status: 'APPROVED',
-        createdBy: admin.id,
-        approvedBy: admin.id,
-        approvedAt: new Date(),
-      }
+      update: { name: cat.name, description: cat.description, icon: cat.icon },
+      create: { ...cat, createdBy: admin.id },
     });
+    categoryMap[cat.slug] = created.id;
   }
-  console.log('   ✅ Categories created');
+
+  console.log(`✅ Categories seeded: ${categories.length}\n`);
 
   // ========================================
-  // 5. CREATE PRODUCTS
+  // 4. PRODUCTS
   // ========================================
-  console.log('\n Creating products...');
-  
-  // Get the categories we just created
-  const dbCategories = await prisma.category.findMany();
-  const categoryMap = {};
-  dbCategories.forEach(cat => {
-    categoryMap[cat.slug] = cat.id;
-  });
+  // ⚠️ MOCK PRODUCTS REMOVED
+  // Add your real products here later, or create them from the admin dashboard.
+  const products = [];
 
-  // Use the first available category for products
-  const firstCategoryId = dbCategories.length > 0 ? dbCategories[0].id : null;
-  
-  if (!firstCategoryId) {
-    console.log('⚠️ No categories found. Skipping products.');
-  } else {
-    const products = [
-      {
-        name: 'Organic Fertilizer Premium',
-        slug: 'organic-fertilizer-premium',
-        description: 'High-quality organic fertilizer for all types of crops. Enriched with essential nutrients for maximum yield.',
-        price: 45.99,
-        discountPrice: 39.99,
-        stock: 150,
-        sku: 'FERT-ORG-001',
-        images: ['fertilizer-1.jpg', 'fertilizer-2.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['organic', 'fertilizer', 'premium'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'kg',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Hybrid Corn Seed - Golden Harvest',
-        slug: 'hybrid-corn-seed-golden-harvest',
-        description: 'Premium hybrid corn seeds with high yield potential. Drought resistant and disease tolerant.',
-        price: 28.50,
-        discountPrice: 24.99,
-        stock: 500,
-        sku: 'SEED-CORN-001',
-        images: ['corn-seed-1.jpg', 'corn-seed-2.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['hybrid', 'corn', 'seed', 'high-yield'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'kg',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Herbicide Pro - Weed Control',
-        slug: 'herbicide-pro-weed-control',
-        description: 'Advanced herbicide for effective weed control. Safe for crops and environmentally friendly.',
-        price: 32.00,
-        discountPrice: 28.50,
-        stock: 200,
-        sku: 'HERB-PRO-001',
-        images: ['herbicide-1.jpg', 'herbicide-2.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['herbicide', 'weed-control', 'agriculture'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'liter',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Wheat Seed - High Yield',
-        slug: 'wheat-seed-high-yield',
-        description: 'Premium wheat seeds with high yield potential. Disease resistant and suitable for all climates.',
-        price: 35.00,
-        discountPrice: 31.99,
-        stock: 300,
-        sku: 'SEED-WHEAT-001',
-        images: ['wheat-seed-1.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['wheat', 'seed', 'high-yield'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'kg',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Pesticide - Insect Control',
-        slug: 'pesticide-insect-control',
-        description: 'Broad-spectrum pesticide for effective insect control. Safe for beneficial insects when used as directed.',
-        price: 42.00,
-        discountPrice: 38.50,
-        stock: 180,
-        sku: 'PEST-INSECT-001',
-        images: ['pesticide-1.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['pesticide', 'insect-control', 'agriculture'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'liter',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Tomato Seeds - Hybrid',
-        slug: 'tomato-seeds-hybrid',
-        description: 'High-quality hybrid tomato seeds. Disease resistant and produces large, juicy tomatoes.',
-        price: 15.00,
-        discountPrice: 12.99,
-        stock: 400,
-        sku: 'SEED-TOMATO-001',
-        images: ['tomato-seed-1.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['tomato', 'seed', 'hybrid', 'vegetable'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'kg',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Soil pH Tester',
-        slug: 'soil-ph-tester',
-        description: 'Professional soil pH tester for accurate soil analysis. Essential for optimal crop growth.',
-        price: 25.00,
-        discountPrice: 22.99,
-        stock: 100,
-        sku: 'EQUIP-PH-001',
-        images: ['ph-tester-1.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['soil', 'ph-tester', 'equipment', 'analysis'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'unit',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Corn Seeds - Organic',
-        slug: 'corn-seeds-organic',
-        description: 'Organic corn seeds for sustainable farming. Non-GMO and high germination rate.',
-        price: 22.00,
-        discountPrice: 19.99,
-        stock: 350,
-        sku: 'SEED-CORN-ORG-001',
-        images: ['organic-corn-seed-1.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['organic', 'corn', 'seed', 'non-gmo'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'kg',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Nitrogen Fertilizer',
-        slug: 'nitrogen-fertilizer',
-        description: 'High-nitrogen fertilizer for enhanced crop growth. Perfect for leafy vegetables and grains.',
-        price: 38.00,
-        discountPrice: 34.99,
-        stock: 250,
-        sku: 'FERT-NITRO-001',
-        images: ['nitrogen-fertilizer-1.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['fertilizer', 'nitrogen', 'crop-growth'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'kg',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      },
-      {
-        name: 'Irrigation System - Drip Kit',
-        slug: 'irrigation-system-drip-kit',
-        description: 'Complete drip irrigation system for efficient water management. Includes all necessary components.',
-        price: 120.00,
-        discountPrice: 99.99,
-        stock: 50,
-        sku: 'EQUIP-IRRIG-001',
-        images: ['irrigation-kit-1.jpg', 'irrigation-kit-2.jpg'],
-        categoryId: firstCategoryId,
-        tags: ['irrigation', 'drip', 'water-management', 'equipment'],
-        brand: 'Genesis Agri',
-        unitOfMeasurement: 'kit',
-        visibility: 'VISIBLE',
-        status: 'APPROVED'
-      }
-    ];
+  let productCount = 0;
 
-    let createdCount = 0;
-    for (const product of products) {
-      try {
-        const existingProduct = await prisma.product.findUnique({
-          where: { sku: product.sku }
-        });
+  for (const p of products) {
+    const categoryId = categoryMap[p.categorySlug];
+    if (!categoryId) continue;
 
-        if (!existingProduct) {
-          await prisma.product.create({
-            data: product
-          });
-          console.log(`   ✅ Created product: ${product.name}`);
-          createdCount++;
-        } else {
-          console.log(`   ⏭️ Product already exists: ${product.name}`);
-        }
-      } catch (error) {
-        console.error(`   ❌ Error creating product ${product.name}:`, error.message);
-      }
+    const existing = await prisma.product.findUnique({ where: { sku: p.sku } });
+    if (existing) {
+      console.log(`⏭️  Already exists: ${p.name}`);
+      continue;
     }
-    console.log(`   ✅ ${createdCount} new products created`);
+
+    await prisma.product.create({
+      data: {
+        name: p.name,
+        slug: p.slug,
+        description: p.description,
+        price: p.price,
+        discountPrice: p.discountPrice ?? null,
+        stock: p.stock,
+        sku: p.sku,
+        images: p.images,
+        categoryId,
+        brand: p.brand,
+        unitOfMeasurement: p.unitOfMeasurement,
+        tags: [],
+      },
+    });
+    console.log(`✅ Created product: ${p.name}`);
+    productCount++;
   }
 
+  console.log(`\n✅ Products seeded: ${productCount}\n`);
+
   // ========================================
-  // 6. CREATE SETTINGS
+  // 5. SETTINGS
   // ========================================
-  console.log('\n⚙️ Creating settings...');
-  
   await prisma.settings.upsert({
     where: { id: 'default-settings' },
     update: {
-      siteName: 'Genesis Agri Business',
-      siteDescription: 'Agriculture marketplace connecting farmers and buyers',
-      adminEmail: 'admingen@gmail.com',
-      storeName: 'Genesis Agri Business',
-      storeEmail: 'info@genesisagri.com',
-      currency: 'KES',
-      taxRate: 16,
-      themeColor: '#22c55e',
+      siteName: 'Alemayehu Plastic Manufacturing',
+      siteDescription: 'Quality plastic products manufactured in Ethiopia',
+      adminEmail: 'admin@alemayehplastic.com',
+      storeName: 'Alemayehu Plastic Manufacturing',
+      storeEmail: 'info@alemayehplastic.com',
+      currency: 'ETB',
+      taxRate: 15,
+      themeColor: '#e0a83c',
     },
     create: {
       id: 'default-settings',
-      siteName: 'Genesis Agri Business',
-      siteDescription: 'Agriculture marketplace connecting farmers and buyers',
-      adminEmail: 'admingen@gmail.com',
-      adminPhone: '+1 555 123 4567',
-      storeName: 'Genesis Agri Business',
-      storeEmail: 'info@genesisagri.com',
-      storePhone: '+1 555 123 4567',
-      currency: 'KES',
-      taxRate: 16,
-      themeColor: '#22c55e',
-      contactEmail: 'support@genesisagri.com',
-      supportEmail: 'support@genesisagri.com',
-      infoEmail: 'info@genesisagri.com',
-    }
+      siteName: 'Alemayehu Plastic Manufacturing',
+      siteDescription: 'Quality plastic products manufactured in Ethiopia',
+      adminEmail: 'admin@alemayehplastic.com',
+      adminPhone: '+251 900 000 000',
+      address: 'Bahir Dar, Ethiopia',
+      storeName: 'Alemayehu Plastic Manufacturing',
+      storeEmail: 'info@alemayehplastic.com',
+      storePhone: '+251 900 000 000',
+      storeAddress: 'Bahir Dar, Ethiopia',
+      currency: 'ETB',
+      taxRate: 15,
+      themeColor: '#e0a83c',
+      contactEmail: 'support@alemayehplastic.com',
+      contactPhone: '+251 900 000 000',
+      contactAddress: 'Bahir Dar, Ethiopia',
+      supportEmail: 'support@alemayehplastic.com',
+      infoEmail: 'info@alemayehplastic.com',
+      timezone: 'Africa/Addis_Ababa',
+    },
   });
-  console.log('   ✅ Settings created');
+
+  console.log('✅ Settings created\n');
 
   // ========================================
-  // 7. COUNT RECORDS
+  // 6. SUMMARY
   // ========================================
-  const userCount = await prisma.user.count();
-  const profileCount = await prisma.profile.count();
+  const userCount     = await prisma.user.count();
   const categoryCount = await prisma.category.count();
-  const productCount = await prisma.product.count();
+  const productCnt    = await prisma.product.count();
 
-  // ========================================
-  // 8. SUMMARY
-  // ========================================
-  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(' SEED COMPLETE!');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('\n DATABASE SUMMARY:');
-  console.log(`    Users: ${userCount}`);
-  console.log(`    Profiles: ${profileCount}`);
-  console.log(`    Categories: ${categoryCount}`);
-  console.log(`    Products: ${productCount}`);
-  console.log('\n LOGIN CREDENTIALS:');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(' ADMIN:');
-  console.log(`   Email: admingen@gmail.com`);
-  console.log(`   Password: admin@123`);
-  console.log(`   Role: ADMIN`);
-  console.log('   ─────────────────────────────────────────────');
-  console.log('👤 USER:');
-  console.log(`   Email: user@genesissagri.com`);
-  console.log(`   Password: user@123`);
-  console.log(`   Role: USER`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('\n Test Login with curl:');
-  console.log('   curl -X POST http://localhost:5000/api/auth/login \\');
-  console.log('     -H "Content-Type: application/json" \\');
-  console.log('     -d \'{"email":"admingen@gmail.com","password":"admin@123"}\'');
-  console.log('\n   curl -X POST http://localhost:5000/api/auth/login \\');
-  console.log('     -H "Content-Type: application/json" \\');
-  console.log('     -d \'{"email":"user@genesissagri.com","password":"user@123"}\'');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('\n🤖 Chatbot now has products to work with!');
-  console.log('   Try asking: "Show me your products"');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🎉 SEED COMPLETE!');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`   Users:      ${userCount}`);
+  console.log(`   Categories: ${categoryCount}`);
+  console.log(`   Products:   ${productCnt}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🔐 LOGIN:');
+  console.log('   Admin → admin@alemayehplastic.com / admin@123');
+  console.log('   User  → user@alemayehplastic.com  / user@123');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Error:', e);
+    console.error('❌ Seed error:', e);
     process.exit(1);
   })
   .finally(async () => {

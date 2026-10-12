@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import axios from "axios";
 import { useLanguage } from "@/context/LanguageContext";
 
-// API URL — must match your backend
+// API URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 const api = axios.create({
@@ -14,22 +14,12 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-function LeafMark() {
-  return (
-    <div className="brand-mark" aria-hidden="true">
-      <span className="leaf leaf-one" />
-      <span className="leaf leaf-two" />
-      <span className="stem" />
-    </div>
-  );
-}
-
 function EyeIcon({ open }: { open: boolean }) {
   if (open) {
     return (
       <svg
         viewBox="0 0 24 24"
-        className="h-5 w-5"
+        className="h-4 w-4"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
@@ -47,7 +37,7 @@ function EyeIcon({ open }: { open: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      className="h-5 w-5"
+      className="h-4 w-4"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -59,20 +49,6 @@ function EyeIcon({ open }: { open: boolean }) {
         strokeLinejoin="round"
       />
       <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-4 w-4 shrink-0"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <path d="m5 12 4 4L19 6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -136,7 +112,7 @@ export default function RegisterPage() {
         setSuccess(
           t(
             "auth.register.success_message",
-            "Account created successfully! Check your inbox for a welcome email. Redirecting to sign in..."
+            "Account created successfully! Redirecting to sign in..."
           )
         );
 
@@ -182,466 +158,311 @@ export default function RegisterPage() {
     }
   };
 
-  const benefits = [
-    t("auth.register.benefit_1", "Fresh produce directly from farms"),
-    t(
-      "auth.register.benefit_2",
-      "Competitive prices without reseller markups"
-    ),
-    t("auth.register.benefit_3", "Simple and transparent buying"),
-  ];
-
   return (
     <main className="relative min-h-screen overflow-hidden bg-[var(--cream)]">
       {/* Background decoration */}
       <div
-        className="pointer-events-none absolute -left-40 -top-32 h-80 w-80 rounded-full bg-[#b9d873]/20 blur-3xl"
+        className="pointer-events-none absolute -left-40 -top-32 h-80 w-80 rounded-full bg-[#e0a83c]/20 blur-3xl"
         aria-hidden="true"
       />
-
       <div
-        className="pointer-events-none absolute -bottom-40 -right-32 h-[28rem] w-[28rem] rounded-full bg-[#28633e]/10 blur-3xl"
+        className="pointer-events-none absolute -bottom-40 -right-32 h-[28rem] w-[28rem] rounded-full bg-[#3a2a1e]/10 blur-3xl"
         aria-hidden="true"
       />
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-5 py-10 sm:px-8 lg:px-10">
-        <div className="grid w-full overflow-hidden rounded-[2.5rem] border border-[#19472d]/10 bg-white shadow-[0_30px_100px_rgba(18,53,35,.12)] lg:grid-cols-[0.82fr_1.18fr]">
-          {/* Brand panel */}
-          <section className="relative hidden overflow-hidden bg-[#123523] lg:block">
-            <div
-              className="absolute inset-0 bg-cover bg-center"
-              style={{
-                backgroundImage:
-                  "url('https://images.unsplash.com/photo-1499529112087-3cb3b73cec95?auto=format&fit=crop&w=1500&q=85')",
-              }}
-            />
-
-            <div className="absolute inset-0 bg-gradient-to-br from-[#0b2419]/95 via-[#123523]/80 to-[#123523]/35" />
-
-            <div className="relative z-10 flex h-full min-h-[760px] flex-col justify-between p-10 xl:p-12">
-              <Link href="/" className="inline-flex items-center gap-3">
-                <LeafMark />
-
-                <div>
-                  <div className="font-serif-heading text-2xl font-semibold tracking-tight text-[#f6f3e9]">
-                    {t("auth.register.brand_name", "Genesis")}
-                  </div>
-
-                  <div className="-mt-1 text-[9px] font-bold uppercase tracking-[0.28em] text-[#b9d873]">
-                    {t("auth.register.brand_sub", "Agro-business")}
-                  </div>
-                </div>
-              </Link>
-
-              <div>
-                <div className="mb-5 inline-flex rounded-full bg-[#f6f3e9]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#b9d873] backdrop-blur-sm">
-                  {t("auth.register.brand_panel_badge", "Join Genesis")}
-                </div>
-
-                <h1 className="max-w-md font-serif-heading text-5xl font-medium leading-[1.02] tracking-[-0.04em] text-[#f6f3e9]">
-                  {t(
-                    "auth.register.brand_panel_title_line1",
-                    "Better food starts"
-                  )}
-                  <br />
-                  <span className="text-[#b9d873]">
-                    {t(
-                      "auth.register.brand_panel_title_line2",
-                      "with better connections."
-                    )}
-                  </span>
-                </h1>
-
-                <p className="mt-6 max-w-md text-sm leading-7 text-[#f6f3e9]/70">
-                  {t(
-                    "auth.register.brand_panel_desc",
-                    "Create your account and enjoy direct access to fresh, quality agricultural products from Genesis Agro-business."
-                  )}
-                </p>
-
-                <div className="mt-8 space-y-4">
-                  {benefits.map((item) => (
-                    <div
-                      key={item}
-                      className="flex items-center gap-3 text-sm text-[#f6f3e9]/80"
-                    >
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#b9d873] text-[#123523]">
-                        <CheckIcon />
-                      </span>
-                      {item}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <p className="text-xs text-[#f6f3e9]/45">
-                {t(
-                  "auth.register.brand_panel_footer",
-                  "Genesis Agro-business · Farm to family"
-                )}
-              </p>
+      {/* Centered form */}
+      <div className="relative mx-auto flex min-h-screen w-full max-w-md items-center justify-center px-4 py-6">
+        <div className="w-full overflow-hidden rounded-2xl border border-[#3a2a1e]/10 bg-white p-5 shadow-[0_20px_60px_rgba(58,42,30,.10)] sm:p-6">
+          <div className="mb-5">
+            <div className="mb-2 inline-flex rounded-full bg-[#faf6ee] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-[#b98a3e]">
+              {t("auth.register.form_badge", "Create account")}
             </div>
-          </section>
 
-          {/* Form */}
-          <section className="flex items-center justify-center p-6 sm:p-10 lg:p-12">
-            <div className="w-full max-w-xl">
-              {/* Mobile brand */}
-              <div className="mb-8 flex justify-center lg:hidden">
-                <Link href="/" className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#123523]">
-                    <LeafMark />
-                  </div>
+            <h2 className="font-serif-heading text-2xl font-medium leading-tight tracking-[-0.035em] text-[#1a1410]">
+              {t("auth.register.form_title", "Create your account.")}
+            </h2>
 
-                  <div>
-                    <div className="font-serif-heading text-2xl font-semibold text-[#123523]">
-                      {t("auth.register.brand_name", "Genesis")}
-                    </div>
-
-                    <div className="-mt-1 text-[9px] font-bold uppercase tracking-[0.28em] text-[#28633e]">
-                      {t("auth.register.brand_sub", "Agro-business")}
-                    </div>
-                  </div>
-                </Link>
-              </div>
-
-              <div className="mb-8">
-                <div className="mb-3 inline-flex rounded-full bg-[#f6f3e9] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#28633e]">
-                  {t("auth.register.form_badge", "Create account")}
-                </div>
-
-                <h2 className="font-serif-heading text-4xl font-medium leading-tight tracking-[-0.035em] text-[#123523] sm:text-[2.8rem]">
-                  {t("auth.register.form_title", "Welcome to Genesis.")}
-                </h2>
-
-                <p className="mt-3 max-w-lg text-sm leading-6 text-[#69736b]">
-                  {t(
-                    "auth.register.form_subtitle",
-                    "Create your account in a few simple steps and start getting fresh food closer to the farm."
-                  )}
-                </p>
-              </div>
-
-              {/* Error Message */}
-              {error && (
-                <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
-                  {error}
-                </div>
+            <p className="mt-1.5 text-xs leading-5 text-[#7a6a58]">
+              {t(
+                "auth.register.form_subtitle",
+                "Create your account in a few simple steps and start sourcing quality plastic products."
               )}
+            </p>
+          </div>
 
-              {/* Success Message */}
-              {success && (
-                <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-600">
-                  {success}
-                </div>
-              )}
+          {/* Error Message */}
+          {error && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600">
+              {error}
+            </div>
+          )}
 
-              <form onSubmit={handleSubmit} className="space-y-5">
-                {/* Name */}
-                <div>
-                  <label
-                    htmlFor="name"
-                    className="mb-2 block text-sm font-semibold text-[#123523]"
-                  >
-                    {t("auth.register.full_name", "Full name")}
-                  </label>
+          {/* Success Message */}
+          {success && (
+            <div className="mb-3 rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-xs text-yellow-700">
+              {success}
+            </div>
+          )}
 
-                  <input
-                    id="name"
-                    name="name"
-                    type="text"
-                    autoComplete="name"
-                    placeholder={t(
-                      "auth.register.full_name_placeholder",
-                      "Enter your full name"
-                    )}
-                    value={form.name}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    required
-                    className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
-                  />
-                </div>
+          <form onSubmit={handleSubmit} className="space-y-3">
+            {/* Name */}
+            <div>
+              <label
+                htmlFor="name"
+                className="mb-1 block text-xs font-semibold text-[#1a1410]"
+              >
+                {t("auth.register.full_name", "Full name")}
+              </label>
 
-                {/* Email */}
-                <div>
-                  <label
-                    htmlFor="email"
-                    className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#123523]"
-                  >
-                    {t("auth.register.email", "Email")}
-                  </label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                autoComplete="name"
+                placeholder={t(
+                  "auth.register.full_name_placeholder",
+                  "Enter your full name"
+                )}
+                value={form.name}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                required
+                className="h-10 w-full rounded-xl border border-[#3a2a1e]/10 bg-[#faf6ee]/60 px-3 text-xs text-[#1a1410] outline-none transition placeholder:text-[#7a6a58]/60 focus:border-[#b98a3e] focus:bg-white focus:ring-2 focus:ring-[#e0a83c]/20"
+              />
+            </div>
 
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    placeholder={t(
-                      "auth.register.email_placeholder",
-                      "you@example.com"
-                    )}
-                    value={form.email}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        email: event.target.value,
-                      }))
-                    }
-                    required
-                    className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
-                  />
-                </div>
+            {/* Email */}
+            <div>
+              <label
+                htmlFor="email"
+                className="mb-1 block text-xs font-semibold text-[#1a1410]"
+              >
+                {t("auth.register.email", "Email")}
+              </label>
 
-                {/* Phone */}
-                <div>
-                  <label
-                    htmlFor="phone"
-                    className="mb-2 block text-sm font-semibold text-[#123523]"
-                  >
-                    {t("auth.register.phone", "Phone number")}
-                  </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                placeholder={t(
+                  "auth.register.email_placeholder",
+                  "you@example.com"
+                )}
+                value={form.email}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    email: event.target.value,
+                  }))
+                }
+                required
+                className="h-10 w-full rounded-xl border border-[#3a2a1e]/10 bg-[#faf6ee]/60 px-3 text-xs text-[#1a1410] outline-none transition placeholder:text-[#7a6a58]/60 focus:border-[#b98a3e] focus:bg-white focus:ring-2 focus:ring-[#e0a83c]/20"
+              />
+            </div>
 
-                  <input
-                    id="phone"
-                    name="phone"
-                    type="tel"
-                    autoComplete="tel"
-                    placeholder={t(
-                      "auth.register.phone_placeholder",
-                      "+251 9XX XXX XXX"
-                    )}
-                    value={form.phone}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        phone: event.target.value,
-                      }))
-                    }
-                    required
-                    className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
-                  />
-                </div>
+            {/* Phone */}
+            <div>
+              <label
+                htmlFor="phone"
+                className="mb-1 block text-xs font-semibold text-[#1a1410]"
+              >
+                {t("auth.register.phone", "Phone number")}
+              </label>
 
-                {/* Passwords */}
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <div>
-                    <label
-                      htmlFor="password"
-                      className="mb-2 block text-sm font-semibold text-[#123523]"
-                    >
-                      {t("auth.register.password", "Password")}
-                    </label>
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder={t(
+                  "auth.register.phone_placeholder",
+                  "+251 9XX XXX XXX"
+                )}
+                value={form.phone}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    phone: event.target.value,
+                  }))
+                }
+                required
+                className="h-10 w-full rounded-xl border border-[#3a2a1e]/10 bg-[#faf6ee]/60 px-3 text-xs text-[#1a1410] outline-none transition placeholder:text-[#7a6a58]/60 focus:border-[#b98a3e] focus:bg-white focus:ring-2 focus:ring-[#e0a83c]/20"
+              />
+            </div>
 
-                    <div className="relative">
-                      <input
-                        id="password"
-                        name="password"
-                        type={showPassword ? "text" : "password"}
-                        autoComplete="new-password"
-                        placeholder={t(
-                          "auth.register.password_placeholder",
-                          "Create a password"
-                        )}
-                        value={form.password}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            password: event.target.value,
-                          }))
-                        }
-                        required
-                        minLength={8}
-                        className="h-14 w-full rounded-2xl border border-[#19472d]/10 bg-[#f6f3e9]/60 px-4 pr-12 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:border-[#28633e] focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((value) => !value)}
-                        aria-label={
-                          showPassword
-                            ? t(
-                                "auth.register.hide_password",
-                                "Hide password"
-                              )
-                            : t(
-                                "auth.register.show_password",
-                                "Show password"
-                              )
-                        }
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-[#69736b] hover:text-[#123523]"
-                      >
-                        <EyeIcon open={showPassword} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="confirmPassword"
-                      className="mb-2 block text-sm font-semibold text-[#123523]"
-                    >
-                      {t("auth.register.confirm_password", "Confirm password")}
-                    </label>
-
-                    <div className="relative">
-                      <input
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        type={showConfirmPassword ? "text" : "password"}
-                        autoComplete="new-password"
-                        placeholder={t(
-                          "auth.register.confirm_password_placeholder",
-                          "Repeat password"
-                        )}
-                        value={form.confirmPassword}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            confirmPassword: event.target.value,
-                          }))
-                        }
-                        required
-                        minLength={8}
-                        aria-invalid={!passwordsMatch}
-                        className={`h-14 w-full rounded-2xl border bg-[#f6f3e9]/60 px-4 pr-12 text-sm text-[#142119] outline-none transition placeholder:text-[#69736b]/60 focus:bg-white focus:ring-4 focus:ring-[#b9d873]/20 ${
-                          passwordsMatch
-                            ? "border-[#19472d]/10 focus:border-[#28633e]"
-                            : "border-red-400 focus:border-red-400"
-                        }`}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowConfirmPassword((value) => !value)
-                        }
-                        aria-label={
-                          showConfirmPassword
-                            ? t(
-                                "auth.register.hide_confirm_password",
-                                "Hide confirm password"
-                              )
-                            : t(
-                                "auth.register.show_confirm_password",
-                                "Show confirm password"
-                              )
-                        }
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-[#69736b] hover:text-[#123523]"
-                      >
-                        <EyeIcon open={showConfirmPassword} />
-                      </button>
-                    </div>
-
-                    {!passwordsMatch && (
-                      <p className="mt-2 text-xs font-medium text-red-500">
-                        {t(
-                          "auth.register.passwords_do_not_match",
-                          "Passwords do not match."
-                        )}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Password requirement */}
-                <div className="rounded-2xl bg-[#f6f3e9] p-4">
-                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-[#28633e]">
-                    {t(
-                      "auth.register.password_requirements",
-                      "Password requirements"
-                    )}
-                  </p>
-
-                  <div className="grid gap-2 text-xs text-[#69736b] sm:grid-cols-2">
-                    <span
-                      className={
-                        form.password.length >= 8 ? "text-[#28633e]" : ""
-                      }
-                    >
-                      {t(
-                        "auth.register.req_min_length",
-                        "• At least 8 characters"
-                      )}
-                    </span>
-
-                    <span
-                      className={
-                        /[0-9]/.test(form.password) ? "text-[#28633e]" : ""
-                      }
-                    >
-                      {t(
-                        "auth.register.req_one_number",
-                        "• At least one number"
-                      )}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Terms */}
-                <label className="flex cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    required
-                    className="mt-0.5 h-4 w-4 rounded border-[#19472d]/20 accent-[#28633e]"
-                  />
-
-                  <span className="text-xs leading-5 text-[#69736b]">
-                    {t(
-                      "auth.register.terms_prefix",
-                      "I agree to Genesis Agro-business's"
-                    )}{" "}
-                    <Link
-                      href="/terms"
-                      className="font-semibold text-[#28633e] hover:text-[#123523]"
-                    >
-                      {t("auth.register.terms_of_service", "Terms of Service")}
-                    </Link>{" "}
-                    {t("auth.register.terms_and", "and")}{" "}
-                    <Link
-                      href="/privacy"
-                      className="font-semibold text-[#28633e] hover:text-[#123523]"
-                    >
-                      {t("auth.register.privacy_policy", "Privacy Policy")}
-                    </Link>
-                    {t("auth.register.terms_suffix", ".")}
-                  </span>
+            {/* Passwords */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="password"
+                  className="mb-1 block text-xs font-semibold text-[#1a1410]"
+                >
+                  {t("auth.register.password", "Password")}
                 </label>
 
-                <button
-                  type="submit"
-                  disabled={!passwordsMatch || isLoading}
-                  className="flex h-14 w-full items-center justify-center rounded-2xl bg-[#123523] px-5 text-sm font-bold text-[#f6f3e9] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#19472d] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isLoading ? (
-                    <>
-                      <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-[#f6f3e9] border-t-transparent" />
-                      {t("auth.register.submitting", "Creating account...")}
-                    </>
-                  ) : (
-                    t("auth.register.submit", "Create my account")
-                  )}
-                </button>
-              </form>
+                <div className="relative">
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder={t(
+                      "auth.register.password_placeholder",
+                      "Create a password"
+                    )}
+                    value={form.password}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        password: event.target.value,
+                      }))
+                    }
+                    required
+                    minLength={8}
+                    className="h-10 w-full rounded-xl border border-[#3a2a1e]/10 bg-[#faf6ee]/60 px-3 pr-10 text-xs text-[#1a1410] outline-none transition placeholder:text-[#7a6a58]/60 focus:border-[#b98a3e] focus:bg-white focus:ring-2 focus:ring-[#e0a83c]/20"
+                  />
 
-              <p className="mt-7 text-center text-sm text-[#69736b]">
-                {t(
-                  "auth.register.already_have_account",
-                  "Already have an account?"
-                )}{" "}
-                <Link
-                  href="/auth/signin"
-                  className="font-bold text-[#28633e] hover:text-[#123523]"
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((value) => !value)}
+                    aria-label={
+                      showPassword
+                        ? t("auth.register.hide_password", "Hide password")
+                        : t("auth.register.show_password", "Show password")
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7a6a58] hover:text-[#1a1410]"
+                  >
+                    <EyeIcon open={showPassword} />
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="confirmPassword"
+                  className="mb-1 block text-xs font-semibold text-[#1a1410]"
                 >
-                  {t("auth.register.sign_in", "Sign in")}
-                </Link>
-              </p>
+                  {t("auth.register.confirm_password", "Confirm password")}
+                </label>
+
+                <div className="relative">
+                  <input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder={t(
+                      "auth.register.confirm_password_placeholder",
+                      "Repeat password"
+                    )}
+                    value={form.confirmPassword}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        confirmPassword: event.target.value,
+                      }))
+                    }
+                    required
+                    minLength={8}
+                    aria-invalid={!passwordsMatch}
+                    className={`h-10 w-full rounded-xl border bg-[#faf6ee]/60 px-3 pr-10 text-xs text-[#1a1410] outline-none transition placeholder:text-[#7a6a58]/60 focus:bg-white focus:ring-2 focus:ring-[#e0a83c]/20 ${
+                      passwordsMatch
+                        ? "border-[#3a2a1e]/10 focus:border-[#b98a3e]"
+                        : "border-red-400 focus:border-red-400"
+                    }`}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((value) => !value)}
+                    aria-label={
+                      showConfirmPassword
+                        ? t(
+                            "auth.register.hide_confirm_password",
+                            "Hide confirm password"
+                          )
+                        : t(
+                            "auth.register.show_confirm_password",
+                            "Show confirm password"
+                          )
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7a6a58] hover:text-[#1a1410]"
+                  >
+                    <EyeIcon open={showConfirmPassword} />
+                  </button>
+                </div>
+
+                {!passwordsMatch && (
+                  <p className="mt-1 text-[10px] font-medium text-red-500">
+                    {t(
+                      "auth.register.passwords_do_not_match",
+                      "Passwords do not match."
+                    )}
+                  </p>
+                )}
+              </div>
             </div>
-          </section>
+
+            {/* Terms */}
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                required
+                className="mt-0.5 h-3.5 w-3.5 rounded border-[#3a2a1e]/20 accent-[#b98a3e]"
+              />
+
+              <span className="text-[10px] leading-4 text-[#7a6a58]">
+                {t("auth.register.terms_prefix", "I agree to the")}{" "}
+                <Link
+                  href="/terms"
+                  className="font-semibold text-[#b98a3e] hover:text-[#1a1410]"
+                >
+                  {t("auth.register.terms_of_service", "Terms of Service")}
+                </Link>{" "}
+                {t("auth.register.terms_and", "and")}{" "}
+                <Link
+                  href="/privacy"
+                  className="font-semibold text-[#b98a3e] hover:text-[#1a1410]"
+                >
+                  {t("auth.register.privacy_policy", "Privacy Policy")}
+                </Link>
+                {t("auth.register.terms_suffix", ".")}
+              </span>
+            </label>
+
+            <button
+              type="submit"
+              disabled={!passwordsMatch || isLoading}
+              className="flex h-10 w-full items-center justify-center rounded-xl bg-[#1a1410] px-4 text-xs font-bold text-[#faf6ee] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#2a1f18] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoading ? (
+                <>
+                  <span className="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#faf6ee] border-t-transparent" />
+                  {t("auth.register.submitting", "Creating account...")}
+                </>
+              ) : (
+                t("auth.register.submit", "Create my account")
+              )}
+            </button>
+          </form>
+
+          <p className="mt-4 text-center text-xs text-[#7a6a58]">
+            {t(
+              "auth.register.already_have_account",
+              "Already have an account?"
+            )}{" "}
+            <Link
+              href="/auth/signin"
+              className="font-bold text-[#b98a3e] hover:text-[#1a1410]"
+            >
+              {t("auth.register.sign_in", "Sign in")}
+            </Link>
+          </p>
         </div>
       </div>
     </main>

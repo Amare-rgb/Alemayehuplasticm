@@ -1,31 +1,55 @@
 // app/providers.tsx
-'use client';
+"use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import { useRouter } from "next/navigation";
+import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
+import { SettingsProvider, useSettings } from "@/context/SettingsContext";
+import { LanguageProvider, useLanguage } from "@/context/LanguageContext";
 
-// Create axios instance
+// ============================================================
+// API base — strip trailing slash
+// ============================================================
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:5000";
+const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
+
+// ============================================================
+// Axios instance
+// ============================================================
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: API_BASE_URL,
+  headers: { "Content-Type": "application/json" },
 });
 
-// Add token to requests
+// Attach token to every request
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token =
-      localStorage.getItem('token') || localStorage.getItem('authToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    if (typeof window !== "undefined") {
+      const token =
+        localStorage.getItem("token") ||
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("token") ||
+        sessionStorage.getItem("authToken");
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
     return config;
   },
   (error: AxiosError) => Promise.reject(error)
 );
 
+// ============================================================
+// Types
+// ============================================================
 export interface User {
   id: string;
   name: string;
@@ -37,7 +61,6 @@ export interface User {
   bio?: string | null;
 }
 
-// Payload type for updateProfile
 export interface ProfileUpdatePayload {
   name?: string;
   phone?: string;
@@ -48,12 +71,17 @@ export interface ProfileUpdatePayload {
 
 interface AuthContextType {
   user: User | null;
-  status: 'loading' | 'authenticated' | 'unauthenticated';
+  status: "loading" | "authenticated" | "unauthenticated";
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  register: (name: string, email: string, password: string, role?: string) => Promise<void>;
+  register: (
+    name: string,
+    email: string,
+    password: string,
+    role?: string
+  ) => Promise<void>;
   updateProfile: (payload: ProfileUpdatePayload) => Promise<User>;
-  uploadAvatar: (file: File) => Promise<User>;   // ✅ ADDED
+  uploadAvatar: (file: File) => Promise<User>;
 }
 
 interface LoginResponse {
@@ -77,138 +105,140 @@ interface UserPayload {
   bio?: string | null;
 }
 
+// ============================================================
+// Extract user from various response shapes
+// ============================================================
 const extractUserData = (payload: unknown): User | null => {
-  if (!payload || typeof payload !== 'object') return null;
+  if (!payload || typeof payload !== "object") return null;
 
   const data = payload as Record<string, unknown>;
 
+  const buildUser = (u: UserPayload): User => ({
+    id: u.id,
+    name: u.name || "",
+    email: u.email || "",
+    role: u.role || "USER",
+    avatar: u.avatar || null,
+    phone: u.phone || null,
+    address: u.address || null,
+    bio: u.bio || null,
+  });
+
   if (
     data.data &&
-    typeof data.data === 'object' &&
+    typeof data.data === "object" &&
     (data.data as Record<string, unknown>).id
   ) {
-    const u = data.data as UserPayload;
-    return {
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      avatar: u.avatar || null,
-      phone: u.phone || null,
-      address: u.address || null,
-      bio: u.bio || null,
-    };
+    return buildUser(data.data as UserPayload);
   }
 
   if (
     data.user &&
-    typeof data.user === 'object' &&
+    typeof data.user === "object" &&
     (data.user as Record<string, unknown>).id
   ) {
-    const u = data.user as UserPayload;
-    return {
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      avatar: u.avatar || null,
-      phone: u.phone || null,
-      address: u.address || null,
-      bio: u.bio || null,
-    };
+    return buildUser(data.user as UserPayload);
   }
 
-  if (data.id && typeof data.id === 'string') {
-    return {
-      id: data.id as string,
-      name: (data.name as string) || '',
-      email: (data.email as string) || '',
-      role: (data.role as string) || 'USER',
-      avatar: (data.avatar as string | null) || null,
-      phone: (data.phone as string | null) || null,
-      address: (data.address as string | null) || null,
-      bio: (data.bio as string | null) || null,
-    };
+  if (data.id && typeof data.id === "string") {
+    return buildUser(data as unknown as UserPayload);
   }
 
   return null;
 };
 
+// ============================================================
+// Auth Context
+// ============================================================
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<
-    'loading' | 'authenticated' | 'unauthenticated'
-  >('loading');
+    "loading" | "authenticated" | "unauthenticated"
+  >("loading");
   const router = useRouter();
 
+  // ── Initialize auth on mount ──────────────────────────────
   useEffect(() => {
     const initAuth = async () => {
       try {
         const token =
-          localStorage.getItem('token') || localStorage.getItem('authToken');
+          localStorage.getItem("token") ||
+          localStorage.getItem("authToken") ||
+          sessionStorage.getItem("token") ||
+          sessionStorage.getItem("authToken");
 
-        if (!token || token === 'undefined' || token === 'null') {
-          setStatus('unauthenticated');
+        if (!token || token === "undefined" || token === "null") {
+          setStatus("unauthenticated");
           setUser(null);
           return;
         }
 
-        const storedUser = localStorage.getItem('user');
+        // Try stored user first (fast path)
+        const storedUser =
+          localStorage.getItem("user") || sessionStorage.getItem("user");
         if (storedUser) {
           try {
             const parsedUser = extractUserData(JSON.parse(storedUser));
             if (parsedUser) {
               setUser(parsedUser);
-              setStatus('authenticated');
+              setStatus("authenticated");
             }
           } catch (e) {
-            console.error('Error parsing stored user:', e);
+            console.error("Error parsing stored user:", e);
           }
         }
 
+        // Verify with the backend
         try {
-          const response = await api.get('/api/auth/me');
+          const response = await api.get("/api/auth/me");
           const fetchedUser = extractUserData(response.data);
           if (fetchedUser) {
             setUser(fetchedUser);
-            setStatus('authenticated');
-            localStorage.setItem('user', JSON.stringify(fetchedUser));
+            setStatus("authenticated");
+            localStorage.setItem("user", JSON.stringify(fetchedUser));
             if (fetchedUser.role) {
-              localStorage.setItem('userRole', fetchedUser.role);
+              localStorage.setItem("userRole", fetchedUser.role);
             }
           }
         } catch (err) {
           if (axios.isAxiosError(err) && err.response?.status === 401) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('user');
-            localStorage.removeItem('userRole');
+            // Token invalid — clear everything
+            localStorage.removeItem("token");
+            localStorage.removeItem("authToken");
+            localStorage.removeItem("user");
+            localStorage.removeItem("userRole");
+            sessionStorage.removeItem("token");
+            sessionStorage.removeItem("authToken");
+            sessionStorage.removeItem("user");
+            sessionStorage.removeItem("userRole");
             setUser(null);
-            setStatus('unauthenticated');
+            setStatus("unauthenticated");
           } else {
-            const localUser = localStorage.getItem('user');
+            // Network error — trust local data
+            const localUser =
+              localStorage.getItem("user") || sessionStorage.getItem("user");
             if (localUser) {
               try {
                 const parsed = extractUserData(JSON.parse(localUser));
                 if (parsed) {
                   setUser(parsed);
-                  setStatus('authenticated');
+                  setStatus("authenticated");
                 } else {
-                  setStatus('unauthenticated');
+                  setStatus("unauthenticated");
                 }
               } catch {
-                setStatus('unauthenticated');
+                setStatus("unauthenticated");
               }
             } else {
-              setStatus('unauthenticated');
+              setStatus("unauthenticated");
             }
           }
         }
       } catch (error) {
-        console.error('Auth initialization error:', error);
-        setStatus('unauthenticated');
+        console.error("Auth initialization error:", error);
+        setStatus("unauthenticated");
       }
     };
 
@@ -218,18 +248,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       initAuth();
     };
 
-    window.addEventListener('storage', handleAuthChange);
-    window.addEventListener('auth-change', handleAuthChange);
+    window.addEventListener("storage", handleAuthChange);
+    window.addEventListener("auth-change", handleAuthChange);
 
     return () => {
-      window.removeEventListener('storage', handleAuthChange);
-      window.removeEventListener('auth-change', handleAuthChange);
+      window.removeEventListener("storage", handleAuthChange);
+      window.removeEventListener("auth-change", handleAuthChange);
     };
   }, []);
 
+  // ── Login ─────────────────────────────────────────────────
   const login = async (email: string, password: string): Promise<void> => {
     try {
-      const response = await api.post<LoginResponse>('/api/auth/login', {
+      const response = await api.post<LoginResponse>("/api/auth/login", {
         email,
         password,
       });
@@ -238,60 +269,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userData = extractUserData(response.data);
 
       if (token) {
-        localStorage.setItem('token', token);
-        localStorage.setItem('authToken', token);
-        sessionStorage.setItem('token', token);
-        sessionStorage.setItem('authToken', token);
+        localStorage.setItem("token", token);
+        localStorage.setItem("authToken", token);
+        sessionStorage.setItem("token", token);
+        sessionStorage.setItem("authToken", token);
       }
 
       if (userData) {
-        localStorage.setItem('user', JSON.stringify(userData));
-        sessionStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem("user", JSON.stringify(userData));
+        sessionStorage.setItem("user", JSON.stringify(userData));
         if (userData.role) {
-          localStorage.setItem('userRole', userData.role);
+          localStorage.setItem("userRole", userData.role);
         }
         setUser(userData);
       }
 
-      setStatus('authenticated');
+      setStatus("authenticated");
 
+      // Redirect based on role
       const userRole = userData?.role?.toUpperCase();
-      if (userRole === 'ADMIN') {
-        router.push('/admin/dashboard');
+      if (userRole === "ADMIN") {
+        router.push("/admin/dashboard");
       } else {
-        router.push('/shop');
+        router.push("/shop");
       }
     } catch (error: unknown) {
       const err = error as AxiosError<{ error: string }>;
-      throw new Error(err.response?.data?.error || 'Login failed');
+      throw new Error(err.response?.data?.error || "Login failed");
     }
   };
 
+  // ── Logout ────────────────────────────────────────────────
   const logout = (): void => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('userRole');
+    // Clear all storage
+    localStorage.removeItem("token");
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("user");
+    localStorage.removeItem("userRole");
 
-    sessionStorage.removeItem('token');
-    sessionStorage.removeItem('authToken');
-    sessionStorage.removeItem('user');
-    sessionStorage.removeItem('userRole');
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("authToken");
+    sessionStorage.removeItem("user");
+    sessionStorage.removeItem("userRole");
 
     setUser(null);
-    setStatus('unauthenticated');
+    setStatus("unauthenticated");
 
-    router.push('/');
+    router.push("/");
   };
 
+  // ── Register ──────────────────────────────────────────────
   const register = async (
     name: string,
     email: string,
     password: string,
-    role: string = 'USER'
+    role: string = "USER"
   ): Promise<void> => {
     try {
-      const response = await api.post<RegisterResponse>('/api/auth/register', {
+      const response = await api.post<RegisterResponse>("/api/auth/register", {
         name,
         email,
         password,
@@ -302,56 +337,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userData = extractUserData(response.data);
 
       if (token) {
-        localStorage.setItem('token', token);
-        localStorage.setItem('authToken', token);
-        sessionStorage.setItem('token', token);
-        sessionStorage.setItem('authToken', token);
+        localStorage.setItem("token", token);
+        localStorage.setItem("authToken", token);
+        sessionStorage.setItem("token", token);
+        sessionStorage.setItem("authToken", token);
       }
 
       if (userData) {
-        localStorage.setItem('user', JSON.stringify(userData));
-        sessionStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem("user", JSON.stringify(userData));
+        sessionStorage.setItem("user", JSON.stringify(userData));
         if (userData.role) {
-          localStorage.setItem('userRole', userData.role);
+          localStorage.setItem("userRole", userData.role);
         }
         setUser(userData);
       }
 
-      setStatus('authenticated');
+      setStatus("authenticated");
 
       const userRole = userData?.role?.toUpperCase();
-      if (userRole === 'ADMIN') {
-        router.push('/admin/dashboard');
+      if (userRole === "ADMIN") {
+        router.push("/admin/dashboard");
       } else {
-        router.push('/');
+        router.push("/");
       }
     } catch (error: unknown) {
       const err = error as AxiosError<{ error: string }>;
-      throw new Error(err.response?.data?.error || 'Registration failed');
+      throw new Error(err.response?.data?.error || "Registration failed");
     }
   };
 
-  // ✅ Real profile update
+  // ── Update profile ────────────────────────────────────────
   const updateProfile = async (
     payload: ProfileUpdatePayload
   ): Promise<User> => {
     try {
-      const response = await api.patch('/api/auth/profile', payload);
+      const response = await api.patch("/api/auth/profile", payload);
 
       const updated =
         extractUserData(response.data) ||
         (user ? { ...user, ...payload } : null);
-      if (!updated) throw new Error('Failed to parse updated user');
+      if (!updated) throw new Error("Failed to parse updated user");
 
       setUser(updated);
-      localStorage.setItem('user', JSON.stringify(updated));
-      sessionStorage.setItem('user', JSON.stringify(updated));
+      localStorage.setItem("user", JSON.stringify(updated));
+      sessionStorage.setItem("user", JSON.stringify(updated));
       if (updated.role) {
-        localStorage.setItem('userRole', updated.role);
+        localStorage.setItem("userRole", updated.role);
       }
 
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('auth-change'));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("auth-change"));
       }
 
       return updated;
@@ -360,27 +395,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(
         err.response?.data?.error ||
           err.response?.data?.message ||
-          'Failed to update profile'
+          "Failed to update profile"
       );
     }
   };
 
-  // ✅ ADDED: upload avatar file, then save URL on user profile
+  // ── Upload avatar ─────────────────────────────────────────
   const uploadAvatar = async (file: File): Promise<User> => {
     try {
       const formData = new FormData();
-      // Field name MUST match the middleware: "avatar"
-      formData.append('avatar', file);
+      // Field name MUST match the backend middleware: "avatar"
+      formData.append("avatar", file);
 
-      const token =
-        localStorage.getItem('token') || localStorage.getItem('authToken');
-
-      // 1. Upload the file
-      const uploadRes = await api.post('/api/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+      // ✅ Let axios set the multipart Content-Type with boundary
+      const uploadRes = await api.post("/api/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000,
       });
 
       const url: string | undefined =
@@ -389,59 +419,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         uploadRes.data?.fileUrl;
 
       if (!url) {
-        throw new Error('Upload succeeded but no URL returned');
+        throw new Error("Upload succeeded but no URL returned");
       }
 
-      // 2. Save the URL on the user's profile
-      const baseURL =
-        process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-      const fullUrl = url.startsWith('http') ? url : `${baseURL}${url}`;
-
-      const updated = await updateProfile({ avatar: fullUrl });
+      // ✅ Keep the URL exactly as the backend returned it (relative like
+      //    "/uploads/avatars/..."). The image resolver in each component
+      //    prepends the API origin when needed.
+      const updated = await updateProfile({ avatar: url });
       return updated;
     } catch (error: unknown) {
       const err = error as AxiosError<{ error?: string; message?: string }>;
       throw new Error(
         err.response?.data?.error ||
           err.response?.data?.message ||
-          'Failed to upload avatar'
+          "Failed to upload avatar"
       );
     }
   };
 
-  const value = {
+  const value: AuthContextType = {
     user,
     status,
     login,
     logout,
     register,
     updateProfile,
-    uploadAvatar,   // ✅ ADDED
+    uploadAvatar,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// ============================================================
+// Hook
+// ============================================================
 export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 }
 
-import { CartProvider, useCart } from '@/context/CartContext';
-import { SettingsProvider, useSettings } from '@/context/SettingsContext';
-import { LanguageProvider, useLanguage } from '@/context/LanguageContext';
-export { useCart, CartProvider, useSettings, SettingsProvider, useLanguage, LanguageProvider };
+// ============================================================
+// Re-export other providers
+// ============================================================
+export {
+  useSettings,
+  SettingsProvider,
+  useLanguage,
+  LanguageProvider,
+};
 
+// ============================================================
+// Combined Providers wrapper
+// ============================================================
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <LanguageProvider>
       <SettingsProvider>
-        <AuthProvider>
-          <CartProvider>{children}</CartProvider>
-        </AuthProvider>
+        <AuthProvider>{children}</AuthProvider>
       </SettingsProvider>
     </LanguageProvider>
   );

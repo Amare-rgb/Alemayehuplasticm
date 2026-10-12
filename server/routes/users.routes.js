@@ -4,24 +4,28 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
-// Get all users (Admin only)
+// ============================================================
+// Helper — get the authenticated user's ID
+// Works with JWT middleware (req.user.id or req.userId)
+// ============================================================
+function getAuthUserId(req) {
+  return req.user?.id || req.userId || null;
+}
+
+// ============================================================
+// GET /api/users — list all users (Admin only)
+// ============================================================
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 10, role, search } = req.query;
 
     const where = {};
-    
-    // Handle role filtering
+
+    // ✅ Only two roles exist: USER and ADMIN
     if (role && role !== 'ALL') {
-      if (role === 'USER') {
-        where.role = 'CUSTOMER';
-      } else if (role === 'CUSTOMER') {
-        where.role = 'CUSTOMER';
-      } else {
-        where.role = role;
-      }
+      where.role = role;
     }
-    
+
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -48,26 +52,16 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
           avatar: true,
           createdAt: true,
           updatedAt: true,
-          // ✅ FIXED: Removed sellerProfile since it doesn't exist in schema
-          // Only include fields that exist in the User model
           _count: {
-            select: {
-              orders: true,
-            },
+            select: { orders: true },
           },
         },
       }),
       prisma.user.count({ where }),
     ]);
 
-    // Normalize role values for frontend
-    const normalizedUsers = users.map(user => ({
-      ...user,
-      role: user.role === 'CUSTOMER' ? 'USER' : user.role,
-    }));
-
     res.json({
-      users: normalizedUsers,
+      users,
       total,
       pages: Math.ceil(total / parseInt(limit)),
       page: parseInt(page),
@@ -78,7 +72,9 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Get single user (Admin only)
+// ============================================================
+// GET /api/users/:id — single user (Admin only)
+// ============================================================
 router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -92,13 +88,12 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
         phone: true,
         role: true,
         avatar: true,
+        address: true,
+        bio: true,
         createdAt: true,
         updatedAt: true,
-        // ✅ FIXED: Removed sellerProfile
         _count: {
-          select: {
-            orders: true,
-          },
+          select: { orders: true },
         },
       },
     });
@@ -107,42 +102,45 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Normalize role
-    const normalizedUser = {
-      ...user,
-      role: user.role === 'CUSTOMER' ? 'USER' : user.role,
-    };
-
-    res.json(normalizedUser);
+    res.json(user);
   } catch (error) {
     console.error('Error fetching user:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
   }
 });
 
-// Update user (Admin only)
+// ============================================================
+// PATCH /api/users/:id — update user (Admin only)
+// ============================================================
 router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { role, name, phone, avatar } = req.body;
+    const { role, name, phone, avatar, address, bio } = req.body;
 
-    const existingUser = await prisma.user.findUnique({
-      where: { id },
-    });
+    const existingUser = await prisma.user.findUnique({ where: { id } });
 
     if (!existingUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // ✅ Only accept USER or ADMIN
     const updateData = {};
-    
-    // Handle role mapping
-    if (role) {
-      updateData.role = role === 'USER' ? 'CUSTOMER' : role;
+
+    if (role !== undefined) {
+      const normalizedRole = String(role).toUpperCase();
+      if (normalizedRole !== 'USER' && normalizedRole !== 'ADMIN') {
+        return res.status(400).json({
+          error: 'Invalid role. Allowed values: USER, ADMIN',
+        });
+      }
+      updateData.role = normalizedRole;
     }
-    if (name) updateData.name = name;
+
+    if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
     if (avatar !== undefined) updateData.avatar = avatar;
+    if (address !== undefined) updateData.address = address;
+    if (bio !== undefined) updateData.bio = bio;
 
     const updatedUser = await prisma.user.update({
       where: { id },
@@ -154,20 +152,16 @@ router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
         phone: true,
         role: true,
         avatar: true,
+        address: true,
+        bio: true,
         createdAt: true,
         updatedAt: true,
       },
     });
 
-    // Normalize role
-    const normalizedUser = {
-      ...updatedUser,
-      role: updatedUser.role === 'CUSTOMER' ? 'USER' : updatedUser.role,
-    };
-
     res.json({
       success: true,
-      user: normalizedUser,
+      user: updatedUser,
       message: 'User updated successfully',
     });
   } catch (error) {
@@ -176,36 +170,39 @@ router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Delete user (Admin only)
+// ============================================================
+// DELETE /api/users/:id — delete user (Admin only)
+// ============================================================
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
+    const authUserId = getAuthUserId(req);
 
-    const existingUser = await prisma.user.findUnique({
-      where: { id },
-    });
+    // ✅ Prevent deleting yourself
+    if (authUserId && id === authUserId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    const existingUser = await prisma.user.findUnique({ where: { id } });
 
     if (!existingUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Don't allow deleting yourself
-    if (id === req.session.user.id) {
-      return res.status(400).json({ error: 'Cannot delete your own account' });
-    }
-
-    // First delete related records
+    // ✅ Delete related records first
     await prisma.$transaction([
-      prisma.order.deleteMany({ where: { userId: id } }),
+      prisma.review.deleteMany({ where: { userId: id } }),
       prisma.cartItem.deleteMany({ where: { userId: id } }),
       prisma.address.deleteMany({ where: { userId: id } }),
-      prisma.review.deleteMany({ where: { userId: id } }),
+      prisma.orderItem.deleteMany({
+        where: { order: { userId: id } },
+      }),
+      prisma.order.deleteMany({ where: { userId: id } }),
+      prisma.chatMessage.deleteMany({ where: { userId: id } }),
     ]);
 
     // Then delete the user
-    await prisma.user.delete({
-      where: { id },
-    });
+    await prisma.user.delete({ where: { id } });
 
     res.json({
       success: true,

@@ -8,7 +8,6 @@ import Image from 'next/image';
 import axios, { AxiosError } from 'axios';
 import {
   ArrowLeft,
-  Save,
   X,
   Package,
   Image as ImageIcon,
@@ -20,7 +19,6 @@ import {
   Trash2,
   FolderPlus,
   Weight,
-  Eye,
   ShoppingBag,
   Clock,
   Calendar,
@@ -29,7 +27,7 @@ import {
 import { api, uploadApi } from '@/lib/api';
 
 // ============================================================
-// API base — strip trailing slash so `${base}${path}` never double-slashes
+// API base
 // ============================================================
 const RAW_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -37,33 +35,25 @@ const RAW_API_BASE =
   'http://localhost:5000';
 const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, '');
 
-const DEFAULT_IMAGE = '/placeholder.svg';
+const DEFAULT_IMAGE = '/banners/carplastik.jpg';
 
 // ============================================================
-// Normalize an image path so the browser can load it.
-//   - http(s) / data URLs pass through unchanged
-//   - Cloudinary host without protocol → prepend https://
-//   - "/uploads/..." → keep as-is (backend origin prepended)
-//   - "uploads/..."  → prepend leading slash + backend origin
-//   - empty          → local placeholder
+// Normalize image path
 // ============================================================
 function normalizeImageUrl(src?: string | null): string {
   if (!src) return DEFAULT_IMAGE;
   const trimmed = String(src).trim();
   if (!trimmed) return DEFAULT_IMAGE;
 
-  // Absolute URLs
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     return trimmed;
   }
   if (trimmed.startsWith('data:')) return trimmed;
 
-  // Cloudinary host without protocol
   if (trimmed.startsWith('res.cloudinary.com/')) {
     return `https://${trimmed}`;
   }
 
-  // Legacy /uploads/... — point at the backend origin
   if (trimmed.startsWith('/uploads/')) {
     return `${API_BASE_URL}${trimmed}`;
   }
@@ -71,12 +61,13 @@ function normalizeImageUrl(src?: string | null): string {
     return `${API_BASE_URL}/${trimmed}`;
   }
 
-  // Bare filename (e.g. "1791567294493-a0bb.jpeg")
-  if (!trimmed.includes('/') && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(trimmed)) {
+  if (
+    !trimmed.includes('/') &&
+    /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(trimmed)
+  ) {
     return `${API_BASE_URL}/uploads/products/${trimmed}`;
   }
 
-  // Default fallback
   return DEFAULT_IMAGE;
 }
 
@@ -89,10 +80,8 @@ interface ProductFormData {
   discountPrice: string;
   categoryId: string;
   subCategoryId: string;
-  status: 'DRAFT' | 'PENDING' | 'APPROVED';
   tags: string[];
   images: string[];
-  brand: string;
   weight: string;
   unitOfMeasurement: string;
   pricePerUnit: string;
@@ -109,24 +98,48 @@ interface Category {
 }
 
 // ============================================================
-// Options
+// ✅ PLASTIC MANUFACTURING UNITS
+//    Grouped by category — liters for liquids/containers,
+//    kg for resin/pellets, pcs for discrete items, etc.
 // ============================================================
 const unitOptions = [
-  { value: 'kg', label: 'Kilogram (kg)' },
+  // ─── Volume (liquids, containers, bottles) ───────────────
+  { value: 'ml', label: 'Milliliter (ml)' },
+  { value: 'liter', label: 'Liter (L)' },
+  { value: 'gallon', label: 'Gallon (gal)' },
+
+  // ─── Weight (resin, pellets, granules) ───────────────────
   { value: 'g', label: 'Gram (g)' },
-  { value: 'lb', label: 'Pound (lb)' },
-  { value: 'oz', label: 'Ounce (oz)' },
-  { value: 'ton', label: 'Ton' },
+  { value: 'kg', label: 'Kilogram (kg)' },
+  { value: 'ton', label: 'Metric Ton (t)' },
+
+  // ─── Length (pipes, profiles, film rolls) ────────────────
+  { value: 'mm', label: 'Millimeter (mm)' },
+  { value: 'cm', label: 'Centimeter (cm)' },
+  { value: 'm', label: 'Meter (m)' },
+  { value: 'inch', label: 'Inch (in)' },
+  { value: 'ft', label: 'Foot (ft)' },
+
+  // ─── Area (sheets, panels, films) ────────────────────────
+  { value: 'sqm', label: 'Square Meter (m²)' },
+  { value: 'sqft', label: 'Square Foot (ft²)' },
+
+  // ─── Discrete items (buckets, crates, caps) ──────────────
   { value: 'pcs', label: 'Pieces (pcs)' },
+  { value: 'set', label: 'Set' },
   { value: 'pack', label: 'Pack' },
   { value: 'box', label: 'Box' },
   { value: 'bag', label: 'Bag' },
-  { value: 'bottle', label: 'Bottle' },
-  { value: 'liter', label: 'Liter (L)' },
-  { value: 'ml', label: 'Milliliter (ml)' },
-  { value: 'gallon', label: 'Gallon (gal)' },
-  { value: 'acre', label: 'Acre' },
-  { value: 'hectare', label: 'Hectare' },
+  { value: 'roll', label: 'Roll' },
+  { value: 'sheet', label: 'Sheet' },
+
+  // ─── Bulk / container ────────────────────────────────────
+  { value: 'drum', label: 'Drum' },
+  { value: 'ibc', label: 'IBC Tank' },
+  { value: 'pallet', label: 'Pallet' },
+
+  // ─── Fallback ────────────────────────────────────────────
+  { value: 'unit', label: 'Unit' },
 ];
 
 const durationOptions = [
@@ -158,7 +171,11 @@ interface NotificationProps {
   onClose: () => void;
 }
 
-const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) => {
+const Notification: React.FC<NotificationProps> = ({
+  type,
+  message,
+  onClose,
+}) => {
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
@@ -172,7 +189,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   const getIcon = () => {
     switch (type) {
       case 'success':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
+        return <CheckCircle className="w-5 h-5 text-yellow-500" />;
       case 'error':
         return <XCircle className="w-5 h-5 text-red-500" />;
       case 'warning':
@@ -185,7 +202,7 @@ const Notification: React.FC<NotificationProps> = ({ type, message, onClose }) =
   const getColors = () => {
     switch (type) {
       case 'success':
-        return 'bg-green-50 border-green-200 text-green-800';
+        return 'bg-yellow-50 border-yellow-200 text-yellow-800';
       case 'error':
         return 'bg-red-50 border-red-200 text-red-800';
       case 'warning':
@@ -263,10 +280,14 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     try {
       const response = await api.get('/api/categories');
       let categoriesData = [];
-      if (response.data && Array.isArray(response.data)) categoriesData = response.data;
-      else if (response.data?.categories) categoriesData = response.data.categories;
+      if (response.data && Array.isArray(response.data))
+        categoriesData = response.data;
+      else if (response.data?.categories)
+        categoriesData = response.data.categories;
       else if (response.data?.data) categoriesData = response.data.data;
-      setCategories(categoriesData.filter((cat: Category) => !cat.parentId));
+      setCategories(
+        categoriesData.filter((cat: Category) => !cat.parentId)
+      );
     } catch (err) {
       console.log('Categories fetch error:', err);
     }
@@ -302,13 +323,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         name: string;
         slug: string;
         description?: string;
-        status: string;
         parentId?: string;
       } = {
         name: name.trim(),
         slug: slug.trim(),
         description: description.trim() || undefined,
-        status: 'APPROVED',
       };
 
       if (isSubCategory && parentCategoryId) {
@@ -328,14 +347,19 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     } catch (err) {
       console.error(`❌ Error creating category:`, err);
       if (axios.isAxiosError(err)) {
-        const axiosError = err as AxiosError<{ error: string; message?: string }>;
+        const axiosError = err as AxiosError<{
+          error: string;
+          message?: string;
+        }>;
         setError(
           axiosError.response?.data?.error ||
             axiosError.response?.data?.message ||
             `Failed to create ${isSubCategory ? 'subcategory' : 'category'}`
         );
       } else {
-        setError(`Failed to create ${isSubCategory ? 'subcategory' : 'category'}`);
+        setError(
+          `Failed to create ${isSubCategory ? 'subcategory' : 'category'}`
+        );
       }
     } finally {
       setLoading(false);
@@ -390,8 +414,10 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 value={name}
                 onChange={handleNameChange}
                 required
-                placeholder={`Enter ${isSubCategory ? 'subcategory' : 'category'} name`}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                placeholder={`Enter ${
+                  isSubCategory ? 'subcategory' : 'category'
+                } name`}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
               />
             </div>
             <div>
@@ -402,13 +428,17 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 type="text"
                 value={slug}
                 onChange={(e) =>
-                  setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, '-'))
+                  setSlug(
+                    e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
+                  )
                 }
                 required
                 placeholder="auto-generated"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm bg-gray-50"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm bg-gray-50"
               />
-              <p className="text-xs text-gray-400 mt-1">URL-friendly version</p>
+              <p className="text-xs text-gray-400 mt-1">
+                URL-friendly version
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -419,7 +449,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Description (optional)"
                 rows={3}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
               />
             </div>
             {error && (
@@ -440,7 +470,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
             <button
               type="submit"
               disabled={loading || !name.trim() || !slug.trim()}
-              className="px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 text-sm text-white bg-yellow-500 rounded-lg hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading
                 ? 'Creating...'
@@ -455,7 +485,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 
 // SKU Generator
 const generateSKU = () => {
-  const prefix = 'PRD';
+  const prefix = 'APM';
   const timestamp = Date.now().toString().slice(-6);
   const random = Math.floor(Math.random() * 1000)
     .toString()
@@ -492,12 +522,10 @@ const NewProductPage: React.FC = () => {
     discountPrice: '',
     categoryId: '',
     subCategoryId: '',
-    status: 'DRAFT',
     tags: [],
     images: [],
-    brand: '',
     weight: '',
-    unitOfMeasurement: 'kg',
+    unitOfMeasurement: 'pcs',
     pricePerUnit: '',
     durationTime: '1h',
     stock: '10',
@@ -505,12 +533,14 @@ const NewProductPage: React.FC = () => {
 
   const [newTag, setNewTag] = useState('');
 
-  // Auth check on mount
+  // Auth check
   useEffect(() => {
     const checkAuth = () => {
       const token =
-        localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-      const userData = localStorage.getItem('user') || sessionStorage.getItem('user');
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('authToken');
+      const userData =
+        localStorage.getItem('user') || sessionStorage.getItem('user');
 
       if (!token) {
         router.replace('/auth/signin');
@@ -558,7 +588,9 @@ const NewProductPage: React.FC = () => {
 
   const fetchSubCategories = async (parentId: string) => {
     try {
-      const response = await api.get(`/api/categories?parentId=${parentId}`);
+      const response = await api.get(
+        `/api/categories?parentId=${parentId}`
+      );
       let subs = [];
       if (Array.isArray(response.data)) subs = response.data;
       else if (response.data?.categories) subs = response.data.categories;
@@ -571,7 +603,9 @@ const NewProductPage: React.FC = () => {
         if (Array.isArray(response.data)) all = response.data;
         else if (response.data?.categories) all = response.data.categories;
         else if (response.data?.data) all = response.data.data;
-        setSubCategories(all.filter((cat: Category) => cat.parentId === parentId));
+        setSubCategories(
+          all.filter((cat: Category) => cat.parentId === parentId)
+        );
       } catch (err2) {
         console.log('Subcategories fetch error:', err2);
       }
@@ -583,9 +617,12 @@ const NewProductPage: React.FC = () => {
       const response = await api.get('/api/categories');
       let categoriesData = [];
       if (Array.isArray(response.data)) categoriesData = response.data;
-      else if (response.data?.categories) categoriesData = response.data.categories;
+      else if (response.data?.categories)
+        categoriesData = response.data.categories;
       else if (response.data?.data) categoriesData = response.data.data;
-      setCategories(categoriesData.filter((cat: Category) => !cat.parentId));
+      setCategories(
+        categoriesData.filter((cat: Category) => !cat.parentId)
+      );
     } catch (err) {
       console.log('Categories fetch error:', err);
     }
@@ -602,15 +639,26 @@ const NewProductPage: React.FC = () => {
   // ============================================
   // Image upload
   // ============================================
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const file = files[0];
 
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    const allowed = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+    ];
     if (!allowed.includes(file.type)) {
-      showNotification('error', 'Only JPG, PNG, WEBP, or GIF images are allowed.');
+      showNotification(
+        'error',
+        'Only JPG, PNG, WEBP, or GIF images are allowed.'
+      );
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -651,11 +699,17 @@ const NewProductPage: React.FC = () => {
 
         const code = axiosError.response?.data?.code;
         if (code === 'FILE_TOO_LARGE') {
-          showNotification('error', 'File is too large. Maximum size is 10MB.');
+          showNotification(
+            'error',
+            'File is too large. Maximum size is 10MB.'
+          );
         } else if (code === 'INVALID_FILE_TYPE') {
           showNotification('error', 'Only image files are allowed.');
         } else if (code === 'NO_FILE') {
-          showNotification('error', 'No file was received. Please try again.');
+          showNotification(
+            'error',
+            'No file was received. Please try again.'
+          );
         } else {
           showNotification('error', errorMsg);
         }
@@ -671,7 +725,9 @@ const NewProductPage: React.FC = () => {
   };
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -714,12 +770,21 @@ const NewProductPage: React.FC = () => {
   const handleCategoryAdded = (newCategory: Category) => {
     if (newCategory.parentId) {
       setSubCategories((prev) => [...prev, newCategory]);
-      setFormData((prev) => ({ ...prev, subCategoryId: newCategory.id }));
-      showNotification('success', `Subcategory "${newCategory.name}" created and selected`);
+      setFormData((prev) => ({
+        ...prev,
+        subCategoryId: newCategory.id,
+      }));
+      showNotification(
+        'success',
+        `Subcategory "${newCategory.name}" created and selected`
+      );
     } else {
       setCategories((prev) => [...prev, newCategory]);
       setFormData((prev) => ({ ...prev, categoryId: newCategory.id }));
-      showNotification('success', `Category "${newCategory.name}" created and selected`);
+      showNotification(
+        'success',
+        `Category "${newCategory.name}" created and selected`
+      );
     }
   };
 
@@ -735,9 +800,13 @@ const NewProductPage: React.FC = () => {
 
     try {
       const token =
-        localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('authToken');
       if (!token) {
-        showNotification('error', 'Authentication required. Please login again.');
+        showNotification(
+          'error',
+          'Authentication required. Please login again.'
+        );
         router.push('/auth/signin');
         setLoading(false);
         return;
@@ -763,22 +832,20 @@ const NewProductPage: React.FC = () => {
         name: formData.name.trim(),
         description: formData.description.trim(),
         price: parseFloat(formData.pricePerUnit) || 0,
-        discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : null,
+        discountPrice: formData.discountPrice
+          ? parseFloat(formData.discountPrice)
+          : null,
         stock: parseInt(formData.stock) || 0,
         sku: sku,
         categoryId: formData.categoryId,
         subCategoryId: formData.subCategoryId || undefined,
-        status: formData.status,
         tags: formData.tags,
-        // ✅ FIXED: Only send real images; if none, send empty array.
-        //    The backend should accept empty arrays and the storefront
-        //    will display the placeholder.
         images: formData.images,
-        brand: null,
         weight: formData.weight ? parseFloat(formData.weight) : null,
         unitOfMeasurement: formData.unitOfMeasurement || 'pcs',
-        pricePerUnit: formData.pricePerUnit ? parseFloat(formData.pricePerUnit) : null,
-        warranty: null,
+        pricePerUnit: formData.pricePerUnit
+          ? parseFloat(formData.pricePerUnit)
+          : null,
         durationTime: formData.durationTime || '1h',
       };
 
@@ -788,14 +855,23 @@ const NewProductPage: React.FC = () => {
         showNotification('success', 'Product published successfully! 🎉');
         setTimeout(() => router.push('/admin/products'), 1500);
       } else {
-        showNotification('error', response.data.error || 'Failed to publish product');
+        showNotification(
+          'error',
+          response.data.error || 'Failed to publish product'
+        );
       }
     } catch (err: unknown) {
       console.error('Error creating product:', err);
       if (axios.isAxiosError(err)) {
-        const axiosError = err as AxiosError<{ error: string; message?: string }>;
+        const axiosError = err as AxiosError<{
+          error: string;
+          message?: string;
+        }>;
         if (axiosError.response?.status === 401) {
-          showNotification('error', 'Authentication failed. Please login again.');
+          showNotification(
+            'error',
+            'Authentication failed. Please login again.'
+          );
           localStorage.removeItem('authToken');
           sessionStorage.removeItem('authToken');
           router.push('/auth/signin');
@@ -825,14 +901,12 @@ const NewProductPage: React.FC = () => {
       maximumFractionDigits: 2,
     }).format(amount || 0);
 
-  // ============================================
-  // Product image thumbnail with fallback
-  // ============================================
-  const ProductImage: React.FC<{ src: string; alt: string; index: number }> = ({
-    src,
-    alt,
-    index,
-  }) => {
+  // Product image thumbnail
+  const ProductImage: React.FC<{
+    src: string;
+    alt: string;
+    index: number;
+  }> = ({ src, alt, index }) => {
     const [hasError, setHasError] = useState(false);
     const normalized = normalizeImageUrl(src);
 
@@ -861,8 +935,6 @@ const NewProductPage: React.FC = () => {
           onError={() => setHasError(true)}
           sizes="(max-width: 768px) 100vw, 50vw"
           priority={index === 0}
-          // Skip optimizer for local placeholder (Next.js can't optimize it
-          // through /_next/image if it's a public asset)
           unoptimized={normalized.startsWith('/')}
         />
         <button
@@ -880,7 +952,7 @@ const NewProductPage: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto"></div>
           <p className="mt-4 text-gray-600">Checking authentication...</p>
         </div>
       </div>
@@ -926,9 +998,11 @@ const NewProductPage: React.FC = () => {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Publish Product</h1>
+            <h1 className="text-lg font-semibold text-gray-900">
+              Add Product
+            </h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              Create and publish a new product listing
+              Create a new plastic product listing
             </p>
           </div>
         </div>
@@ -947,8 +1021,10 @@ const NewProductPage: React.FC = () => {
           <div className="lg:col-span-2">
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-6">
-                <Package className="w-5 h-5 text-green-600" />
-                <h3 className="font-semibold text-gray-900">Product Information</h3>
+                <Package className="w-5 h-5 text-yellow-500" />
+                <h3 className="font-semibold text-gray-900">
+                  Product Information
+                </h3>
               </div>
 
               <div className="space-y-5">
@@ -962,8 +1038,8 @@ const NewProductPage: React.FC = () => {
                     value={formData.name}
                     onChange={handleChange}
                     required
-                    placeholder="e.g., Fresh Organic Bananas"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                    placeholder="e.g., Heavy-Duty Storage Bin"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                   />
                 </div>
 
@@ -977,8 +1053,8 @@ const NewProductPage: React.FC = () => {
                     onChange={handleChange}
                     rows={4}
                     required
-                    placeholder="Describe your product in detail..."
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                    placeholder="Describe your plastic product in detail..."
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                   />
                 </div>
 
@@ -993,7 +1069,7 @@ const NewProductPage: React.FC = () => {
                         value={formData.categoryId}
                         onChange={handleChange}
                         required
-                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                       >
                         <option value="">Select Category</option>
                         {categories.map((cat) => (
@@ -1021,7 +1097,7 @@ const NewProductPage: React.FC = () => {
                         name="subCategoryId"
                         value={formData.subCategoryId}
                         onChange={handleChange}
-                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                         disabled={!formData.categoryId}
                       >
                         <option value="">Select Sub Category</option>
@@ -1083,14 +1159,14 @@ const NewProductPage: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     <div className="flex items-center space-x-2">
                       <Clock className="w-4 h-4 text-gray-500" />
-                      <span>Duration Time</span>
+                      <span>Listing Duration</span>
                     </div>
                   </label>
                   <select
                     name="durationTime"
                     value={formData.durationTime}
                     onChange={handleChange}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                   >
                     {durationOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -1099,15 +1175,16 @@ const NewProductPage: React.FC = () => {
                     ))}
                   </select>
                   <p className="text-xs text-gray-400 mt-1">
-                    Select how long this product listing will be active
+                    How long this listing stays active
                   </p>
                 </div>
 
+                {/* ✅ Weight & Unit — expanded plastic manufacturing units */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Weight & Unit{' '}
                     <span className="text-xs text-gray-400">
-                      (Example: 1 kg of bananas)
+                      (e.g., 1 kg resin, 20 L container, 100 pcs caps)
                     </span>
                   </label>
                   <div className="flex space-x-2">
@@ -1122,14 +1199,14 @@ const NewProductPage: React.FC = () => {
                         onChange={handleChange}
                         step="0.01"
                         placeholder="0.00"
-                        className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                        className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       />
                     </div>
                     <select
                       name="unitOfMeasurement"
                       value={formData.unitOfMeasurement}
                       onChange={handleChange}
-                      className="w-48 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                      className="w-64 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                     >
                       {unitOptions.map((unit) => (
                         <option key={unit.value} value={unit.value}>
@@ -1138,6 +1215,9 @@ const NewProductPage: React.FC = () => {
                       ))}
                     </select>
                   </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Choose from liters, kilograms, meters, pieces, or bulk units
+                  </p>
                 </div>
 
                 <div>
@@ -1152,17 +1232,18 @@ const NewProductPage: React.FC = () => {
                     required
                     min="0"
                     placeholder="Enter initial stock quantity"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                   />
                   <p className="text-xs text-gray-400 mt-1">
-                    Set the initial stock quantity for this product
+                    Starting stock quantity
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Price Per Unit (ETB) <span className="text-red-500">*</span>
+                      Price Per Unit (ETB){' '}
+                      <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">
@@ -1176,7 +1257,7 @@ const NewProductPage: React.FC = () => {
                         step="0.01"
                         required
                         placeholder="0.00"
-                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       />
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
@@ -1198,7 +1279,7 @@ const NewProductPage: React.FC = () => {
                         onChange={handleChange}
                         step="0.01"
                         placeholder="Optional"
-                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       />
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
@@ -1215,7 +1296,7 @@ const NewProductPage: React.FC = () => {
                     {formData.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-green-50 text-green-700 text-sm rounded-full border border-green-200"
+                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-yellow-50 text-yellow-700 text-sm rounded-full border border-yellow-200"
                       >
                         <span>{tag}</span>
                         <button
@@ -1228,7 +1309,9 @@ const NewProductPage: React.FC = () => {
                       </span>
                     ))}
                     {formData.tags.length === 0 && (
-                      <span className="text-sm text-gray-400">No tags added</span>
+                      <span className="text-sm text-gray-400">
+                        No tags added
+                      </span>
                     )}
                   </div>
                   <div className="flex space-x-2">
@@ -1237,7 +1320,7 @@ const NewProductPage: React.FC = () => {
                       value={newTag}
                       onChange={(e) => setNewTag(e.target.value)}
                       placeholder="Add a tag..."
-                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-sm"
+                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       onKeyPress={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -1248,7 +1331,7 @@ const NewProductPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleAddTag}
-                      className="px-4 py-2.5 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 transition-colors text-sm whitespace-nowrap"
+                      className="px-4 py-2.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition-colors text-sm whitespace-nowrap"
                     >
                       Add Tag
                     </button>
@@ -1260,14 +1343,16 @@ const NewProductPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex items-center space-x-2 px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  className="flex items-center space-x-2 px-6 py-2.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
                 >
                   {loading ? (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <CheckCircle className="w-4 h-4" />
                   )}
-                  <span>{loading ? 'Publishing...' : 'Publish Product'}</span>
+                  <span>
+                    {loading ? 'Publishing...' : 'Publish Product'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -1278,8 +1363,10 @@ const NewProductPage: React.FC = () => {
             {/* Images */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
-                <ImageIcon className="w-4 h-4 text-green-600" />
-                <h3 className="font-semibold text-gray-900 text-sm">Images</h3>
+                <ImageIcon className="w-4 h-4 text-yellow-500" />
+                <h3 className="font-semibold text-gray-900 text-sm">
+                  Images
+                </h3>
                 <span className="text-xs text-gray-400 ml-auto">
                   {formData.images.length} uploaded
                 </span>
@@ -1295,15 +1382,15 @@ const NewProductPage: React.FC = () => {
                 ))}
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-green-500 transition-colors cursor-pointer group"
+                  className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-yellow-500 transition-colors cursor-pointer group"
                 >
                   <div className="text-center">
                     {uploadingImage ? (
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto" />
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500 mx-auto" />
                     ) : (
                       <>
-                        <Upload className="w-8 h-8 text-gray-400 mx-auto group-hover:text-green-500 transition-colors" />
-                        <span className="text-xs text-gray-500 group-hover:text-green-500 transition-colors">
+                        <Upload className="w-8 h-8 text-gray-400 mx-auto group-hover:text-yellow-500 transition-colors" />
+                        <span className="text-xs text-gray-500 group-hover:text-yellow-500 transition-colors">
                           Upload
                         </span>
                       </>
@@ -1324,9 +1411,6 @@ const NewProductPage: React.FC = () => {
                   Click to upload images (max 10MB)
                 </p>
               )}
-              <p className="text-xs text-gray-400 mt-1 text-center">
-                Default image will be used if none uploaded
-              </p>
             </div>
 
             {/* Stock info */}
@@ -1334,23 +1418,15 @@ const NewProductPage: React.FC = () => {
               <div className="flex items-center space-x-2 mb-4">
                 <ShoppingBag className="w-4 h-4 text-blue-600" />
                 <h3 className="font-semibold text-gray-900 text-sm">
-                  Stock Management
+                  Stock Summary
                 </h3>
               </div>
               <div className="space-y-3">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <div className="flex items-center space-x-2">
-                    <Info className="w-4 h-4 text-blue-600" />
-                    <p className="text-xs text-blue-700">
-                      Initial stock will be set to the value you enter above.
-                      Stock will be updated automatically when orders are placed.
-                    </p>
-                  </div>
-                </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Initial Stock:</span>
                   <span className="font-medium text-gray-900">
-                    {parseInt(formData.stock) || 0} units
+                    {parseInt(formData.stock) || 0}{' '}
+                    {formData.unitOfMeasurement || 'units'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -1358,11 +1434,13 @@ const NewProductPage: React.FC = () => {
                   <span
                     className={`text-xs px-2 py-1 rounded-full ${
                       parseInt(formData.stock) > 0
-                        ? 'bg-green-100 text-green-700'
+                        ? 'bg-yellow-100 text-yellow-700'
                         : 'bg-red-100 text-red-700'
                     }`}
                   >
-                    {parseInt(formData.stock) > 0 ? 'In Stock' : 'Out of Stock'}
+                    {parseInt(formData.stock) > 0
+                      ? 'In Stock'
+                      : 'Out of Stock'}
                   </span>
                 </div>
               </div>
@@ -1372,74 +1450,34 @@ const NewProductPage: React.FC = () => {
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
                 <Calendar className="w-4 h-4 text-purple-600" />
-                <h3 className="font-semibold text-gray-900 text-sm">Duration Info</h3>
+                <h3 className="font-semibold text-gray-900 text-sm">
+                  Duration Info
+                </h3>
               </div>
               <div className="space-y-3">
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
                   <div className="flex items-center space-x-2">
                     <Info className="w-4 h-4 text-purple-600" />
                     <p className="text-xs text-purple-700">
-                      The duration determines how long this product will be active.
-                      After the duration ends, the product will be automatically
-                      archived.
+                      Product stays active for the selected duration.
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Duration:</span>
                   <span className="font-medium text-gray-900">
-                    {durationOptions.find((d) => d.value === formData.durationTime)
-                      ?.label || 'Not set'}
+                    {durationOptions.find(
+                      (d) => d.value === formData.durationTime
+                    )?.label || 'Not set'}
                   </span>
                 </div>
-              </div>
-            </div>
-
-            {/* Quick actions */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
-              <div className="flex items-center space-x-2 mb-4">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                <h3 className="font-semibold text-gray-900 text-sm">Quick Actions</h3>
-              </div>
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData((prev) => ({ ...prev, status: 'DRAFT' }));
-                    showNotification('info', 'Product will be saved as Draft');
-                  }}
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-100"
-                >
-                  <Save className="w-4 h-4 inline mr-2" />
-                  Save as Draft
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (formData.name && formData.pricePerUnit && formData.categoryId) {
-                      showNotification(
-                        'info',
-                        'Ready to publish! Click "Publish Product" button.'
-                      );
-                    } else {
-                      showNotification(
-                        'warning',
-                        'Please fill in all required fields before publishing'
-                      );
-                    }
-                  }}
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-100"
-                >
-                  <Eye className="w-4 h-4 inline mr-2" />
-                  Preview Product
-                </button>
               </div>
             </div>
 
             {/* Summary */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center space-x-2 mb-4">
-                <Info className="w-4 h-4 text-green-600" />
+                <Info className="w-4 h-4 text-yellow-500" />
                 <h3 className="font-semibold text-gray-900 text-sm">
                   Product Summary
                 </h3>
@@ -1455,7 +1493,7 @@ const NewProductPage: React.FC = () => {
                   <span className="text-gray-500">Price/Unit:</span>
                   <span className="font-medium text-gray-700">
                     {formData.pricePerUnit
-                      ? formatCurrency(parseFloat(formData.pricePerUnit))
+                      ? `${formatCurrency(parseFloat(formData.pricePerUnit))}/${formData.unitOfMeasurement}`
                       : 'Not set'}
                   </span>
                 </div>
@@ -1469,33 +1507,36 @@ const NewProductPage: React.FC = () => {
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Stock:</span>
-                  <span className="font-medium text-blue-600">
-                    {parseInt(formData.stock) || 0} units
+                  <span className="font-medium text-yellow-600">
+                    {parseInt(formData.stock) || 0}{' '}
+                    {formData.unitOfMeasurement}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Duration:</span>
                   <span className="font-medium text-gray-700">
-                    {durationOptions.find((d) => d.value === formData.durationTime)
-                      ?.label || 'Not set'}
+                    {durationOptions.find(
+                      (d) => d.value === formData.durationTime
+                    )?.label || 'Not set'}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Category:</span>
                   <span className="font-medium text-gray-700 truncate max-w-[140px]">
-                    {categories.find((c) => c.id === formData.categoryId)?.name ||
-                      'Not set'}
+                    {categories.find((c) => c.id === formData.categoryId)
+                      ?.name || 'Not set'}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Subcategory:</span>
                   <span className="font-medium text-gray-700 truncate max-w-[140px]">
-                    {subCategories.find((c) => c.id === formData.subCategoryId)?.name ||
-                      'Not set'}
+                    {subCategories.find(
+                      (c) => c.id === formData.subCategoryId
+                    )?.name || 'Not set'}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
-                  <span className="text-gray-500">Weight:</span>
+                  <span className="text-gray-500">Weight/Unit:</span>
                   <span className="font-medium text-gray-700">
                     {formData.weight
                       ? `${formData.weight} ${formData.unitOfMeasurement}`
