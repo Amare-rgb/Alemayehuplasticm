@@ -4,7 +4,7 @@
   "description": "Alemayehu Plastic Manufacturing Backend API Server",
   "main": "server.js",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -54,7 +54,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^20.0.0",
+    "@types/node": "^24.0.0",
     "@types/uuid": "^10.0.0",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
