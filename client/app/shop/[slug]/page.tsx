@@ -20,8 +20,9 @@ export interface Product {
   images: string[];
 }
 
+// ✅ Next.js 15+: params is ALWAYS a Promise
 type ProductDetailsPageProps = {
-  params: Promise<{ slug: string }> | { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ function resolveImage(raw: unknown): string | null {
 export default async function ProductDetailsPage({
   params,
 }: ProductDetailsPageProps) {
+  // ✅ Await the Promise before reading properties
   const resolvedParams = await params;
   const rawSlug = resolvedParams?.slug || "";
   const slug = decodeURIComponent(rawSlug).toLowerCase().trim();
@@ -70,9 +72,10 @@ export default async function ProductDetailsPage({
       const data: unknown = await res.json();
 
       // Backend sometimes wraps product in { product: ... } or { data: ... }
-      const raw = (data as { product?: unknown; data?: unknown })?.product
-        ?? (data as { data?: unknown })?.data
-        ?? data;
+      const raw =
+        (data as { product?: unknown; data?: unknown })?.product ??
+        (data as { data?: unknown })?.data ??
+        data;
 
       const rawObj = raw as {
         id?: string;
@@ -110,11 +113,8 @@ export default async function ProductDetailsPage({
               ? Number(rawObj.discountPrice)
               : null,
           unit: rawObj.unitOfMeasurement || "pcs",
-          stock:
-            typeof rawObj.stock === "number" ? rawObj.stock : 0,
-          featured: Boolean(
-            rawObj.discountPrice || rawObj.isFeatured
-          ),
+          stock: typeof rawObj.stock === "number" ? rawObj.stock : 0,
+          featured: Boolean(rawObj.discountPrice || rawObj.isFeatured),
           badge: rawObj.discountPrice ? "Sale" : undefined,
           images: imageList,
         };
