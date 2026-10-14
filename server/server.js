@@ -52,7 +52,7 @@ const platformName = isNetlify
   : 'node';
 
 // ═══════════════════════════════════════════════════════════
-// TRUST PROXY
+// TRUST PROXY — required for Railway (sits behind a proxy)
 // ═══════════════════════════════════════════════════════════
 app.set('trust proxy', 1);
 
@@ -130,6 +130,7 @@ const allowedOrigins = new Set(
 
 const VERCEL_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.vercel\.app$/i;
 const NETLIFY_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.netlify\.app$/i;
+const RAILWAY_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.up\.railway\.app$/i;
 const NGROK_REGEX = /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.ngrok(-free)?\.(io|app|dev)$/i;
 const LAN_REGEX =
   /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
@@ -140,6 +141,8 @@ function isOriginAllowed(origin) {
   if (allowedOrigins.has(cleaned)) return true;
   if (VERCEL_REGEX.test(cleaned)) return true;
   if (NETLIFY_REGEX.test(cleaned)) return true;
+  // ✅ Allow any Railway frontend domain (e.g. preview deployments)
+  if (RAILWAY_REGEX.test(cleaned)) return true;
   if (!isProd) {
     if (NGROK_REGEX.test(cleaned)) return true;
     if (LAN_REGEX.test(cleaned)) return true;
@@ -373,10 +376,16 @@ if (!isServerless) {
     server.keepAliveTimeout = 65 * 1000;
     server.headersTimeout = 66 * 1000;
 
-    // ✅ FIX: removed the '0.0.0.0' argument — lets Node bind to
-    //    both IPv4 and IPv6 so localhost works correctly on Windows
     server.listen(PORT, () => {
-      const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+      // ✅ Railway sets RAILWAY_PUBLIC_DOMAIN automatically
+      const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+        : null;
+      const backendUrl =
+        railwayUrl ||
+        process.env.BACKEND_URL ||
+        `http://localhost:${PORT}`;
+
       console.log('\n🏭 Alemayehu Plastic Server running on ' + backendUrl);
       console.log('🌍 Environment: ' + (process.env.NODE_ENV || 'development'));
       console.log('🚆 Platform: ' + platformName);

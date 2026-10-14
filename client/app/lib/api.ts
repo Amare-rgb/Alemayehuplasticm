@@ -6,9 +6,9 @@ import axios, {
 } from 'axios';
 
 // ============================================================
-// Base URL (normalized)
+// Base URL (normalized) — Updated with your Railway Backend URL
 // ============================================================
-const PRODUCTION_FALLBACK = 'https://api.alemayehplastic.com';
+const PRODUCTION_FALLBACK = 'https://alemayehuplasticm-production.up.railway.app';
 
 const rawUrl =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -18,8 +18,8 @@ const rawUrl =
 
 export const API_URL = rawUrl
   .trim()
-  .replace(/\/+$/, '')
-  .replace(/\/api$/i, '');
+  .replace(/\/+\$/, '')
+  .replace(/\/api\$/i, '');
 
 // ✅ Instance for the EXTERNAL backend (Express)
 export const api: AxiosInstance = axios.create({
@@ -153,17 +153,11 @@ export interface User {
 
 // ============================================================
 // UPLOAD API — Cloudinary-backed
-//   Each helper targets the correct product/category/avatar route.
-//   Response.url is a FULL Cloudinary URL:
-//     https://res.cloudinary.com/<cloud>/image/upload/v.../alemayehu-plastic/...
 // ============================================================
 export interface UploadResponse {
   success: boolean;
-  /** Full Cloudinary URL — safe to use directly in <img src> */
   url: string;
-  /** Alias — some endpoints return this too */
   secure_url?: string;
-  /** Cloudinary public_id (used to delete) */
   publicId?: string;
   public_id?: string;
   fileName?: string;
@@ -196,15 +190,12 @@ async function postFile(
 }
 
 export const uploadApi = {
-  /** Generic single-file upload → Cloudinary */
   uploadFile: (file: File, fieldName: 'image' | 'avatar' | 'file' = 'file') =>
     postFile('/api/upload', file, fieldName),
 
-  /** Product image → alemayehu-plastic/products/ */
   uploadProductImage: (file: File) =>
     postFile('/api/upload/product', file, 'image'),
 
-  /** Product images (multiple) — call once per file */
   uploadProductImages: async (files: File[]): Promise<UploadResponse[]> => {
     const results: UploadResponse[] = [];
     for (const file of files) {
@@ -213,18 +204,14 @@ export const uploadApi = {
     return results;
   },
 
-  /** Category image → alemayehu-plastic/categories/ */
   uploadCategoryImage: (file: File) =>
     postFile('/api/upload/category', file, 'image'),
 
-  /** Avatar → alemayehu-plastic/avatars/ */
   uploadAvatar: (file: File) =>
     postFile('/api/upload/avatar', file, 'avatar'),
 
-  /** PDF (product spec sheet, invoice, etc.) */
   uploadPdf: (file: File) => postFile('/api/upload/pdf', file, 'file'),
 
-  /** Settings logo → alemayehu-plastic/settings/ */
   uploadSettingsLogo: (file: File) =>
     postFile('/api/upload/settings', file, 'logo'),
 };

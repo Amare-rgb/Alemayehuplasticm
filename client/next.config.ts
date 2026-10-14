@@ -14,13 +14,13 @@ const isProd = process.env.NODE_ENV === "production";
 // ─────────────────────────────────────────────────────────────
 // Normalize the backend URL:
 //   • trim whitespace
-//   • remove trailing slashes        (e.g. ".../" → "...")
-//   • remove trailing "/api"         (e.g. ".../api" → "...")
+//   • remove trailing slashes
+//   • remove trailing "/api"
 // ─────────────────────────────────────────────────────────────
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000")
   .trim()
-  .replace(/\/+$/, "")     // ✅ was /\/+\$/ — $ was escaped
-  .replace(/\/api$/i, ""); // ✅ was /\/api\$/i — $ was escaped
+  .replace(/\/+$/, "")
+  .replace(/\/api$/i, "");
 
 type ImagePattern = {
   protocol: "http" | "https";
@@ -48,16 +48,19 @@ const nextConfig: NextConfig = {
   // Allow dev requests from your ngrok tunnel origin
   allowedDevOrigins: ["concise-skunk-preferably.ngrok-free.app"],
 
-  // ⚠️ Removed ignoreBuildErrors — your build passes cleanly now.
-  //    If you need it back temporarily, uncomment.
-  // typescript: { ignoreBuildErrors: true },
-
   images: {
     dangerouslyAllowLocalIP: !isProd,
 
     remotePatterns: [
-      // ── Backend from NEXT_PUBLIC_API_URL ────────────────────────────
+      // ── Backend from NEXT_PUBLIC_API_URL (exact host) ───────────────
       ...(apiPattern ? [apiPattern] : []),
+
+      // ── Railway backend (wildcard — covers all *.up.railway.app) ────
+      {
+        protocol: "https",
+        hostname: "*.up.railway.app",
+        pathname: "/**",
+      },
 
       // ── Local backend (development) ─────────────────────────────────
       { protocol: "http", hostname: "localhost", port: "5000", pathname: "/**" },
@@ -73,9 +76,6 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "avatars.githubusercontent.com", pathname: "/**" },
     ],
   },
-
-  // ✅ Removed /uploads/* rewrite — local disk storage is gone.
-  //    All uploads now go to Cloudinary, so no proxy is needed.
 };
 
 export default withPWA(nextConfig);
