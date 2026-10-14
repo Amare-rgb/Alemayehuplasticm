@@ -38,7 +38,9 @@ if (cloudinaryConfigured) {
 const isNetlify = !!(process.env.NETLIFY || process.env.NETLIFY_LOCAL);
 const isVercel = !!process.env.VERCEL;
 const isRailway = !!(
-  process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID
+  process.env.RAILWAY_ENVIRONMENT ||
+  process.env.RAILWAY_PROJECT_ID ||
+  process.env.RAILWAY_PUBLIC_DOMAIN
 );
 const isServerless =
   isNetlify || isVercel || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
@@ -52,9 +54,20 @@ const platformName = isNetlify
   : 'node';
 
 // ═══════════════════════════════════════════════════════════
-// TRUST PROXY — required for Railway (sits behind a proxy)
+// TRUST PROXY — Railway sits behind a proxy
 // ═══════════════════════════════════════════════════════════
 app.set('trust proxy', 1);
+
+// ═══════════════════════════════════════════════════════════
+// HARD-CODED PRODUCTION ORIGINS (safety net — always allowed)
+// ═══════════════════════════════════════════════════════════
+const PRODUCTION_FRONTEND_ORIGINS = [
+  'https://alemayehuplasticm.vercel.app',
+];
+
+const PRODUCTION_BACKEND_ORIGINS = [
+  'https://alemayehuplasticm-production.up.railway.app',
+];
 
 // ═══════════════════════════════════════════════════════════
 // Collapse double slashes in the URL PATH
@@ -88,21 +101,7 @@ app.use((req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// IMPORT ROUTES
-// ═══════════════════════════════════════════════════════════
-const authRoutes = require('./routes/auth.routes');
-const adminRoutes = require('./routes/admin.routes');
-const adminDashboardRoutes = require('./routes/admin.dashboard');
-const categoriesRoutes = require('./routes/categories.routes');
-const productsRoutes = require('./routes/products.routes');
-const uploadRoutes = require('./routes/upload.routes');
-const usersRoutes = require('./routes/users.routes');
-const settingsRoutes = require('./routes/settings.routes');
-const profileRoutes = require('./routes/profile.routes');
-const chatbotRoutes = require('./routes/chatbot.routes');
-
-// ═══════════════════════════════════════════════════════════
-// CORS
+// CORS — MUST come before all routes
 // ═══════════════════════════════════════════════════════════
 const stripSlash = (o) => String(o).trim().replace(/\/+$/, '');
 
@@ -113,65 +112,101 @@ const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
 
 const allowedOrigins = new Set(
   [
+    // ✅ Your real production frontend (always allowed)
+    ...PRODUCTION_FRONTEND_ORIGINS,
+
+    // ✅ Your own backend origin (useful for same-origin/server calls)
+    ...PRODUCTION_BACKEND_ORIGINS,
+
+    // Env-driven (Railway service variables)
     process.env.CLIENT_URL,
     process.env.FRONTEND_URL,
     process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.VITE_API_URL,
     process.env.URL,
     process.env.DEPLOY_PRIME_URL,
+
+    // Local dev
     'http://localhost:3000',
     'http://localhost:3001',
+    'http://localhost:5173', // Vite default
+    'http://localhost:5174',
     'http://localhost:8888',
     'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+
     ...extraOrigins,
   ]
     .filter(Boolean)
     .map(stripSlash)
 );
 
-const VERCEL_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.vercel\.app$/i;
-const NETLIFY_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.netlify\.app$/i;
-const RAILWAY_REGEX = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.up\.railway\.app$/i;
-const NGROK_REGEX = /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.ngrok(-free)?\.(io|app|dev)$/i;
-const LAN_REGEX =
-  /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
+// Regex fallbacks (all Vercel / Railway preview URLs accepted)
+const VERCEL_REGEX   = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.vercel\.app$/i;
+const NETLIFY_REGEX  = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.netlify\.app$/i;
+const RAILWAY_REGEX  = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.up\.railway\.app$/i;
+const NGROK_REGEX    = /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.ngrok(-free)?\.(io|app|dev)$/i;
+const LAN_REGEX      = /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
 
 function isOriginAllowed(origin) {
+  // No origin → curl / Postman / server-to-server → allow
   if (!origin) return true;
+
   const cleaned = stripSlash(origin);
+
+  // Explicit allowlist
   if (allowedOrigins.has(cleaned)) return true;
-  if (VERCEL_REGEX.test(cleaned)) return true;
+
+  // Regex allowlists
+  if (VERCEL_REGEX.test(cleaned))  return true;
   if (NETLIFY_REGEX.test(cleaned)) return true;
-  // ✅ Allow any Railway frontend domain (e.g. preview deployments)
   if (RAILWAY_REGEX.test(cleaned)) return true;
+
+  // Dev-only extra allowlists
   if (!isProd) {
     if (NGROK_REGEX.test(cleaned)) return true;
-    if (LAN_REGEX.test(cleaned)) return true;
+    if (LAN_REGEX.test(cleaned))   return true;
   }
+
   return false;
 }
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (isOriginAllowed(origin)) return callback(null, true);
-      console.warn(`⚠️ CORS blocked for origin: ${origin}`);
-      return callback(null, false);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'Accept',
-      'Origin',
-      'X-Requested-With',
-      'ngrok-skip-browser-warning',
-    ],
-    exposedHeaders: ['Content-Disposition'],
-    optionsSuccessStatus: 204,
-    maxAge: 86400,
-  })
-);
+const corsOptions = {
+  origin(origin, callback) {
+    if (isOriginAllowed(origin)) return callback(null, true);
+
+    console.warn(`⚠️ CORS blocked for origin: ${origin}`);
+    // Return `false` (not an Error) → preflight still resolves, browser blocks
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'Origin',
+    'X-Requested-With',
+    'ngrok-skip-browser-warning',
+    'Cache-Control',
+    'Pragma',
+    'X-CSRF-Token',
+  ],
+  exposedHeaders: ['Content-Disposition', 'Content-Length'],
+  optionsSuccessStatus: 204,
+  maxAge: 86400, // cache preflight for 24h
+  preflightContinue: false,
+};
+
+// Apply CORS to every request
+app.use(cors(corsOptions));
+
+// Explicit OPTIONS handler — bulletproofs preflight behind Railway's proxy
+app.options('*', cors(corsOptions));
+
+// Also handle bare OPTIONS on root & /api (some proxies rewrite paths)
+app.options('/', cors(corsOptions));
+app.options('/api', cors(corsOptions));
 
 // ═══════════════════════════════════════════════════════════
 // BODY PARSERS
@@ -180,7 +215,21 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ═══════════════════════════════════════════════════════════
-// ROUTES
+// IMPORT ROUTES
+// ═══════════════════════════════════════════════════════════
+const authRoutes            = require('./routes/auth.routes');
+const adminRoutes           = require('./routes/admin.routes');
+const adminDashboardRoutes  = require('./routes/admin.dashboard');
+const categoriesRoutes      = require('./routes/categories.routes');
+const productsRoutes        = require('./routes/products.routes');
+const uploadRoutes          = require('./routes/upload.routes');
+const usersRoutes           = require('./routes/users.routes');
+const settingsRoutes        = require('./routes/settings.routes');
+const profileRoutes         = require('./routes/profile.routes');
+const chatbotRoutes         = require('./routes/chatbot.routes');
+
+// ═══════════════════════════════════════════════════════════
+// API ROUTER
 // ═══════════════════════════════════════════════════════════
 const apiRouter = express.Router();
 
@@ -309,6 +358,14 @@ app.use((err, req, res, next) => {
     });
   }
 
+  if (err.message && err.message.toLowerCase().includes('cors')) {
+    return res.status(403).json({
+      success: false,
+      error: 'CORS policy blocked this request.',
+      origin: req.headers.origin,
+    });
+  }
+
   res.status(500).json({
     success: false,
     error: 'Internal server error',
@@ -376,8 +433,8 @@ if (!isServerless) {
     server.keepAliveTimeout = 65 * 1000;
     server.headersTimeout = 66 * 1000;
 
-    server.listen(PORT, () => {
-      // ✅ Railway sets RAILWAY_PUBLIC_DOMAIN automatically
+    // ✅ Listen on 0.0.0.0 so Railway's router can reach the container
+    server.listen(PORT, '0.0.0.0', () => {
       const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN
         ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
         : null;
@@ -400,6 +457,8 @@ if (!isServerless) {
             ? 'OpenRouter AI enabled ✅'
             : 'Fallback mode ⚠️')
       );
+      console.log('🔓 Allowed origins:');
+      allowedOrigins.forEach((o) => console.log('   • ' + o));
     });
 
     // Neon keep-alive (prevents cold-start timeouts)
