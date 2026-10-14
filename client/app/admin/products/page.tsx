@@ -21,6 +21,8 @@ import {
   CheckCircle,
   Info,
   Image as ImageIcon,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 // ============================================================
@@ -33,28 +35,24 @@ const RAW_API_BASE =
 const API_URL = RAW_API_BASE.replace(/\/+$/, "");
 
 // ============================================================
-// Image URL resolver
+// Image URL resolver — Cloudinary ONLY
+//   • Full https URL      → as-is
+//   • res.cloudinary.com  → prefixed with https://
+//   • Anything else       → null (let caller show placeholder icon)
 // ============================================================
-const DEFAULT_IMAGE = "/placeholder.svg";
-
-function resolveImage(raw: unknown): string {
-  if (typeof raw !== "string") return DEFAULT_IMAGE;
+function resolveImage(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
   const s = raw.trim();
-  if (!s) return DEFAULT_IMAGE;
+  if (!s) return null;
 
+  // Full URL (Cloudinary or external)
   if (s.startsWith("http://") || s.startsWith("https://")) return s;
+
+  // Cloudinary URL missing the scheme (defensive)
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
-    const clean = s.startsWith("/") ? s : `/${s}`;
-    return `${API_URL}${clean}`;
-  }
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_URL}/uploads/products/${s}`;
-  }
-
-  return DEFAULT_IMAGE;
+  // Anything else (legacy /uploads/... path or stray filename) → no image
+  return null;
 }
 
 // ============================================================
@@ -87,9 +85,6 @@ api.interceptors.response.use(
       localStorage.removeItem("user");
       sessionStorage.removeItem("user");
       if (typeof window !== "undefined") {
-        // Full-page redirect is intentional here: this interceptor lives
-        // outside React, so useRouter() isn't available. A hard reset is
-        // also desirable after auth failure.
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = "/auth/signin";
       }
@@ -206,7 +201,7 @@ const Notification: React.FC<NotificationProps> = ({
 };
 
 // ============================================================
-// Product thumbnail with fallback
+// Product thumbnail with fallback (inline SVG placeholder)
 // ============================================================
 const ProductImage: React.FC<{
   src: string | null;
@@ -239,12 +234,41 @@ const ProductImage: React.FC<{
       height={48}
       className={`object-cover ${className}`}
       onError={() => setError(true)}
-      unoptimized={
-        src.startsWith("/") || src.includes("images.unsplash.com")
-      }
+      unoptimized
     />
   );
 };
+
+// ============================================================
+// Pagination helper
+// ============================================================
+function getPageNumbers(
+  current: number,
+  totalPages: number
+): (number | "...")[] {
+  const pages: (number | "...")[] = [];
+  const maxVisible = 5;
+
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+    return pages;
+  }
+
+  pages.push(1);
+
+  const start = Math.max(2, current - Math.floor(maxVisible / 2));
+  const end = Math.min(totalPages - 1, start + maxVisible - 1);
+
+  if (start > 2) pages.push("...");
+
+  for (let i = start; i <= end; i++) pages.push(i);
+
+  if (end < totalPages - 1) pages.push("...");
+
+  pages.push(totalPages);
+
+  return pages;
+}
 
 // ============================================================
 // Main component
@@ -252,40 +276,49 @@ const ProductImage: React.FC<{
 const ProductsPage: React.FC = () => {
   const router = useRouter();
 
-  // Data
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
 
-  // Loading flags
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Notification
   const [notification, setNotification] = useState<{
     type: "success" | "error" | "info" | "warning";
     message: string;
   } | null>(null);
 
-  // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
-  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(10);
 
-  // Refs
   const isMounted = useRef(true);
   const hasFetchedInitial = useRef(false);
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const firstFilterRun = useRef(true);
-  const firstPageRun = useRef(true);
-  const firstSearchRun = useRef(true);
+  const tableTopRef = useRef<HTMLDivElement>(null);
 
-  // Helpers
+  const currentPageRef = useRef(currentPage);
+  const searchQueryRef = useRef(searchQuery);
+  const selectedCategoryRef = useRef(selectedCategory);
+  const pageSizeRef = useRef(pageSize);
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+  useEffect(() => {
+    searchQueryRef.current = searchQuery;
+  }, [searchQuery]);
+  useEffect(() => {
+    selectedCategoryRef.current = selectedCategory;
+  }, [selectedCategory]);
+  useEffect(() => {
+    pageSizeRef.current = pageSize;
+  }, [pageSize]);
+
   const showNotification = (
     type: "success" | "error" | "info" | "warning",
     message: string
@@ -299,7 +332,13 @@ const ProductsPage: React.FC = () => {
     localStorage.getItem("authToken") ||
     sessionStorage.getItem("authToken");
 
-  // Fetch categories (once)
+  const scrollToTableTop = () => {
+    tableTopRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
   const fetchCategories = useCallback(async () => {
     try {
       const response = await api.get("/api/categories/admin/all");
@@ -312,10 +351,18 @@ const ProductsPage: React.FC = () => {
     }
   }, []);
 
-  // Fetch products
   const fetchProducts = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: {
+      silent?: boolean;
+      page?: number;
+      search?: string;
+      category?: string;
+    }) => {
       const silent = opts?.silent ?? false;
+      const page = opts?.page ?? currentPageRef.current;
+      const search = opts?.search ?? searchQueryRef.current;
+      const category = opts?.category ?? selectedCategoryRef.current;
+
       try {
         if (!silent) setRefreshing(true);
 
@@ -330,20 +377,24 @@ const ProductsPage: React.FC = () => {
         }
 
         const params = new URLSearchParams();
-        params.append("page", String(currentPage));
-        params.append("limit", String(pageSize));
-        if (searchQuery) params.append("search", searchQuery);
-        if (selectedCategory) params.append("categoryId", selectedCategory);
+        params.append("page", String(page));
+        params.append("limit", String(pageSizeRef.current));
+        if (search) params.append("search", search);
+        if (category) params.append("categoryId", category);
 
         const url = `/api/products/admin/all?${params.toString()}`;
+
         const response = await api.get(url);
 
         if (!isMounted.current) return;
 
         const list: Product[] = response.data?.products ?? [];
+        const totalCount = response.data?.total ?? list.length;
+        const totalPages = response.data?.pages ?? 1;
+
         setProducts(list);
-        setTotal(response.data?.total ?? list.length);
-        setPages(response.data?.pages ?? 1);
+        setTotal(totalCount);
+        setPages(totalPages);
       } catch (err: unknown) {
         if (!isMounted.current) return;
         if (axios.isAxiosError(err)) {
@@ -373,10 +424,9 @@ const ProductsPage: React.FC = () => {
         }
       }
     },
-    [currentPage, pageSize, searchQuery, selectedCategory, router]
+    [router]
   );
 
-  // Mount — initial fetch only
   useEffect(() => {
     isMounted.current = true;
 
@@ -389,30 +439,33 @@ const ProductsPage: React.FC = () => {
         return;
       }
 
-      (async () => {
-        await Promise.all([fetchCategories(), fetchProducts()]);
-      })();
+      const t = setTimeout(() => {
+        void Promise.all([fetchCategories(), fetchProducts()]);
+      }, 0);
+
+      return () => {
+        clearTimeout(t);
+        isMounted.current = false;
+        if (searchDebounceRef.current)
+          clearTimeout(searchDebounceRef.current);
+      };
     }
 
     return () => {
       isMounted.current = false;
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-    // ✅ Both fetch functions are stable useCallbacks, so this effect only
-    //    runs on mount. The `hasFetchedInitial` guard ensures no double-fetch.
-  }, [fetchCategories, fetchProducts, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Search debounce — skip first run
   useEffect(() => {
-    if (firstSearchRun.current) {
-      firstSearchRun.current = false;
-      return;
-    }
-
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+
     searchDebounceRef.current = setTimeout(() => {
-      setCurrentPage(1);
-      fetchProducts({ silent: true });
+      if (currentPageRef.current !== 1) {
+        setCurrentPage(1);
+      }
+      fetchProducts({ silent: true, page: 1, search: searchQuery });
     }, 500);
 
     return () => {
@@ -420,24 +473,41 @@ const ProductsPage: React.FC = () => {
     };
   }, [searchQuery, fetchProducts]);
 
-  // Filter changes — skip first run
   useEffect(() => {
-    if (firstFilterRun.current) {
-      firstFilterRun.current = false;
-      return;
-    }
-    setCurrentPage(1);
-    fetchProducts({ silent: true });
+    const t = setTimeout(() => {
+      if (currentPageRef.current !== 1) {
+        setCurrentPage(1);
+      }
+      fetchProducts({
+        silent: true,
+        page: 1,
+        category: selectedCategory,
+      });
+    }, 0);
+
+    return () => clearTimeout(t);
   }, [selectedCategory, fetchProducts]);
 
-  // Page changes — skip first run
-  useEffect(() => {
-    if (firstPageRun.current) {
-      firstPageRun.current = false;
-      return;
-    }
-    fetchProducts({ silent: true });
-  }, [currentPage, fetchProducts]);
+  const goToPage = (page: number) => {
+    if (page < 1 || page > pages || page === currentPage || refreshing) return;
+    setCurrentPage(page);
+    void fetchProducts({ silent: true, page });
+    scrollToTableTop();
+  };
+
+  const handlePrevious = () => goToPage(currentPage - 1);
+  const handleNext = () => goToPage(currentPage + 1);
+
+  const handleRefresh = () => {
+    void fetchProducts({ page: currentPage });
+  };
+
+  const handleClearFilters = () => {
+    setSelectedCategory("");
+    setSearchQuery("");
+    setCurrentPage(1);
+    void fetchProducts({ silent: true, page: 1, search: "", category: "" });
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this product?")) return;
@@ -452,7 +522,14 @@ const ProductsPage: React.FC = () => {
       const response = await api.delete(`/api/products/${id}`);
       if (response.data.success) {
         showNotification("success", "Product deleted successfully!");
-        await fetchProducts({ silent: true });
+
+        if (products.length === 1 && currentPage > 1) {
+          const prevPage = currentPage - 1;
+          setCurrentPage(prevPage);
+          await fetchProducts({ silent: true, page: prevPage });
+        } else {
+          await fetchProducts({ silent: true, page: currentPage });
+        }
       }
     } catch (err) {
       console.error("Error deleting product:", err);
@@ -465,7 +542,6 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-  // Formatting
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -486,26 +562,20 @@ const ProductsPage: React.FC = () => {
     });
   };
 
-  const getImageUrl = (imagePath: string | null | undefined): string | null => {
-    if (!imagePath) return null;
-    const resolved = resolveImage(imagePath);
-    return resolved === DEFAULT_IMAGE ? null : resolved;
-  };
-
+  // Cloudinary-only resolver — returns null if not a valid URL
   const getFirstImage = (
     images: string[] | null | undefined
   ): string | null => {
     if (!images || images.length === 0) return null;
     for (const img of images) {
       if (img && img.trim() !== "") {
-        const url = getImageUrl(img);
+        const url = resolveImage(img);
         if (url) return url;
       }
     }
     return null;
   };
 
-  // Render
   if (initialLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -516,6 +586,10 @@ const ProductsPage: React.FC = () => {
       </div>
     );
   }
+
+  const pageNumbers = getPageNumbers(currentPage, pages);
+  const startItem = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, total);
 
   return (
     <div className="space-y-6">
@@ -571,7 +645,7 @@ const ProductsPage: React.FC = () => {
             />
           </button>
           <button
-            onClick={() => fetchProducts()}
+            onClick={handleRefresh}
             disabled={refreshing}
             className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-yellow-500 rounded-lg hover:bg-yellow-600 transition-colors disabled:opacity-50"
           >
@@ -607,11 +681,7 @@ const ProductsPage: React.FC = () => {
           </div>
           <div className="flex items-end">
             <button
-              onClick={() => {
-                setSelectedCategory("");
-                setSearchQuery("");
-                setCurrentPage(1);
-              }}
+              onClick={handleClearFilters}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               Clear Filters
@@ -621,7 +691,10 @@ const ProductsPage: React.FC = () => {
       )}
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden relative">
+      <div
+        ref={tableTopRef}
+        className="bg-white rounded-xl border border-gray-200 overflow-hidden relative"
+      >
         {refreshing && (
           <div className="absolute inset-0 bg-white/40 flex items-start justify-center pt-6 pointer-events-none z-10">
             <div className="animate-spin rounded-full h-6 w-6 border-2 border-yellow-500 border-t-transparent" />
@@ -759,26 +832,68 @@ const ProductsPage: React.FC = () => {
           )}
         </div>
 
-        {total > pageSize && (
-          <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+        {/* Pagination */}
+        {total > 0 && pages > 1 && (
+          <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-sm text-gray-500">
-              Showing {(currentPage - 1) * pageSize + 1} -{" "}
-              {Math.min(currentPage * pageSize, total)} of {total}
+              Showing <span className="font-medium">{startItem}</span> –{" "}
+              <span className="font-medium">{endItem}</span> of{" "}
+              <span className="font-medium">{total}</span>
             </p>
-            <div className="flex space-x-2">
+
+            <div className="flex items-center space-x-1">
               <button
-                onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+                onClick={handlePrevious}
+                disabled={currentPage === 1 || refreshing}
+                aria-label="Previous page"
+                className="flex items-center space-x-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors"
               >
-                Previous
+                <ChevronLeft className="w-4 h-4" />
+                <span className="hidden sm:inline">Previous</span>
               </button>
+
+              <div className="hidden sm:flex items-center space-x-1">
+                {pageNumbers.map((p, idx) =>
+                  p === "..." ? (
+                    <span
+                      key={`ellipsis-${idx}`}
+                      className="px-2 text-sm text-gray-400 select-none"
+                    >
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => goToPage(p)}
+                      disabled={refreshing}
+                      aria-current={p === currentPage ? "page" : undefined}
+                      className={`min-w-[32px] h-8 px-2 text-sm rounded-lg transition-colors ${
+                        p === currentPage
+                          ? "bg-yellow-500 text-white font-semibold"
+                          : "text-gray-700 hover:bg-gray-100 border border-transparent hover:border-gray-200"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              </div>
+
+              <span className="sm:hidden text-sm text-gray-600 px-2">
+                {currentPage} / {pages}
+              </span>
+
               <button
-                onClick={() => setCurrentPage((p) => Math.min(p + 1, pages))}
-                disabled={currentPage >= pages}
-                className="px-3 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+                onClick={handleNext}
+                disabled={currentPage >= pages || refreshing}
+                aria-label="Next page"
+                className="flex items-center space-x-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors"
               >
-                Next
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>

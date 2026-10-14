@@ -1,31 +1,30 @@
-// middleware/upload.js
-//
-// Upload middlewares that store images on the LOCAL DISK.
-// Files are saved to:  <project-root>/uploads/<folder>/<filename>
-// and served at:       http://<server>/uploads/<folder>/<filename>
-//
-// Same exports and field names as before:
-//   uploadSingle     → field "image"      (products)
-//   uploadAvatar     → field "avatar"     (avatars)
-//   uploadDocuments  → field "documents"  (up to 5)
-//   uploadMultiple   → field "images"     (up to 5)
-//   upload           → object with .single() / .array() / .fields() / .any()
-//   handleUpload     → error-handling wrapper
-//
-// IMPORTANT: after a successful upload, use  req.file.url  (or
-// req.files[i].url). It is a relative path like:
-//   /uploads/products/1712-abc123.jpg
-// The frontend must prepend the API base URL to display it:
-//   http://localhost:5000/uploads/products/1712-abc123.jpg
-
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
-// ── Upload root + subfolders ───────────────────────────────────────────
-const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
+// ── Cloudinary config ───────────────────────────────────────────────────
+const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
+const API_KEY = process.env.CLOUDINARY_API_KEY;
+const API_SECRET = process.env.CLOUDINARY_API_SECRET;
+const FOLDER_ROOT = process.env.CLOUDINARY_FOLDER_ROOT || 'alemayehu-plastic';
 
+if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
+  console.warn(
+    '⚠️  Cloudinary env vars missing. Set CLOUDINARY_CLOUD_NAME, ' +
+      'CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in .env'
+  );
+} else {
+  cloudinary.config({
+    cloud_name: CLOUD_NAME,
+    api_key: API_KEY,
+    api_secret: API_SECRET,
+    secure: true,
+  });
+  console.log('☁️  Cloudinary configured (middleware/upload.js):', CLOUD_NAME);
+}
+
+// ── Field → Cloudinary subfolder map ────────────────────────────────────
 const SUBFOLDERS = {
   image: 'products',
   images: 'products',
@@ -37,21 +36,11 @@ const SUBFOLDERS = {
   article: 'articles',
 };
 
-// Create all folders on startup
-const ALL_FOLDERS = ['products', 'avatars', 'documents', 'receipts', 'articles'];
-for (const folder of ALL_FOLDERS) {
-  const dir = path.join(UPLOAD_ROOT, folder);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log(`📁 Created upload folder: ${dir}`);
-  }
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────────
 const makeError = (code, message) =>
   Object.assign(new Error(message), { code });
 
-// File filter — images + PDFs
+// File filter — images + PDFs (same rules as before)
 const fileFilter = (req, file, cb) => {
   const validTypes = [
     'image/jpeg',
@@ -88,36 +77,58 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// ── Disk storage ────────────────────────────────────────────────────────
-const diskStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Pick subfolder based on the field name
+// ── Cloudinary storage engine ───────────────────────────────────────────
+const cloudinaryStorage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => {
     const folder = SUBFOLDERS[file.fieldname] || 'products';
-    const dir = path.join(UPLOAD_ROOT, folder);
+    const mime = file.mimetype || '';
 
-    // Make sure it exists (defensive — it should already)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
-    cb(null, unique);
+    const isPdf = mime === 'application/pdf';
+    const isVideo = mime.startsWith('video/');
+    const isSvg = mime === 'image/svg+xml';
+
+    // Build a friendly public_id from the original filename
+    const baseName = (file.originalname || 'file')
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[^a-zA-Z0-9-_]/g, '-')
+      .slice(0, 40);
+    const uniqueSuffix = `${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
+    return {
+      folder: `${FOLDER_ROOT}/${folder}`,
+      public_id: `${baseName}-${uniqueSuffix}`,
+      // PDFs / non-image files must use resource_type "raw".
+      // SVGs work as "image" but shouldn't be re-encoded.
+      resource_type: isVideo ? 'video' : isPdf ? 'raw' : 'image',
+      // Skip transformations for PDFs, videos, and SVGs
+      transformation:
+        isPdf || isVideo || isSvg
+          ? undefined
+          : [{ quality: 'auto', fetch_format: 'auto' }],
+    };
   },
 });
 
 // ── Attach a URL to each saved file ─────────────────────────────────────
-// After multer writes the file to disk, we compute a public URL and
-// attach it to `req.file.url` (and each item of `req.files`).
+// With multer-storage-cloudinary, each file already has:
+//   file.path       → Cloudinary secure URL
+//   file.filename   → Cloudinary public_id
+//   file.secure_url → same as path
+// We normalise so the rest of the app can rely on `.url`, `.location`,
+// `.secure_url`, and `.public_id` regardless of storage backend.
 const attachUrls = (req, res, next) => {
   const addUrl = (file) => {
-    if (!file || !file.path) return;
-    const rel = path.relative(UPLOAD_ROOT, file.path).split(path.sep).join('/');
-    file.url = `/uploads/${rel}`;
-    file.location = file.url;
-    file.secure_url = file.url;
+    if (!file) return;
+    const url = file.path || file.secure_url || file.url || null;
+    const publicId = file.filename || file.public_id || null;
+
+    file.url = url;
+    file.location = url;
+    file.secure_url = url;
+    file.public_id = publicId;
   };
 
   if (req.file) addUrl(req.file);
@@ -140,9 +151,9 @@ const withStorage = (multerMiddleware) => (req, res, next) => {
   });
 };
 
-// ── Multer instances ────────────────────────────────────────────────────
+// ── Multer instances (Cloudinary-backed) ────────────────────────────────
 const single = multer({
-  storage: diskStorage,
+  storage: cloudinaryStorage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10 MB
     files: 1,
@@ -151,7 +162,7 @@ const single = multer({
 });
 
 const multiple = multer({
-  storage: diskStorage,
+  storage: cloudinaryStorage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10 MB each
     files: 10,

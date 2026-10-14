@@ -1,9 +1,28 @@
+// lib/auth.js
 const jwt = require('jsonwebtoken');
 const prisma = require('./prisma');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+// ═══════════════════════════════════════════════════════════
+// JWT_SECRET must be set in .env — fail fast if missing.
+// ═══════════════════════════════════════════════════════════
+const JWT_SECRET = process.env.JWT_SECRET;
 
-// Get server session from JWT token
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error(
+    '❌ JWT_SECRET is missing or too short (min 32 chars). ' +
+      'Generate one with:\n' +
+      "  node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"\n" +
+      'Then add to .env:  JWT_SECRET=<the-long-string>'
+  );
+}
+
+const TOKEN_EXPIRY = process.env.JWT_EXPIRY || '7d';
+const VERIFICATION_EXPIRY = '24h';
+const RESET_EXPIRY = '1h';
+
+// ============================================================
+// getServerSession — verify JWT and return the user
+// ============================================================
 const getServerSession = async (req) => {
   try {
     const authHeader = req.headers.authorization;
@@ -13,107 +32,89 @@ const getServerSession = async (req) => {
     if (!token) return null;
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Get userId from multiple possible fields for compatibility
+
+    // Accept any of the ID field names used across the app
     const userId = decoded.userId || decoded.id || decoded.user_id;
     if (!userId) return null;
-    
+
     const user = await prisma.user.findUnique({
-      where: { id: userId }
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      },
     });
 
     if (!user) return null;
 
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
-    };
+    return { user };
   } catch (error) {
     console.error('❌ Session error:', error.message);
     return null;
   }
 };
 
-// Generate JWT token for login - FIXED to include all fields
+// ============================================================
+// generateToken — sign a login token
+// Includes id / userId / user_id so any consumer works.
+// ============================================================
 const generateToken = (userId, email, role, name = '') => {
-  console.log('🔐 Generating token for:', { userId, email, role });
-  
-  // Create token with multiple ID fields for compatibility
   const payload = {
-    id: userId,           // For middleware expecting id
-    userId: userId,       // For original code
-    user_id: userId,      // For any other code
+    id: userId,
+    userId: userId,
+    user_id: userId,
     email: email,
-    role: role.toUpperCase(), // Ensure role is uppercase
-    name: name
+    role: String(role || 'USER').toUpperCase(),
+    name: name,
   };
-  
-  return jwt.sign(
-    payload,
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
 };
 
-// Generate email verification token (for email verification link)
-const generateVerificationToken = (email) => {
-  return jwt.sign(
-    { 
-      email, 
-      purpose: 'email-verification' 
-    },
+// ============================================================
+// Email verification token
+// ============================================================
+const generateVerificationToken = (email) =>
+  jwt.sign(
+    { email, purpose: 'email-verification' },
     JWT_SECRET,
-    { expiresIn: '24h' } // 24 hours expiry
+    { expiresIn: VERIFICATION_EXPIRY }
   );
-};
 
-// Verify email verification token
 const verifyVerificationToken = (token) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Check if it's a verification token
-    if (decoded.purpose !== 'email-verification') {
-      return null;
-    }
-    
+    if (decoded.purpose !== 'email-verification') return null;
     return decoded;
-  } catch (error) {
+  } catch {
     return null;
   }
 };
 
-// Generate password reset token
-const generateResetToken = (email) => {
-  return jwt.sign(
-    { 
-      email, 
-      purpose: 'password-reset' 
-    },
+// ============================================================
+// Password reset token
+// ============================================================
+const generateResetToken = (email) =>
+  jwt.sign(
+    { email, purpose: 'password-reset' },
     JWT_SECRET,
-    { expiresIn: '1h' } // 1 hour expiry
+    { expiresIn: RESET_EXPIRY }
   );
-};
 
-// Verify password reset token
 const verifyResetToken = (token) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    
-    if (decoded.purpose !== 'password-reset') {
-      return null;
-    }
-    
+    if (decoded.purpose !== 'password-reset') return null;
     return decoded;
-  } catch (error) {
+  } catch {
     return null;
   }
 };
 
+// ⚠️ JWT_SECRET is intentionally NOT exported.
+// No other module should need it — use the helper functions.
 module.exports = {
   getServerSession,
   generateToken,
@@ -121,5 +122,4 @@ module.exports = {
   verifyVerificationToken,
   generateResetToken,
   verifyResetToken,
-  JWT_SECRET
 };

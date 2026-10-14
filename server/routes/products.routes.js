@@ -2,29 +2,72 @@
 const express = require('express');
 const router = express.Router();
 const slugify = require('slugify');
+const cloudinary = require('cloudinary').v2;
 const prisma = require('../lib/prisma');
-const {
-  requireAdmin,
-  requireAuth,
-} = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 // ═══════════════════════════════════════════════════════════
-// NOTE: `status` and `visibility` fields were REMOVED from
-// Product and Category models. All products are public now.
+// Alemayehu Plastic — Products API
+//  • Storage: Cloudinary (images[0], images[1], ... are full URLs)
+//  • Database: Neon (PostgreSQL) via Prisma
+//  • Order/OrderItem/Article/Cart/CartItem models have been removed
 // ═══════════════════════════════════════════════════════════
+
+// ── Cloudinary helpers ──────────────────────────────────────
+const isCloudinaryUrl = (url) =>
+  typeof url === 'string' &&
+  /res\.cloudinary\.com/i.test(url);
+
+/**
+ * Extract the Cloudinary public_id from a secure URL.
+ *   https://res.cloudinary.com/<cloud>/image/upload/v1712.../alemayehu-plastic/products/abc.jpg
+ *   → alemayehu-plastic/products/abc
+ */
+function extractPublicId(url) {
+  if (!isCloudinaryUrl(url)) return null;
+  try {
+    const afterUpload = url.split('/upload/')[1];
+    if (!afterUpload) return null;
+    // Strip version segment like "v1712345678/"
+    const withoutVersion = afterUpload.replace(/^v\d+\//, '');
+    // Strip extension
+    return withoutVersion.replace(/\.[^/.]+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete one or more Cloudinary images by URL.
+ * Silently ignores non-Cloudinary URLs and failures.
+ */
+async function deleteCloudinaryImages(urls) {
+  if (!Array.isArray(urls) || urls.length === 0) return;
+  const publicIds = urls.map(extractPublicId).filter(Boolean);
+  if (publicIds.length === 0) return;
+
+  await Promise.all(
+    publicIds.map((pid) =>
+      cloudinary.uploader
+        .destroy(pid, { resource_type: 'image', invalidate: true })
+        .catch((err) =>
+          console.warn(`⚠️ Cloudinary delete failed for ${pid}:`, err.message)
+        )
+    )
+  );
+}
 
 // ============================================================
 // GET /api/products/admin/all — Admin view (all products)
 // ============================================================
 router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 12,
-      search,
-      categoryId,
-      subCategoryId,
-    } = req.query;
+    const { page = 1, limit = 12, search, categoryId, subCategoryId } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 12);
+    const skip = (pageNum - 1) * limitNum;
+    const take = limitNum;
 
     const where = {};
 
@@ -39,15 +82,12 @@ router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
     if (categoryId) where.categoryId = categoryId;
     if (subCategoryId) where.subCategoryId = subCategoryId;
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
-
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: {
           category: { select: { id: true, name: true, slug: true } },
           subCategory: { select: { id: true, name: true, slug: true } },
@@ -66,8 +106,11 @@ router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
     res.json({
       products: productsWithNumbers,
       total,
-      pages: Math.ceil(total / parseInt(limit)),
-      page: parseInt(page),
+      pages: Math.max(1, Math.ceil(total / limitNum)),
+      page: pageNum,
+      limit: limitNum,
+      hasNextPage: pageNum * limitNum < total,
+      hasPrevPage: pageNum > 1,
     });
   } catch (error) {
     console.error('Error fetching admin products:', error);
@@ -80,14 +123,12 @@ router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
 // ============================================================
 router.get('/public', async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 12,
-      search,
-      categoryId,
-      subCategoryId,
-      sort,
-    } = req.query;
+    const { page = 1, limit = 12, search, categoryId, subCategoryId, sort } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 12);
+    const skip = (pageNum - 1) * limitNum;
+    const take = limitNum;
 
     const where = {};
 
@@ -101,14 +142,12 @@ router.get('/public', async (req, res) => {
       ];
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
-
-    let orderBy = { createdAt: 'desc' };
-    if (sort === 'price_asc') orderBy = { price: 'asc' };
-    if (sort === 'price_desc') orderBy = { price: 'desc' };
-    if (sort === 'name_asc') orderBy = { name: 'asc' };
-    if (sort === 'name_desc') orderBy = { name: 'desc' };
+    let orderBy;
+    if (sort === 'price_asc') orderBy = [{ price: 'asc' }, { id: 'desc' }];
+    else if (sort === 'price_desc') orderBy = [{ price: 'desc' }, { id: 'desc' }];
+    else if (sort === 'name_asc') orderBy = [{ name: 'asc' }, { id: 'desc' }];
+    else if (sort === 'name_desc') orderBy = [{ name: 'desc' }, { id: 'desc' }];
+    else orderBy = [{ createdAt: 'desc' }, { id: 'desc' }];
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({
@@ -135,8 +174,11 @@ router.get('/public', async (req, res) => {
     res.json({
       products: productsWithNumbers,
       total,
-      pages: Math.ceil(total / parseInt(limit)),
-      page: parseInt(page),
+      pages: Math.max(1, Math.ceil(total / limitNum)),
+      page: pageNum,
+      limit: limitNum,
+      hasNextPage: pageNum * limitNum < total,
+      hasPrevPage: pageNum > 1,
     });
   } catch (error) {
     console.error('Error fetching public products:', error);
@@ -160,11 +202,14 @@ router.get('/', async (req, res) => {
       brand,
     } = req.query;
 
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 12);
+    const skip = (pageNum - 1) * limitNum;
+    const take = limitNum;
+
     const where = {};
 
-    if (category) {
-      where.category = { slug: category };
-    }
+    if (category) where.category = { slug: category };
 
     if (search) {
       where.OR = [
@@ -182,19 +227,17 @@ router.get('/', async (req, res) => {
 
     if (brand) where.brand = brand;
 
-    const orderBy =
-      sort === 'price_asc'
-        ? { price: 'asc' }
-        : sort === 'price_desc'
-        ? { price: 'desc' }
-        : { createdAt: 'desc' };
+    let orderBy;
+    if (sort === 'price_asc') orderBy = [{ price: 'asc' }, { id: 'desc' }];
+    else if (sort === 'price_desc') orderBy = [{ price: 'desc' }, { id: 'desc' }];
+    else orderBy = [{ createdAt: 'desc' }, { id: 'desc' }];
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where,
         orderBy,
-        skip: (parseInt(page) - 1) * parseInt(limit),
-        take: parseInt(limit),
+        skip,
+        take,
         include: {
           category: {
             select: {
@@ -206,9 +249,7 @@ router.get('/', async (req, res) => {
               parentId: true,
             },
           },
-          subCategory: {
-            select: { id: true, name: true, slug: true },
-          },
+          subCategory: { select: { id: true, name: true, slug: true } },
         },
       }),
       prisma.product.count({ where }),
@@ -217,22 +258,19 @@ router.get('/', async (req, res) => {
     const productsWithDetails = products.map((product) => ({
       ...product,
       price: Number(product.price),
-      discountPrice: product.discountPrice
-        ? Number(product.discountPrice)
-        : null,
-      pricePerUnit: product.pricePerUnit
-        ? Number(product.pricePerUnit)
-        : null,
-      salePrice: product.discountPrice
-        ? Number(product.discountPrice)
-        : null,
+      discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
+      pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
+      salePrice: product.discountPrice ? Number(product.discountPrice) : null,
     }));
 
     res.json({
       products: productsWithDetails,
       total,
-      pages: Math.ceil(total / parseInt(limit)),
-      page: parseInt(page),
+      pages: Math.max(1, Math.ceil(total / limitNum)),
+      page: pageNum,
+      limit: limitNum,
+      hasNextPage: pageNum * limitNum < total,
+      hasPrevPage: pageNum > 1,
     });
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -248,16 +286,12 @@ router.get('/:id', async (req, res) => {
     const { id } = req.params;
 
     const product = await prisma.product.findFirst({
-      where: {
-        OR: [{ id }, { slug: id }],
-      },
+      where: { OR: [{ id }, { slug: id }] },
       include: {
         category: true,
         subCategory: true,
         reviews: {
-          include: {
-            user: { select: { name: true, avatar: true } },
-          },
+          include: { user: { select: { name: true, avatar: true } } },
         },
       },
     });
@@ -269,12 +303,8 @@ router.get('/:id', async (req, res) => {
     res.json({
       ...product,
       price: Number(product.price),
-      discountPrice: product.discountPrice
-        ? Number(product.discountPrice)
-        : null,
-      pricePerUnit: product.pricePerUnit
-        ? Number(product.pricePerUnit)
-        : null,
+      discountPrice: product.discountPrice ? Number(product.discountPrice) : null,
+      pricePerUnit: product.pricePerUnit ? Number(product.pricePerUnit) : null,
     });
   } catch (error) {
     console.error('Error fetching product:', error);
@@ -283,19 +313,32 @@ router.get('/:id', async (req, res) => {
 });
 
 // ============================================================
-// POST /api/products — Create product
+// POST /api/products — Create product (ADMIN ONLY)
+// images[] must be Cloudinary URLs from POST /api/upload
 // ============================================================
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const body = req.body;
-    const userId =
-      req.user?.id || req.user?.userId || req.session?.user?.id;
+    const userId = req.user?.id || req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    // Handle sale price mapping
+    // ── Normalise images (Cloudinary URLs only) ─────────────
+    const incomingImages = Array.isArray(body.images) ? body.images : [];
+    const cleanImages = incomingImages.filter(
+      (u) => typeof u === 'string' && u.trim().length > 0
+    );
+
+    // Warn if any non-Cloudinary URL is passed
+    for (const img of cleanImages) {
+      if (!isCloudinaryUrl(img)) {
+        console.warn(`⚠️ Non-Cloudinary image URL received: ${img}`);
+      }
+    }
+
+    // ── Discount price ──────────────────────────────────────
     let discountPriceValue = body.discountPrice;
     if (
       body.salePrice !== undefined &&
@@ -312,7 +355,7 @@ router.post('/', requireAuth, async (req, res) => {
       discountPriceValue = null;
     }
 
-    // Handle stock
+    // ── Stock ───────────────────────────────────────────────
     let stockValue = 0;
     if (body.stock !== undefined && body.stock !== null && body.stock !== '') {
       stockValue =
@@ -326,13 +369,8 @@ router.post('/', requireAuth, async (req, res) => {
         typeof body.price === 'string' ? parseFloat(body.price) : body.price,
       discountPrice: discountPriceValue,
       stock: stockValue,
-      sku:
-        body.sku ||
-        `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      images:
-        Array.isArray(body.images) && body.images.length > 0
-          ? body.images
-          : ['/banners/carplastik.jpg'],
+      sku: body.sku || `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      images: cleanImages, // ← Cloudinary URLs (empty array if none)
       tags: Array.isArray(body.tags) ? body.tags : [],
       warranty: body.warranty || null,
       videoUrl: body.videoUrl || null,
@@ -354,11 +392,9 @@ router.post('/', requireAuth, async (req, res) => {
         : null,
     };
 
-    // Resolve category
+    // ── Resolve category ────────────────────────────────────
     let resolvedCategory = await prisma.category.findFirst({
-      where: {
-        OR: [{ id: body.categoryId }, { slug: body.categoryId }],
-      },
+      where: { OR: [{ id: body.categoryId }, { slug: body.categoryId }] },
     });
 
     if (!resolvedCategory) {
@@ -374,6 +410,7 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
+    // ── Resolve subcategory ─────────────────────────────────
     let resolvedSubCategoryId = null;
     if (body.subCategoryId) {
       const foundSub = await prisma.category.findFirst({
@@ -384,13 +421,10 @@ router.post('/', requireAuth, async (req, res) => {
       if (foundSub) resolvedSubCategoryId = foundSub.id;
     }
 
-    // Generate slug
+    // ── Unique slug ─────────────────────────────────────────
     const baseSlug =
-      slugify(productData.name, {
-        lower: true,
-        strict: true,
-        trim: true,
-      }) || `product-${Date.now()}`;
+      slugify(productData.name, { lower: true, strict: true, trim: true }) ||
+      `product-${Date.now()}`;
     let slug = baseSlug;
     let counter = 1;
     while (await prisma.product.findUnique({ where: { slug } })) {
@@ -398,6 +432,7 @@ router.post('/', requireAuth, async (req, res) => {
       counter++;
     }
 
+    // ── Save to Neon ────────────────────────────────────────
     const product = await prisma.product.create({
       data: {
         ...productData,
@@ -405,43 +440,23 @@ router.post('/', requireAuth, async (req, res) => {
         categoryId: resolvedCategory.id,
         subCategoryId: resolvedSubCategoryId,
       },
-      include: {
-        category: true,
-        subCategory: true,
-      },
+      include: { category: true, subCategory: true },
     });
 
-    // Auto-fill category image if empty
+    // ── Optionally set category image from first product image ──
     try {
-      const firstImage =
-        Array.isArray(productData.images) && productData.images.length > 0
-          ? productData.images[0]
-          : null;
-
-      const isPlaceholder =
-        !firstImage || firstImage === '/banners/carplastik.jpg';
-
-      if (resolvedCategory && !resolvedCategory.image && !isPlaceholder) {
-        const normalizedImage = firstImage.startsWith('http')
-          ? firstImage
-          : firstImage.startsWith('/')
-          ? firstImage
-          : `/${firstImage}`;
-
+      const firstImage = cleanImages[0];
+      if (resolvedCategory && !resolvedCategory.image && firstImage) {
         await prisma.category.update({
           where: { id: resolvedCategory.id },
-          data: { image: normalizedImage },
+          data: { image: firstImage },
         });
-
         console.log(
-          `🖼️ Category "${resolvedCategory.name}" image auto-set from product: ${normalizedImage}`
+          `🖼️ Category "${resolvedCategory.name}" image auto-set from product: ${firstImage}`
         );
       }
     } catch (categoryImgErr) {
-      console.warn(
-        '⚠️ Could not auto-assign category image:',
-        categoryImgErr
-      );
+      console.warn('⚠️ Could not auto-assign category image:', categoryImgErr);
     }
 
     res.status(201).json({
@@ -468,14 +483,14 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // ============================================================
-// PUT /api/products/:id — Update product
+// PUT /api/products/:id — Update product (ADMIN ONLY)
+// Old Cloudinary images that are no longer referenced get deleted.
 // ============================================================
-router.put('/:id', requireAuth, async (req, res) => {
+router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const body = req.body;
-    const userId =
-      req.user?.id || req.user?.userId || req.session?.user?.id;
+    const userId = req.user?.id || req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
@@ -492,10 +507,8 @@ router.put('/:id', requireAuth, async (req, res) => {
     const updateData = {};
 
     if (body.name !== undefined) updateData.name = body.name;
-    if (body.description !== undefined)
-      updateData.description = body.description;
-    if (body.price !== undefined)
-      updateData.price = parseFloat(body.price);
+    if (body.description !== undefined) updateData.description = body.description;
+    if (body.price !== undefined) updateData.price = parseFloat(body.price);
     if (body.discountPrice !== undefined) {
       updateData.discountPrice = body.discountPrice
         ? parseFloat(body.discountPrice)
@@ -512,14 +525,17 @@ router.put('/:id', requireAuth, async (req, res) => {
           ? parseInt(body.stock, 10)
           : body.stock;
     }
-    if (body.images !== undefined) updateData.images = body.images;
+    if (body.images !== undefined) {
+      const incoming = Array.isArray(body.images) ? body.images : [];
+      updateData.images = incoming.filter(
+        (u) => typeof u === 'string' && u.trim().length > 0
+      );
+    }
     if (body.tags !== undefined)
       updateData.tags = Array.isArray(body.tags) ? body.tags : [];
     if (body.brand !== undefined) updateData.brand = body.brand || null;
-    if (body.warranty !== undefined)
-      updateData.warranty = body.warranty || null;
-    if (body.videoUrl !== undefined)
-      updateData.videoUrl = body.videoUrl || null;
+    if (body.warranty !== undefined) updateData.warranty = body.warranty || null;
+    if (body.videoUrl !== undefined) updateData.videoUrl = body.videoUrl || null;
     if (body.unitOfMeasurement !== undefined)
       updateData.unitOfMeasurement = body.unitOfMeasurement;
     if (body.durationTime !== undefined)
@@ -534,9 +550,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     if (body.categoryId) {
       const cat = await prisma.category.findFirst({
-        where: {
-          OR: [{ id: body.categoryId }, { slug: body.categoryId }],
-        },
+        where: { OR: [{ id: body.categoryId }, { slug: body.categoryId }] },
       });
       if (cat) updateData.categoryId = cat.id;
     }
@@ -553,37 +567,32 @@ router.put('/:id', requireAuth, async (req, res) => {
     const updated = await prisma.product.update({
       where: { id },
       data: updateData,
-      include: {
-        category: true,
-        subCategory: true,
-      },
+      include: { category: true, subCategory: true },
     });
 
-    // Auto-fill category image if empty
+    // ── Delete orphaned Cloudinary images ───────────────────
+    // Any image that existed before but is not in the new array
+    // is removed from Cloudinary to free storage.
+    if (updateData.images !== undefined) {
+      const oldImages = Array.isArray(existingProduct.images)
+        ? existingProduct.images
+        : [];
+      const newImages = updateData.images;
+      const removed = oldImages.filter((u) => !newImages.includes(u));
+      if (removed.length > 0) {
+        deleteCloudinaryImages(removed).catch((err) =>
+          console.warn('⚠️ Cloudinary cleanup failed:', err.message)
+        );
+      }
+    }
+
+    // ── Optionally set category image if it was empty ───────
     try {
-      const firstImage =
-        Array.isArray(updateData.images) && updateData.images.length > 0
-          ? updateData.images[0]
-          : null;
-
-      const isPlaceholder =
-        !firstImage || firstImage === '/banners/carplastik.jpg';
-
-      if (
-        updated.category &&
-        !updated.category.image &&
-        !isPlaceholder &&
-        firstImage
-      ) {
-        const normalizedImage = firstImage.startsWith('http')
-          ? firstImage
-          : firstImage.startsWith('/')
-          ? firstImage
-          : `/${firstImage}`;
-
+      const firstImage = Array.isArray(updated.images) ? updated.images[0] : null;
+      if (updated.category && !updated.category.image && firstImage) {
         await prisma.category.update({
           where: { id: updated.category.id },
-          data: { image: normalizedImage },
+          data: { image: firstImage },
         });
       }
     } catch (categoryImgErr) {
@@ -614,13 +623,13 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 // ============================================================
-// DELETE /api/products/:id — Delete product
+// DELETE /api/products/:id — Delete product (ADMIN ONLY)
+// Also deletes its Cloudinary images.
 // ============================================================
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const userId =
-      req.user?.id || req.user?.userId || req.session?.user?.id;
+    const userId = req.user?.id || req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
@@ -634,13 +643,18 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
+    // ── 1. Delete from Neon (reviews + product) ─────────────
     await prisma.$transaction([
       prisma.review.deleteMany({ where: { productId: id } }),
-      prisma.cartItem.deleteMany({ where: { productId: id } }),
-      prisma.orderItem.deleteMany({ where: { productId: id } }),
+      prisma.product.delete({ where: { id } }),
     ]);
 
-    await prisma.product.delete({ where: { id } });
+    // ── 2. Delete Cloudinary images (fire-and-forget) ───────
+    if (Array.isArray(existingProduct.images) && existingProduct.images.length) {
+      deleteCloudinaryImages(existingProduct.images).catch((err) =>
+        console.warn('⚠️ Cloudinary cleanup failed on delete:', err.message)
+      );
+    }
 
     res.json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {

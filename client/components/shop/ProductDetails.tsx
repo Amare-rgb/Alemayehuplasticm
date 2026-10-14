@@ -29,39 +29,25 @@ type ProductDetailsProps = {
 // ────────────────────────────────────────────────────────────────────────────
 // CONFIG
 // ────────────────────────────────────────────────────────────────────────────
-const RAW_API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "http://localhost:5000";
-const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
-
-const DEFAULT_IMAGE = "/banners/carplastik.jpg";
-const FALLBACK_REMOTE_IMAGE =
-  "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?auto=format&fit=crop&w=1200&q=85";
-
-// ✅ Replace with your real business phone number
 const BUSINESS_PHONE = "+251 900 000 000";
 const BUSINESS_PHONE_TEL = BUSINESS_PHONE.replace(/\s/g, "");
 
-function resolveImage(raw: unknown): string {
-  if (typeof raw !== "string") return DEFAULT_IMAGE;
+// ────────────────────────────────────────────────────────────────────────────
+// Image resolver — Cloudinary ONLY
+//   • Full https URL      → as-is
+//   • res.cloudinary.com  → prefixed with https://
+//   • Anything else       → null (caller shows fallback)
+// ────────────────────────────────────────────────────────────────────────────
+function resolveImage(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
   const s = raw.trim();
-  if (!s) return DEFAULT_IMAGE;
+  if (!s) return null;
 
-  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
-    const clean = s.startsWith("/") ? s : `/${s}`;
-    return `${API_BASE_URL}${clean}`;
-  }
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_BASE_URL}/uploads/products/${s}`;
-  }
-
-  return DEFAULT_IMAGE;
+  return null;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -151,63 +137,68 @@ function CloseIcon() {
   );
 }
 
+function PackageIcon({ className = "h-8 w-8" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
+      <path
+        d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m3.3 7 8.7 5 8.7-5M12 22V12"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // ────────────────────────────────────────────────────────────────────────────
-// Stable image with 3-stage fallback
+// Stable image — 2-stage fallback (source → package icon)
 // ────────────────────────────────────────────────────────────────────────────
 const ProductImage: React.FC<{
-  src: string;
+  src: string | null;
   alt: string;
   className?: string;
   priority?: boolean;
   contain?: boolean;
 }> = ({ src, alt, className = "", priority = false, contain = false }) => {
   const [prevSrc, setPrevSrc] = useState(src);
-  const [imgSrc, setImgSrc] = useState(src);
-  const [stage, setStage] = useState<
-    "primary" | "placeholder" | "remote" | "dead"
-  >("primary");
+  const [hasError, setHasError] = useState(false);
 
   if (src !== prevSrc) {
     setPrevSrc(src);
-    setImgSrc(src);
-    setStage("primary");
+    setHasError(false);
   }
 
-  const handleError = () => {
-    if (stage === "primary") {
-      setStage("placeholder");
-      setImgSrc(DEFAULT_IMAGE);
-    } else if (stage === "placeholder") {
-      setStage("remote");
-      setImgSrc(FALLBACK_REMOTE_IMAGE);
-    } else {
-      setStage("dead");
-    }
-  };
-
-  if (stage === "dead") {
+  if (!src || hasError) {
     return (
       <div
-        className={`flex items-center justify-center bg-gray-200 ${className}`}
+        className={`flex items-center justify-center bg-[#f5f0e6] text-[#b98a3e]/40 ${className}`}
       >
-        <span className="text-xs text-gray-400">No image</span>
+        <PackageIcon />
       </div>
     );
   }
 
-  const isLocalAsset = imgSrc.startsWith("/");
-  const isUnsplash = imgSrc.includes("images.unsplash.com");
-
   return (
     <Image
-      src={imgSrc}
+      src={src}
       alt={alt}
       fill
-      unoptimized={isLocalAsset || isUnsplash}
+      unoptimized
       className={`${
         contain ? "object-contain" : "object-cover"
       } object-center ${className}`}
-      onError={handleError}
+      onError={() => setHasError(true)}
       sizes="(max-width: 768px) 100vw, 50vw"
       loading={priority ? "eager" : "lazy"}
       fetchPriority={priority ? "high" : "auto"}
@@ -289,14 +280,19 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
       ? product.discountPrice
       : product.price;
 
+  // ✅ Cloudinary-only — no fallback to local files
   const images = useMemo(() => {
     const raw = Array.isArray(product.images) ? product.images : [];
-    const resolved = raw.map(resolveImage).filter(Boolean);
-    return resolved.length > 0 ? resolved : [DEFAULT_IMAGE];
+    return raw
+      .map((img) => resolveImage(img))
+      .filter((u): u is string => Boolean(u));
   }, [product.images]);
 
-  const safeIndex = Math.min(Math.max(selectedImage, 0), images.length - 1);
-  const currentImage = images[safeIndex];
+  const hasImages = images.length > 0;
+  const safeIndex = hasImages
+    ? Math.min(Math.max(selectedImage, 0), images.length - 1)
+    : 0;
+  const currentImage = hasImages ? images[safeIndex] : null;
 
   return (
     <main className="min-h-screen bg-[#faf6ee]">
@@ -318,16 +314,17 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
           <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14">
             {/* Image Gallery */}
             <div>
-              {/* Main image — no white background, click to open fullscreen */}
+              {/* Main image */}
               <button
                 type="button"
-                onClick={() => setLightboxOpen(true)}
+                onClick={() => hasImages && setLightboxOpen(true)}
                 aria-label={t("product.view_fullscreen", "View full image")}
-                className="group relative block w-full overflow-hidden rounded-2xl bg-[#f5f0e6] shadow-[0_20px_65px_rgba(58,42,30,.09)]"
+                disabled={!hasImages}
+                className="group relative block w-full overflow-hidden rounded-2xl bg-[#f5f0e6] shadow-[0_20px_65px_rgba(58,42,30,.09)] disabled:cursor-default"
               >
                 <div className="relative aspect-square overflow-hidden">
                   <ProductImage
-                    key={currentImage}
+                    key={currentImage ?? "empty"}
                     src={currentImage}
                     alt={product.name}
                     className="w-full h-full"
@@ -344,15 +341,16 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
                     </span>
                   )}
 
-                  {/* Zoom hint */}
-                  <span className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-[10px] font-semibold text-white opacity-0 backdrop-blur transition group-hover:opacity-100">
-                    <ZoomInIcon />
-                    {t("product.tap_to_zoom", "Tap to zoom")}
-                  </span>
+                  {hasImages && (
+                    <span className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-[10px] font-semibold text-white opacity-0 backdrop-blur transition group-hover:opacity-100">
+                      <ZoomInIcon />
+                      {t("product.tap_to_zoom", "Tap to zoom")}
+                    </span>
+                  )}
                 </div>
               </button>
 
-              {/* Thumbnails — click to select + open fullscreen */}
+              {/* Thumbnails */}
               {images.length > 1 && (
                 <div className="mt-3 grid grid-cols-4 gap-2.5">
                   {images.map((image, index) => {
@@ -481,7 +479,6 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
                   </p>
                 </div>
 
-                {/* Phone card — clickable tel: link */}
                 <a
                   href={`tel:${BUSINESS_PHONE_TEL}`}
                   className="rounded-xl bg-white p-3.5 transition hover:bg-[#faf6ee]"
@@ -502,7 +499,7 @@ export default function ProductDetails({ product }: ProductDetailsProps) {
       </section>
 
       {/* Fullscreen lightbox */}
-      {lightboxOpen && (
+      {lightboxOpen && currentImage && (
         <ImageLightbox
           src={currentImage}
           alt={product.name}

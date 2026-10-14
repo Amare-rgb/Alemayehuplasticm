@@ -1,11 +1,17 @@
 // app/admin/products/new/page.tsx
-'use client';
+"use client";
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import Image from 'next/image';
-import axios, { AxiosError } from 'axios';
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import axios, { AxiosError } from "axios";
 import {
   ArrowLeft,
   X,
@@ -22,53 +28,32 @@ import {
   ShoppingBag,
   Clock,
   Calendar,
-} from 'lucide-react';
+} from "lucide-react";
 
-import { api, uploadApi } from '@/lib/api';
-
-// ============================================================
-// API base
-// ============================================================
-const RAW_API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'http://localhost:5000';
-const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, '');
-
-const DEFAULT_IMAGE = '/banners/carplastik.jpg';
+import { api, uploadApi } from "@/lib/api";
 
 // ============================================================
-// Normalize image path
+// Normalize image path — Cloudinary ONLY
+//   • Full https URL      → as-is
+//   • res.cloudinary.com  → prefixed with https://
+//   • Anything else       → null (caller shows icon)
 // ============================================================
-function normalizeImageUrl(src?: string | null): string {
-  if (!src) return DEFAULT_IMAGE;
+function normalizeImageUrl(src?: string | null): string | null {
+  if (!src) return null;
   const trimmed = String(src).trim();
-  if (!trimmed) return DEFAULT_IMAGE;
+  if (!trimmed) return null;
 
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+  if (trimmed.startsWith("data:")) return trimmed;
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     return trimmed;
   }
-  if (trimmed.startsWith('data:')) return trimmed;
-
-  if (trimmed.startsWith('res.cloudinary.com/')) {
+  if (trimmed.startsWith("res.cloudinary.com/")) {
     return `https://${trimmed}`;
   }
 
-  if (trimmed.startsWith('/uploads/')) {
-    return `${API_BASE_URL}${trimmed}`;
-  }
-  if (trimmed.startsWith('uploads/')) {
-    return `${API_BASE_URL}/${trimmed}`;
-  }
-
-  if (
-    !trimmed.includes('/') &&
-    /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(trimmed)
-  ) {
-    return `${API_BASE_URL}/uploads/products/${trimmed}`;
-  }
-
-  return DEFAULT_IMAGE;
+  // Legacy /uploads paths, bare filenames, anything else → no image
+  return null;
 }
 
 // ============================================================
@@ -98,75 +83,60 @@ interface Category {
 }
 
 // ============================================================
-// ✅ PLASTIC MANUFACTURING UNITS
-//    Grouped by category — liters for liquids/containers,
-//    kg for resin/pellets, pcs for discrete items, etc.
+// Plastic manufacturing units
 // ============================================================
 const unitOptions = [
-  // ─── Volume (liquids, containers, bottles) ───────────────
-  { value: 'ml', label: 'Milliliter (ml)' },
-  { value: 'liter', label: 'Liter (L)' },
-  { value: 'gallon', label: 'Gallon (gal)' },
-
-  // ─── Weight (resin, pellets, granules) ───────────────────
-  { value: 'g', label: 'Gram (g)' },
-  { value: 'kg', label: 'Kilogram (kg)' },
-  { value: 'ton', label: 'Metric Ton (t)' },
-
-  // ─── Length (pipes, profiles, film rolls) ────────────────
-  { value: 'mm', label: 'Millimeter (mm)' },
-  { value: 'cm', label: 'Centimeter (cm)' },
-  { value: 'm', label: 'Meter (m)' },
-  { value: 'inch', label: 'Inch (in)' },
-  { value: 'ft', label: 'Foot (ft)' },
-
-  // ─── Area (sheets, panels, films) ────────────────────────
-  { value: 'sqm', label: 'Square Meter (m²)' },
-  { value: 'sqft', label: 'Square Foot (ft²)' },
-
-  // ─── Discrete items (buckets, crates, caps) ──────────────
-  { value: 'pcs', label: 'Pieces (pcs)' },
-  { value: 'set', label: 'Set' },
-  { value: 'pack', label: 'Pack' },
-  { value: 'box', label: 'Box' },
-  { value: 'bag', label: 'Bag' },
-  { value: 'roll', label: 'Roll' },
-  { value: 'sheet', label: 'Sheet' },
-
-  // ─── Bulk / container ────────────────────────────────────
-  { value: 'drum', label: 'Drum' },
-  { value: 'ibc', label: 'IBC Tank' },
-  { value: 'pallet', label: 'Pallet' },
-
-  // ─── Fallback ────────────────────────────────────────────
-  { value: 'unit', label: 'Unit' },
+  { value: "ml", label: "Milliliter (ml)" },
+  { value: "liter", label: "Liter (L)" },
+  { value: "gallon", label: "Gallon (gal)" },
+  { value: "g", label: "Gram (g)" },
+  { value: "kg", label: "Kilogram (kg)" },
+  { value: "ton", label: "Metric Ton (t)" },
+  { value: "mm", label: "Millimeter (mm)" },
+  { value: "cm", label: "Centimeter (cm)" },
+  { value: "m", label: "Meter (m)" },
+  { value: "inch", label: "Inch (in)" },
+  { value: "ft", label: "Foot (ft)" },
+  { value: "sqm", label: "Square Meter (m²)" },
+  { value: "sqft", label: "Square Foot (ft²)" },
+  { value: "pcs", label: "Pieces (pcs)" },
+  { value: "set", label: "Set" },
+  { value: "pack", label: "Pack" },
+  { value: "box", label: "Box" },
+  { value: "bag", label: "Bag" },
+  { value: "roll", label: "Roll" },
+  { value: "sheet", label: "Sheet" },
+  { value: "drum", label: "Drum" },
+  { value: "ibc", label: "IBC Tank" },
+  { value: "pallet", label: "Pallet" },
+  { value: "unit", label: "Unit" },
 ];
 
 const durationOptions = [
-  { value: '30m', label: '30 Minutes' },
-  { value: '1h', label: '1 Hour' },
-  { value: '2h', label: '2 Hours' },
-  { value: '4h', label: '4 Hours' },
-  { value: '8h', label: '8 Hours' },
-  { value: '12h', label: '12 Hours' },
-  { value: '24h', label: '24 Hours' },
-  { value: '2d', label: '2 Days' },
-  { value: '3d', label: '3 Days' },
-  { value: '5d', label: '5 Days' },
-  { value: '7d', label: '7 Days' },
-  { value: '10d', label: '10 Days' },
-  { value: '14d', label: '14 Days' },
-  { value: '21d', label: '21 Days' },
-  { value: '30d', label: '30 Days' },
-  { value: '60d', label: '60 Days' },
-  { value: '90d', label: '90 Days' },
+  { value: "30m", label: "30 Minutes" },
+  { value: "1h", label: "1 Hour" },
+  { value: "2h", label: "2 Hours" },
+  { value: "4h", label: "4 Hours" },
+  { value: "8h", label: "8 Hours" },
+  { value: "12h", label: "12 Hours" },
+  { value: "24h", label: "24 Hours" },
+  { value: "2d", label: "2 Days" },
+  { value: "3d", label: "3 Days" },
+  { value: "5d", label: "5 Days" },
+  { value: "7d", label: "7 Days" },
+  { value: "10d", label: "10 Days" },
+  { value: "14d", label: "14 Days" },
+  { value: "21d", label: "21 Days" },
+  { value: "30d", label: "30 Days" },
+  { value: "60d", label: "60 Days" },
+  { value: "90d", label: "90 Days" },
 ];
 
 // ============================================================
 // NOTIFICATION
 // ============================================================
 interface NotificationProps {
-  type: 'success' | 'error' | 'info' | 'warning';
+  type: "success" | "error" | "info" | "warning";
   message: string;
   onClose: () => void;
 }
@@ -188,11 +158,11 @@ const Notification: React.FC<NotificationProps> = ({
 
   const getIcon = () => {
     switch (type) {
-      case 'success':
+      case "success":
         return <CheckCircle className="w-5 h-5 text-yellow-500" />;
-      case 'error':
+      case "error":
         return <XCircle className="w-5 h-5 text-red-500" />;
-      case 'warning':
+      case "warning":
         return <AlertCircle className="w-5 h-5 text-yellow-500" />;
       default:
         return <Info className="w-5 h-5 text-blue-500" />;
@@ -201,21 +171,21 @@ const Notification: React.FC<NotificationProps> = ({
 
   const getColors = () => {
     switch (type) {
-      case 'success':
-        return 'bg-yellow-50 border-yellow-200 text-yellow-800';
-      case 'error':
-        return 'bg-red-50 border-red-200 text-red-800';
-      case 'warning':
-        return 'bg-yellow-50 border-yellow-200 text-yellow-800';
+      case "success":
+        return "bg-yellow-50 border-yellow-200 text-yellow-800";
+      case "error":
+        return "bg-red-50 border-red-200 text-red-800";
+      case "warning":
+        return "bg-yellow-50 border-yellow-200 text-yellow-800";
       default:
-        return 'bg-blue-50 border-blue-200 text-blue-800';
+        return "bg-blue-50 border-blue-200 text-blue-800";
     }
   };
 
   return (
     <div
       className={`fixed top-4 right-4 z-50 transition-all duration-300 ${
-        isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'
+        isVisible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-full"
       }`}
     >
       <div
@@ -255,11 +225,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
   onCategoryAdded,
   title,
   isSubCategory = false,
-  parentCategoryId = '',
+  parentCategoryId = "",
 }) => {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [slug, setSlug] = useState('');
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [slug, setSlug] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -267,29 +237,27 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
   const generateSlug = (value: string) =>
     value
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setName(value);
-    setSlug(value ? generateSlug(value) : '');
+    setSlug(value ? generateSlug(value) : "");
   };
 
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await api.get('/api/categories');
+      const response = await api.get("/api/categories");
       let categoriesData = [];
       if (response.data && Array.isArray(response.data))
         categoriesData = response.data;
       else if (response.data?.categories)
         categoriesData = response.data.categories;
       else if (response.data?.data) categoriesData = response.data.data;
-      setCategories(
-        categoriesData.filter((cat: Category) => !cat.parentId)
-      );
+      setCategories(categoriesData.filter((cat: Category) => !cat.parentId));
     } catch (err) {
-      console.log('Categories fetch error:', err);
+      console.log("Categories fetch error:", err);
     }
   }, []);
 
@@ -309,12 +277,12 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 
     try {
       if (!name.trim()) {
-        setError('Name is required');
+        setError("Name is required");
         setLoading(false);
         return;
       }
       if (!slug.trim()) {
-        setError('Slug is required');
+        setError("Slug is required");
         setLoading(false);
         return;
       }
@@ -334,14 +302,14 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         payload.parentId = parentCategoryId;
       }
 
-      const response = await api.post('/api/categories', payload);
+      const response = await api.post("/api/categories", payload);
 
       if (response.data) {
         const newCategory = response.data.category || response.data;
         onCategoryAdded(newCategory);
-        setName('');
-        setDescription('');
-        setSlug('');
+        setName("");
+        setDescription("");
+        setSlug("");
         onClose();
       }
     } catch (err) {
@@ -354,11 +322,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         setError(
           axiosError.response?.data?.error ||
             axiosError.response?.data?.message ||
-            `Failed to create ${isSubCategory ? 'subcategory' : 'category'}`
+            `Failed to create ${isSubCategory ? "subcategory" : "category"}`
         );
       } else {
         setError(
-          `Failed to create ${isSubCategory ? 'subcategory' : 'category'}`
+          `Failed to create ${isSubCategory ? "subcategory" : "category"}`
         );
       }
     } finally {
@@ -415,7 +383,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 onChange={handleNameChange}
                 required
                 placeholder={`Enter ${
-                  isSubCategory ? 'subcategory' : 'category'
+                  isSubCategory ? "subcategory" : "category"
                 } name`}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
               />
@@ -429,7 +397,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 value={slug}
                 onChange={(e) =>
                   setSlug(
-                    e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
+                    e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, "-")
                   )
                 }
                 required
@@ -473,8 +441,8 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
               className="px-4 py-2 text-sm text-white bg-yellow-500 rounded-lg hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading
-                ? 'Creating...'
-                : `Create ${isSubCategory ? 'Subcategory' : 'Category'}`}
+                ? "Creating..."
+                : `Create ${isSubCategory ? "Subcategory" : "Category"}`}
             </button>
           </div>
         </form>
@@ -485,11 +453,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 
 // SKU Generator
 const generateSKU = () => {
-  const prefix = 'APM';
+  const prefix = "APM";
   const timestamp = Date.now().toString().slice(-6);
   const random = Math.floor(Math.random() * 1000)
     .toString()
-    .padStart(3, '0');
+    .padStart(3, "0");
   return `${prefix}-${timestamp}-${random}`;
 };
 
@@ -503,7 +471,7 @@ const NewProductPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [notification, setNotification] = useState<{
-    type: 'success' | 'error' | 'info' | 'warning';
+    type: "success" | "error" | "info" | "warning";
     message: string;
   } | null>(null);
 
@@ -511,39 +479,39 @@ const NewProductPage: React.FC = () => {
   const [subCategories, setSubCategories] = useState<Category[]>([]);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
-  const [sku, setSku] = useState<string>('');
+  const [sku, setSku] = useState<string>("");
 
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const [formData, setFormData] = useState<ProductFormData>({
-    name: '',
-    description: '',
-    discountPrice: '',
-    categoryId: '',
-    subCategoryId: '',
+    name: "",
+    description: "",
+    discountPrice: "",
+    categoryId: "",
+    subCategoryId: "",
     tags: [],
     images: [],
-    weight: '',
-    unitOfMeasurement: 'pcs',
-    pricePerUnit: '',
-    durationTime: '1h',
-    stock: '10',
+    weight: "",
+    unitOfMeasurement: "pcs",
+    pricePerUnit: "",
+    durationTime: "1h",
+    stock: "10",
   });
 
-  const [newTag, setNewTag] = useState('');
+  const [newTag, setNewTag] = useState("");
 
   // Auth check
   useEffect(() => {
     const checkAuth = () => {
       const token =
-        localStorage.getItem('authToken') ||
-        sessionStorage.getItem('authToken');
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("authToken");
       const userData =
-        localStorage.getItem('user') || sessionStorage.getItem('user');
+        localStorage.getItem("user") || sessionStorage.getItem("user");
 
       if (!token) {
-        router.replace('/auth/signin');
+        router.replace("/auth/signin");
         setAuthLoading(false);
         return;
       }
@@ -551,17 +519,17 @@ const NewProductPage: React.FC = () => {
       if (userData) {
         try {
           const parsedUser = JSON.parse(userData);
-          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
-            router.replace('/');
+          if (parsedUser.role?.toUpperCase() !== "ADMIN") {
+            router.replace("/");
             setAuthLoading(false);
             return;
           }
           setIsAuthenticated(true);
         } catch {
-          router.replace('/auth/signin');
+          router.replace("/auth/signin");
         }
       } else {
-        router.replace('/auth/signin');
+        router.replace("/auth/signin");
       }
       setAuthLoading(false);
     };
@@ -580,7 +548,7 @@ const NewProductPage: React.FC = () => {
   }, [initialSKU]);
 
   const showNotification = (
-    type: 'success' | 'error' | 'info' | 'warning',
+    type: "success" | "error" | "info" | "warning",
     message: string
   ) => setNotification({ type, message });
 
@@ -588,9 +556,7 @@ const NewProductPage: React.FC = () => {
 
   const fetchSubCategories = async (parentId: string) => {
     try {
-      const response = await api.get(
-        `/api/categories?parentId=${parentId}`
-      );
+      const response = await api.get(`/api/categories?parentId=${parentId}`);
       let subs = [];
       if (Array.isArray(response.data)) subs = response.data;
       else if (response.data?.categories) subs = response.data.categories;
@@ -598,7 +564,7 @@ const NewProductPage: React.FC = () => {
       setSubCategories(subs);
     } catch {
       try {
-        const response = await api.get('/api/categories');
+        const response = await api.get("/api/categories");
         let all = [];
         if (Array.isArray(response.data)) all = response.data;
         else if (response.data?.categories) all = response.data.categories;
@@ -607,24 +573,22 @@ const NewProductPage: React.FC = () => {
           all.filter((cat: Category) => cat.parentId === parentId)
         );
       } catch (err2) {
-        console.log('Subcategories fetch error:', err2);
+        console.log("Subcategories fetch error:", err2);
       }
     }
   };
 
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await api.get('/api/categories');
+      const response = await api.get("/api/categories");
       let categoriesData = [];
       if (Array.isArray(response.data)) categoriesData = response.data;
       else if (response.data?.categories)
         categoriesData = response.data.categories;
       else if (response.data?.data) categoriesData = response.data.data;
-      setCategories(
-        categoriesData.filter((cat: Category) => !cat.parentId)
-      );
+      setCategories(categoriesData.filter((cat: Category) => !cat.parentId));
     } catch (err) {
-      console.log('Categories fetch error:', err);
+      console.log("Categories fetch error:", err);
     }
   }, []);
 
@@ -637,7 +601,7 @@ const NewProductPage: React.FC = () => {
   }, [fetchCategories, isAuthenticated]);
 
   // ============================================
-  // Image upload
+  // Image upload — via Cloudinary
   // ============================================
   const handleImageUpload = async (
     e: React.ChangeEvent<HTMLInputElement>
@@ -648,23 +612,23 @@ const NewProductPage: React.FC = () => {
     const file = files[0];
 
     const allowed = [
-      'image/jpeg',
-      'image/jpg',
-      'image/png',
-      'image/webp',
-      'image/gif',
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/gif",
     ];
     if (!allowed.includes(file.type)) {
       showNotification(
-        'error',
-        'Only JPG, PNG, WEBP, or GIF images are allowed.'
+        "error",
+        "Only JPG, PNG, WEBP, or GIF images are allowed."
       );
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      showNotification('error', 'Image size must be less than 10MB');
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      showNotification("error", "Image size must be less than 10MB");
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
@@ -673,19 +637,17 @@ const NewProductPage: React.FC = () => {
     try {
       const response = await uploadApi.uploadProductImage(file);
 
-      console.log('📸 Upload response:', response);
-
       if (response && response.success && response.url) {
         setFormData((prev) => ({
           ...prev,
           images: [...prev.images, response.url],
         }));
-        showNotification('success', 'Image uploaded successfully');
+        showNotification("success", "Image uploaded successfully");
       } else {
-        showNotification('error', 'Failed to get image URL from server');
+        showNotification("error", "Failed to get image URL from server");
       }
     } catch (err) {
-      console.error('Error uploading image:', err);
+      console.error("Error uploading image:", err);
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{
           error?: string;
@@ -698,28 +660,28 @@ const NewProductPage: React.FC = () => {
           `Failed to upload image (Status: ${axiosError.response?.status})`;
 
         const code = axiosError.response?.data?.code;
-        if (code === 'FILE_TOO_LARGE') {
+        if (code === "FILE_TOO_LARGE") {
           showNotification(
-            'error',
-            'File is too large. Maximum size is 10MB.'
+            "error",
+            "File is too large. Maximum size is 10MB."
           );
-        } else if (code === 'INVALID_FILE_TYPE') {
-          showNotification('error', 'Only image files are allowed.');
-        } else if (code === 'NO_FILE') {
+        } else if (code === "INVALID_FILE_TYPE") {
+          showNotification("error", "Only image files are allowed.");
+        } else if (code === "NO_FILE") {
           showNotification(
-            'error',
-            'No file was received. Please try again.'
+            "error",
+            "No file was received. Please try again."
           );
         } else {
-          showNotification('error', errorMsg);
+          showNotification("error", errorMsg);
         }
       } else {
-        showNotification('error', 'Failed to upload image');
+        showNotification("error", "Failed to upload image");
       }
     } finally {
       setUploadingImage(false);
       if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+        fileInputRef.current.value = "";
       }
     }
   };
@@ -732,8 +694,8 @@ const NewProductPage: React.FC = () => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
 
-    if (name === 'categoryId') {
-      setFormData((prev) => ({ ...prev, subCategoryId: '' }));
+    if (name === "categoryId") {
+      setFormData((prev) => ({ ...prev, subCategoryId: "" }));
       if (value) {
         void fetchSubCategories(value);
       } else {
@@ -748,8 +710,8 @@ const NewProductPage: React.FC = () => {
         ...prev,
         tags: [...prev.tags, newTag.trim()],
       }));
-      showNotification('success', `Tag "${newTag.trim()}" added`);
-      setNewTag('');
+      showNotification("success", `Tag "${newTag.trim()}" added`);
+      setNewTag("");
     }
   };
 
@@ -775,14 +737,14 @@ const NewProductPage: React.FC = () => {
         subCategoryId: newCategory.id,
       }));
       showNotification(
-        'success',
+        "success",
         `Subcategory "${newCategory.name}" created and selected`
       );
     } else {
       setCategories((prev) => [...prev, newCategory]);
       setFormData((prev) => ({ ...prev, categoryId: newCategory.id }));
       showNotification(
-        'success',
+        "success",
         `Category "${newCategory.name}" created and selected`
       );
     }
@@ -791,7 +753,7 @@ const NewProductPage: React.FC = () => {
   const handleGenerateSKU = () => {
     const newSKU = generateSKU();
     setSku(newSKU);
-    showNotification('info', `New SKU generated: ${newSKU}`);
+    showNotification("info", `New SKU generated: ${newSKU}`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -800,30 +762,30 @@ const NewProductPage: React.FC = () => {
 
     try {
       const token =
-        localStorage.getItem('authToken') ||
-        sessionStorage.getItem('authToken');
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("authToken");
       if (!token) {
         showNotification(
-          'error',
-          'Authentication required. Please login again.'
+          "error",
+          "Authentication required. Please login again."
         );
-        router.push('/auth/signin');
+        router.push("/auth/signin");
         setLoading(false);
         return;
       }
 
       if (!formData.name.trim()) {
-        showNotification('error', 'Product name is required');
+        showNotification("error", "Product name is required");
         setLoading(false);
         return;
       }
       if (!formData.pricePerUnit) {
-        showNotification('error', 'Price Per Unit is required');
+        showNotification("error", "Price Per Unit is required");
         setLoading(false);
         return;
       }
       if (!formData.categoryId) {
-        showNotification('error', 'Category is required');
+        showNotification("error", "Category is required");
         setLoading(false);
         return;
       }
@@ -842,26 +804,26 @@ const NewProductPage: React.FC = () => {
         tags: formData.tags,
         images: formData.images,
         weight: formData.weight ? parseFloat(formData.weight) : null,
-        unitOfMeasurement: formData.unitOfMeasurement || 'pcs',
+        unitOfMeasurement: formData.unitOfMeasurement || "pcs",
         pricePerUnit: formData.pricePerUnit
           ? parseFloat(formData.pricePerUnit)
           : null,
-        durationTime: formData.durationTime || '1h',
+        durationTime: formData.durationTime || "1h",
       };
 
-      const response = await api.post('/api/products', submitData);
+      const response = await api.post("/api/products", submitData);
 
       if (response.data.success) {
-        showNotification('success', 'Product published successfully! 🎉');
-        setTimeout(() => router.push('/admin/products'), 1500);
+        showNotification("success", "Product published successfully! 🎉");
+        setTimeout(() => router.push("/admin/products"), 1500);
       } else {
         showNotification(
-          'error',
-          response.data.error || 'Failed to publish product'
+          "error",
+          response.data.error || "Failed to publish product"
         );
       }
     } catch (err: unknown) {
-      console.error('Error creating product:', err);
+      console.error("Error creating product:", err);
       if (axios.isAxiosError(err)) {
         const axiosError = err as AxiosError<{
           error: string;
@@ -869,23 +831,23 @@ const NewProductPage: React.FC = () => {
         }>;
         if (axiosError.response?.status === 401) {
           showNotification(
-            'error',
-            'Authentication failed. Please login again.'
+            "error",
+            "Authentication failed. Please login again."
           );
-          localStorage.removeItem('authToken');
-          sessionStorage.removeItem('authToken');
-          router.push('/auth/signin');
+          localStorage.removeItem("authToken");
+          sessionStorage.removeItem("authToken");
+          router.push("/auth/signin");
         } else {
           const errorMsg =
             axiosError.response?.data?.error ||
             axiosError.response?.data?.message ||
             `Failed to publish product (Status: ${axiosError.response?.status})`;
-          showNotification('error', errorMsg);
+          showNotification("error", errorMsg);
         }
       } else {
         showNotification(
-          'error',
-          err instanceof Error ? err.message : 'An unexpected error occurred'
+          "error",
+          err instanceof Error ? err.message : "An unexpected error occurred"
         );
       }
     } finally {
@@ -894,14 +856,14 @@ const NewProductPage: React.FC = () => {
   };
 
   const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'ETB',
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "ETB",
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount || 0);
 
-  // Product image thumbnail
+  // Product image thumbnail — Cloudinary-only
   const ProductImage: React.FC<{
     src: string;
     alt: string;
@@ -910,17 +872,21 @@ const NewProductPage: React.FC = () => {
     const [hasError, setHasError] = useState(false);
     const normalized = normalizeImageUrl(src);
 
-    if (hasError) {
+    const removeBtn = (
+      <button
+        type="button"
+        onClick={() => handleRemoveImage(index)}
+        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100 z-10"
+      >
+        <Trash2 className="w-3 h-3" />
+      </button>
+    );
+
+    if (!normalized || hasError) {
       return (
         <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center group">
           <ImageIcon className="w-6 h-6 text-gray-400" />
-          <button
-            type="button"
-            onClick={() => handleRemoveImage(index)}
-            className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100 z-10"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
+          {removeBtn}
         </div>
       );
     }
@@ -935,15 +901,9 @@ const NewProductPage: React.FC = () => {
           onError={() => setHasError(true)}
           sizes="(max-width: 768px) 100vw, 50vw"
           priority={index === 0}
-          unoptimized={normalized.startsWith('/')}
+          unoptimized
         />
-        <button
-          type="button"
-          onClick={() => handleRemoveImage(index)}
-          className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100 z-10"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
+        {removeBtn}
       </div>
     );
   };
@@ -1063,13 +1023,13 @@ const NewProductPage: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
                       Category <span className="text-red-500">*</span>
                     </label>
-                    <div className="flex space-x-2">
+                    <div className="flex items-center space-x-2">
                       <select
                         name="categoryId"
                         value={formData.categoryId}
                         onChange={handleChange}
                         required
-                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+                        className="flex-1 min-w-0 px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                       >
                         <option value="">Select Category</option>
                         {categories.map((cat) => (
@@ -1081,55 +1041,48 @@ const NewProductPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setShowCategoryModal(true)}
-                        className="px-3 py-2.5 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-200 transition-colors text-sm whitespace-nowrap flex items-center space-x-1"
+                        className="flex-shrink-0 px-3 py-2.5 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-200 transition-colors text-sm whitespace-nowrap flex items-center space-x-1"
                       >
                         <FolderPlus className="w-4 h-4" />
                         <span>New</span>
                       </button>
                     </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
                       Sub Category
                     </label>
-                    <div className="flex space-x-2">
+                    <div className="flex items-center space-x-2">
                       <select
                         name="subCategoryId"
                         value={formData.subCategoryId}
                         onChange={handleChange}
-                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+                        className="flex-1 min-w-0 px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
                         disabled={!formData.categoryId}
                       >
-                        <option value="">Select Sub Category</option>
+                        <option value="">
+                          {formData.categoryId
+                            ? "Select Sub Category"
+                            : "Select category first"}
+                        </option>
                         {subCategories.map((cat) => (
                           <option key={cat.id} value={cat.id}>
                             {cat.name}
                           </option>
                         ))}
                       </select>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!formData.categoryId) {
-                            showNotification(
-                              'warning',
-                              'Please select a category first'
-                            );
-                            return;
-                          }
-                          setShowSubCategoryModal(true);
-                        }}
-                        className="px-3 py-2.5 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-200 transition-colors text-sm whitespace-nowrap flex items-center space-x-1"
-                      >
-                        <FolderPlus className="w-4 h-4" />
-                        <span>New</span>
-                      </button>
+                      {formData.categoryId && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSubCategoryModal(true)}
+                          className="flex-shrink-0 px-3 py-2.5 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-200 transition-colors text-sm whitespace-nowrap flex items-center space-x-1"
+                        >
+                          <FolderPlus className="w-4 h-4" />
+                          <span>New</span>
+                        </button>
+                      )}
                     </div>
-                    {!formData.categoryId && (
-                      <p className="text-xs text-yellow-500 mt-1">
-                        Select a category first to add subcategory
-                      </p>
-                    )}
                   </div>
                 </div>
 
@@ -1179,10 +1132,9 @@ const NewProductPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* ✅ Weight & Unit — expanded plastic manufacturing units */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Weight & Unit{' '}
+                    Weight & Unit{" "}
                     <span className="text-xs text-gray-400">
                       (e.g., 1 kg resin, 20 L container, 100 pcs caps)
                     </span>
@@ -1242,7 +1194,7 @@ const NewProductPage: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Price Per Unit (ETB){' '}
+                      Price Per Unit (ETB){" "}
                       <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
@@ -1261,7 +1213,7 @@ const NewProductPage: React.FC = () => {
                       />
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
-                      Price per {formData.unitOfMeasurement || 'unit'}
+                      Price per {formData.unitOfMeasurement || "unit"}
                     </p>
                   </div>
                   <div>
@@ -1322,7 +1274,7 @@ const NewProductPage: React.FC = () => {
                       placeholder="Add a tag..."
                       className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                       onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === "Enter") {
                           e.preventDefault();
                           handleAddTag();
                         }
@@ -1351,7 +1303,7 @@ const NewProductPage: React.FC = () => {
                     <CheckCircle className="w-4 h-4" />
                   )}
                   <span>
-                    {loading ? 'Publishing...' : 'Publish Product'}
+                    {loading ? "Publishing..." : "Publish Product"}
                   </span>
                 </button>
               </div>
@@ -1425,8 +1377,8 @@ const NewProductPage: React.FC = () => {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Initial Stock:</span>
                   <span className="font-medium text-gray-900">
-                    {parseInt(formData.stock) || 0}{' '}
-                    {formData.unitOfMeasurement || 'units'}
+                    {parseInt(formData.stock) || 0}{" "}
+                    {formData.unitOfMeasurement || "units"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -1434,13 +1386,13 @@ const NewProductPage: React.FC = () => {
                   <span
                     className={`text-xs px-2 py-1 rounded-full ${
                       parseInt(formData.stock) > 0
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-red-100 text-red-700'
+                        ? "bg-yellow-100 text-yellow-700"
+                        : "bg-red-100 text-red-700"
                     }`}
                   >
                     {parseInt(formData.stock) > 0
-                      ? 'In Stock'
-                      : 'Out of Stock'}
+                      ? "In Stock"
+                      : "Out of Stock"}
                   </span>
                 </div>
               </div>
@@ -1468,7 +1420,7 @@ const NewProductPage: React.FC = () => {
                   <span className="font-medium text-gray-900">
                     {durationOptions.find(
                       (d) => d.value === formData.durationTime
-                    )?.label || 'Not set'}
+                    )?.label || "Not set"}
                   </span>
                 </div>
               </div>
@@ -1486,7 +1438,7 @@ const NewProductPage: React.FC = () => {
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Name:</span>
                   <span className="font-medium text-gray-700 truncate max-w-[140px]">
-                    {formData.name || 'Not set'}
+                    {formData.name || "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
@@ -1494,7 +1446,7 @@ const NewProductPage: React.FC = () => {
                   <span className="font-medium text-gray-700">
                     {formData.pricePerUnit
                       ? `${formatCurrency(parseFloat(formData.pricePerUnit))}/${formData.unitOfMeasurement}`
-                      : 'Not set'}
+                      : "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
@@ -1502,13 +1454,13 @@ const NewProductPage: React.FC = () => {
                   <span className="font-medium text-gray-700">
                     {formData.discountPrice
                       ? formatCurrency(parseFloat(formData.discountPrice))
-                      : 'Not set'}
+                      : "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Stock:</span>
                   <span className="font-medium text-yellow-600">
-                    {parseInt(formData.stock) || 0}{' '}
+                    {parseInt(formData.stock) || 0}{" "}
                     {formData.unitOfMeasurement}
                   </span>
                 </div>
@@ -1517,14 +1469,14 @@ const NewProductPage: React.FC = () => {
                   <span className="font-medium text-gray-700">
                     {durationOptions.find(
                       (d) => d.value === formData.durationTime
-                    )?.label || 'Not set'}
+                    )?.label || "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-500">Category:</span>
                   <span className="font-medium text-gray-700 truncate max-w-[140px]">
                     {categories.find((c) => c.id === formData.categoryId)
-                      ?.name || 'Not set'}
+                      ?.name || "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
@@ -1532,7 +1484,7 @@ const NewProductPage: React.FC = () => {
                   <span className="font-medium text-gray-700 truncate max-w-[140px]">
                     {subCategories.find(
                       (c) => c.id === formData.subCategoryId
-                    )?.name || 'Not set'}
+                    )?.name || "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
@@ -1540,7 +1492,7 @@ const NewProductPage: React.FC = () => {
                   <span className="font-medium text-gray-700">
                     {formData.weight
                       ? `${formData.weight} ${formData.unitOfMeasurement}`
-                      : 'Not set'}
+                      : "Not set"}
                   </span>
                 </div>
                 <div className="flex justify-between py-1">

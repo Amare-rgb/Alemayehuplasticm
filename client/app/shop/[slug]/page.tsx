@@ -2,9 +2,6 @@
 import ProductDetails from "@/components/shop/ProductDetails";
 import { notFound } from "next/navigation";
 
-// Optional: local fallback data (comment out if you don't have this file)
-// import { products, Product } from "@/data/products";
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,27 +33,19 @@ const RAW_API_BASE =
   "http://localhost:5000";
 const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-const DEFAULT_IMAGE = "/banners/carplastik.jpg";
-
-function resolveImage(raw: unknown): string {
-  if (typeof raw !== "string") return DEFAULT_IMAGE;
+// ─────────────────────────────────────────────────────────────────────────────
+// Image resolver — Cloudinary ONLY
+// ─────────────────────────────────────────────────────────────────────────────
+function resolveImage(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
   const s = raw.trim();
-  if (!s) return DEFAULT_IMAGE;
+  if (!s) return null;
 
-  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
-    const clean = s.startsWith("/") ? s : `/${s}`;
-    return `${API_BASE_URL}${clean}`;
-  }
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_BASE_URL}/uploads/products/${s}`;
-  }
-
-  return DEFAULT_IMAGE;
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,33 +67,55 @@ export default async function ProductDetailsPage({
     );
 
     if (res.ok) {
-      const data = await res.json();
+      const data: unknown = await res.json();
 
       // Backend sometimes wraps product in { product: ... } or { data: ... }
-      const raw = data?.product ?? data?.data ?? data;
+      const raw = (data as { product?: unknown; data?: unknown })?.product
+        ?? (data as { data?: unknown })?.data
+        ?? data;
 
-      if (raw && raw.id) {
-        const imageList: string[] =
-          Array.isArray(raw.images) && raw.images.length > 0
-            ? raw.images.map(resolveImage)
-            : [DEFAULT_IMAGE];
+      const rawObj = raw as {
+        id?: string;
+        slug?: string;
+        name?: string;
+        description?: string;
+        price?: number | string;
+        discountPrice?: number | string | null;
+        unitOfMeasurement?: string;
+        stock?: number;
+        isFeatured?: boolean;
+        category?: { name?: string } | null;
+        images?: unknown[];
+      };
+
+      if (rawObj && rawObj.id) {
+        // ✅ Explicit typing — no implicit `any`
+        const rawImages: unknown[] = Array.isArray(rawObj.images)
+          ? rawObj.images
+          : [];
+        const imageList: string[] = rawImages
+          .map((img) => resolveImage(img))
+          .filter((u): u is string => typeof u === "string");
 
         fetchedProduct = {
-          id: raw.id,
-          slug: raw.slug || raw.id,
-          name: raw.name,
-          // ✅ Plastic-manufacturing fallback category
-          category: raw.category?.name || "Plastic Products",
-          description: raw.description || "",
-          price: Number(raw.price),
-          discountPrice: raw.discountPrice
-            ? Number(raw.discountPrice)
-            : null,
-          // ✅ Default to "pcs" (plastic products sold by the piece)
-          unit: raw.unitOfMeasurement || "pcs",
-          stock: typeof raw.stock === "number" ? raw.stock : 0,
-          featured: Boolean(raw.discountPrice || raw.isFeatured),
-          badge: raw.discountPrice ? "Sale" : undefined,
+          id: rawObj.id,
+          slug: rawObj.slug || rawObj.id,
+          name: rawObj.name || "Untitled Product",
+          category: rawObj.category?.name || "Plastic Products",
+          description: rawObj.description || "",
+          price: Number(rawObj.price || 0),
+          discountPrice:
+            rawObj.discountPrice !== null &&
+            rawObj.discountPrice !== undefined
+              ? Number(rawObj.discountPrice)
+              : null,
+          unit: rawObj.unitOfMeasurement || "pcs",
+          stock:
+            typeof rawObj.stock === "number" ? rawObj.stock : 0,
+          featured: Boolean(
+            rawObj.discountPrice || rawObj.isFeatured
+          ),
+          badge: rawObj.discountPrice ? "Sale" : undefined,
           images: imageList,
         };
       }
@@ -114,8 +125,6 @@ export default async function ProductDetailsPage({
   } catch (err) {
     console.warn("Could not fetch product from backend on slug page:", err);
   }
-
-  
 
   if (!fetchedProduct) {
     notFound();

@@ -11,22 +11,14 @@ const { sendWelcomeEmail } = require('../lib/email');
 // ============================================================
 // HELPERS & CONSTANTS
 // ============================================================
-
-// 10 rounds = balance of security and speed for small CPUs
 const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 10;
-
-// Roles a visitor may pick at registration — NEVER include ADMIN
 const SELF_SERVICE_ROLES = ['USER'];
-
-// Optional — reserved accounts (add yours if you want to block certain emails)
 const RESERVED_ACCOUNTS = [];
-
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const normalizeEmail = (value) =>
   typeof value === 'string' ? value.trim().toLowerCase() : '';
 
-// Password rules — at least 8 chars + at least one number
 const passwordError = (pw) => {
   if (typeof pw !== 'string' || pw.length < 8) {
     return 'Password must be at least 8 characters';
@@ -40,7 +32,6 @@ const passwordError = (pw) => {
   return null;
 };
 
-// Run slow side-jobs (email) after the response is sent
 const runInBackground = (label, fn) => {
   Promise.resolve()
     .then(fn)
@@ -52,11 +43,24 @@ const runInBackground = (label, fn) => {
     );
 };
 
-// Timing-safe string comparison
 const safeEqual = (a, b) => {
   const bufA = Buffer.from(String(a || ''));
   const bufB = Buffer.from(String(b || ''));
   return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+};
+
+// Standard user selection — matches schema fields exactly
+const USER_PUBLIC_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  address: true,
+  bio: true,
+  role: true,
+  avatar: true,
+  createdAt: true,
+  updatedAt: true,
 };
 
 // ============================================================
@@ -104,7 +108,6 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Never trust the role sent by the browser
     const requestedRole = String(role || 'USER').toUpperCase();
     const finalRole = SELF_SERVICE_ROLES.includes(requestedRole)
       ? requestedRole
@@ -121,20 +124,9 @@ router.post('/register', async (req, res) => {
           typeof phone === 'string' && phone.trim() ? phone.trim() : null,
         role: finalRole,
       },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        address: true,
-        bio: true,
-        role: true,
-        avatar: true,
-        createdAt: true,
-      },
+      select: USER_PUBLIC_SELECT,
     });
 
-    // ✅ Fire-and-forget welcome email
     runInBackground('Welcome email', () =>
       sendWelcomeEmail(user.email, user.name)
     );
@@ -178,10 +170,8 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Fast indexed lookup first
     let user = await prisma.user.findUnique({ where: { email } });
 
-    // Fallback to case-insensitive for older accounts
     if (!user) {
       user = await prisma.user.findFirst({
         where: { email: { equals: email, mode: 'insensitive' } },
@@ -233,33 +223,18 @@ router.post('/login', async (req, res) => {
 // ============================================================
 // GET CURRENT USER
 // GET /api/auth/me
-// ✅ Simplified — no profile/adminProfile relations
 // ============================================================
 router.get('/me', requireAuth, async (req, res) => {
   try {
-    const userId = req.user?.id || req.userId;
+    const userId = req.user?.id;
 
     if (!userId) {
-      return res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-      });
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        address: true,
-        bio: true,
-        role: true,
-        avatar: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: USER_PUBLIC_SELECT,
     });
 
     if (!user) {
@@ -289,7 +264,7 @@ router.post('/logout', async (req, res) => {
 // ============================================================
 router.post('/change-password', requireAuth, async (req, res) => {
   try {
-    const userId = req.user?.id || req.userId;
+    const userId = req.user?.id;
     const { currentPassword, newPassword } = req.body || {};
 
     if (!userId) {
@@ -345,7 +320,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
 // ============================================================
 router.patch('/profile', requireAuth, async (req, res) => {
   try {
-    const userId = req.user?.id || req.userId;
+    const userId = req.user?.id;
     const { name, phone, address, bio, avatar } = req.body || {};
 
     if (!userId) {
@@ -369,18 +344,7 @@ router.patch('/profile', requireAuth, async (req, res) => {
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        address: true,
-        bio: true,
-        role: true,
-        avatar: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: USER_PUBLIC_SELECT,
     });
 
     res.json({
@@ -414,13 +378,17 @@ router.post('/forgot-password', async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
+    // Always respond with success to prevent user enumeration
     if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, error: 'User not found' });
+      console.log(`📧 Reset requested for unknown email: ${email}`);
+      return res.json({
+        success: true,
+        message: 'If that email exists, reset instructions have been sent.',
+      });
     }
 
     console.log(`📧 Password reset requested for: ${email}`);
+    // TODO: Generate reset token + send email here.
 
     res.json({
       success: true,
@@ -437,11 +405,20 @@ router.post('/forgot-password', async (req, res) => {
 // ============================================================
 // RESET PASSWORD
 // POST /api/auth/reset-password
-// ⚠️ SECURITY: this route has no proof that the caller owns the email.
-// Protect ADMIN accounts — they cannot be reset here.
+// ⚠️ DISABLED BY DEFAULT — requires RESET_PASSWORD_ENABLED=true in .env
+// and a valid reset token in the future. Without token verification,
+// this route would let anyone reset any user's password.
 // ============================================================
 router.post('/reset-password', async (req, res) => {
   try {
+    if (process.env.RESET_PASSWORD_ENABLED !== 'true') {
+      return res.status(403).json({
+        success: false,
+        error:
+          'Password reset is disabled. Please use the forgot-password flow.',
+      });
+    }
+
     const email = normalizeEmail(req.body && req.body.email);
     const newPassword = req.body && req.body.newPassword;
 
@@ -497,10 +474,7 @@ router.post('/create-admin', async (req, res) => {
     const setupKey = process.env.ADMIN_SETUP_KEY;
 
     if (!setupKey || !safeEqual(req.get('x-admin-setup-key'), setupKey)) {
-      return res.status(403).json({
-        success: false,
-        error: 'Forbidden',
-      });
+      return res.status(403).json({ success: false, error: 'Forbidden' });
     }
 
     const { password, name = 'Admin User' } = req.body || {};

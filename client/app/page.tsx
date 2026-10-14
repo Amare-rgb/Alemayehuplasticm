@@ -25,6 +25,7 @@ interface CategoryData {
   image?: string | null;
   images?: string[] | null;
   parentId?: string | null;
+  _count?: { products?: number };
 }
 
 interface ProductData {
@@ -34,13 +35,18 @@ interface ProductData {
   images?: string[] | null;
   categoryId?: string | null;
   category?: string | null;
+  price?: number | string | null;
+  discountPrice?: number | string | null;
 }
 
 interface CategoryItem {
   id: string;
   title: string;
   slug: string;
-  images: string[];
+  images: (string | null)[];
+  productCount: number;
+  minPrice: number | null;
+  maxPrice: number | null;
 }
 
 // ============================================================
@@ -52,13 +58,12 @@ const RAW_API_BASE =
   "http://localhost:5000";
 const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-const DEFAULT_IMAGE = "/placeholder.svg";
-
 // ============================================================
-// HERO VIDEO
+// Site assets — files in /public are served from the root
 // ============================================================
-const HERO_VIDEO = "/banners/her.mp4";
+const HERO_VIDEO = "/banners/heroplastic.mp4";
 const HERO_POSTER = "/banners/carplastik.jpg";
+const FACILITY_IMAGE = "/banners/carplastik.jpg";
 
 // ============================================================
 // Mounted detection (server-safe)
@@ -72,123 +77,182 @@ function useMounted() {
 }
 
 // ============================================================
-// Image resolver
+// Image resolver — Cloudinary ONLY
 // ============================================================
-function resolveImage(raw?: string | null): string {
-  if (!raw) return DEFAULT_IMAGE;
+function resolveImage(raw?: string | null): string | null {
+  if (!raw) return null;
   const s = String(raw).trim();
-  if (!s) return DEFAULT_IMAGE;
+  if (!s) return null;
 
-  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  if (s.startsWith("/uploads/")) return `${API_BASE_URL}${s}`;
-  if (s.startsWith("uploads/")) return `${API_BASE_URL}/${s}`;
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_BASE_URL}/uploads/categories/${s}`;
-  }
-
-  return DEFAULT_IMAGE;
+  return null;
 }
 
 // ============================================================
-// Build the mosaic images for ONE category
+// Price helpers
 // ============================================================
-function buildCategoryMosaic(
+function effectivePrice(p: ProductData): number | null {
+  const raw =
+    p.discountPrice != null && Number(p.discountPrice) > 0
+      ? p.discountPrice
+      : p.price;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function formatPrice(n: number): string {
+  return `ETB ${n.toLocaleString()}`;
+}
+
+// ============================================================
+// Build category card data (mosaic + stats)
+// ============================================================
+function buildCategoryData(
   cat: CategoryData,
   productsForCategory: ProductData[]
-): string[] {
+): {
+  images: (string | null)[];
+  productCount: number;
+  minPrice: number | null;
+  maxPrice: number | null;
+} {
   const seen = new Set<string>();
-  const result: string[] = [];
+  const images: string[] = [];
 
-  const add = (raw?: string | null) => {
-    if (!raw) return;
-    const s = String(raw).trim();
-    if (!s) return;
-    if (seen.has(s)) return;
-    seen.add(s);
-    result.push(s);
+  const addImage = (raw?: string | null) => {
+    const url = resolveImage(raw);
+    if (!url) return;
+    if (seen.has(url)) return;
+    seen.add(url);
+    images.push(url);
   };
 
-  add(cat.image);
-
+  // 1. Category's own image(s) first
+  addImage(cat.image);
   if (Array.isArray(cat.images)) {
-    for (const img of cat.images) add(img);
+    for (const img of cat.images) {
+      if (images.length >= 4) break;
+      addImage(img);
+    }
   }
 
+  // 2. Fall back to product images
   for (const p of productsForCategory) {
-    if (result.length >= 4) break;
+    if (images.length >= 4) break;
     if (Array.isArray(p.images)) {
       for (const img of p.images) {
-        if (result.length >= 4) break;
-        add(img);
+        if (images.length >= 4) break;
+        addImage(img);
       }
     }
-    add(p.image);
+    addImage(p.image);
   }
 
-  while (result.length < 4) {
-    result.push(DEFAULT_IMAGE);
-  }
+  // 3. Compute stats
+  const prices = productsForCategory
+    .map((p) => effectivePrice(p))
+    .filter((n): n is number => n !== null);
 
-  return result.slice(0, 4);
+  const minPrice = prices.length ? Math.min(...prices) : null;
+  const maxPrice = prices.length ? Math.max(...prices) : null;
+
+  // 4. Pad mosaic to exactly 4 cells
+  const cells: (string | null)[] = [...images];
+  while (cells.length < 4) cells.push(null);
+
+  return {
+    images: cells.slice(0, 4),
+    productCount: cat._count?.products ?? productsForCategory.length,
+    minPrice,
+    maxPrice,
+  };
 }
 
 // ============================================================
-// CategoryCard — clean 2×2 mosaic with DISTINCT images
-// ✅ Title pill REMOVED from the mosaic (no overlay text)
+// CategoryCard — 2×2 mosaic + stats footer
 // ============================================================
-function CategoryCard({ product }: { product: CategoryItem }) {
+function CategoryCard({
+  product,
+  priceLabel,
+  productsLabel,
+  fromLabel,
+}: {
+  product: CategoryItem;
+  priceLabel: string;
+  productsLabel: string;
+  fromLabel: string;
+}) {
   const cells: (string | null)[] = [...product.images];
   while (cells.length < 4) cells.push(null);
+
+  const hasPrices =
+    product.minPrice !== null && product.maxPrice !== null;
+
+  const priceText = !hasPrices
+    ? null
+    : product.minPrice === product.maxPrice
+    ? formatPrice(product.minPrice as number)
+    : `${fromLabel} ${formatPrice(product.minPrice as number)}`;
 
   return (
     <Link
       href={`/shop?category=${encodeURIComponent(product.slug)}`}
       className="group relative flex w-full flex-col overflow-hidden rounded-[14px] border border-[#eee6d8] bg-white shadow-[0_2px_10px_rgba(58,42,30,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_32px_rgba(58,42,30,0.14)]"
     >
-      {/* 2×2 mosaic — no overlay pill, just clean images */}
+      {/* 2×2 mosaic */}
       <div className="relative grid h-[220px] w-full grid-cols-2 grid-rows-2 gap-[2px] bg-[#eee6d8]">
-        {cells.map((src, i) => {
-          const url = src ? resolveImage(src) : "";
-          const hasImg = !!url && url !== DEFAULT_IMAGE;
-          return (
-            <div key={i} className="relative overflow-hidden bg-[#f5eee1]">
-              {hasImg ? (
-                <Image
-                  src={url}
-                  alt={`${product.title} ${i + 1}`}
-                  fill
-                  sizes="(max-width: 640px) 25vw, 12vw"
-                  className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.06]"
-                  loading="lazy"
-                  unoptimized={
-                    url.startsWith("/") ||
-                    url.includes("images.unsplash.com")
-                  }
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-[#f5eee1] text-[10px] font-semibold tracking-wider text-[#b98a3e]/40">
-                  {product.title.slice(0, 2).toUpperCase()}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {cells.map((src, i) => (
+          <div key={i} className="relative overflow-hidden bg-[#f5eee1]">
+            {src ? (
+              <Image
+                src={src}
+                alt={`${product.title} ${i + 1}`}
+                fill
+                sizes="(max-width: 640px) 25vw, 12vw"
+                className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.06]"
+                loading="lazy"
+                unoptimized
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-[#f5eee1] text-[10px] font-semibold tracking-wider text-[#b98a3e]/40">
+                {product.title.slice(0, 2).toUpperCase()}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
-      {/* Footer — the category name, slug, and arrow live HERE, not on
-          the mosaic. This is the only place the name is shown now. */}
+      {/* Footer with title, product count, price */}
       <div className="flex items-center justify-between gap-2 border-t border-[#f0e8d8] bg-[#faf6ee] px-3.5 py-2.5">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[12px] font-semibold leading-tight text-[#2a1f18]">
             {product.title}
           </h3>
-          <p className="mt-0.5 truncate text-[10px] text-[#7a6a58]">
-            {product.slug}
-          </p>
+
+          <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[#7a6a58]">
+            {product.productCount > 0 && (
+              <span className="truncate">
+                {product.productCount} {productsLabel}
+              </span>
+            )}
+
+            {product.productCount > 0 && priceText && (
+              <span className="text-[#7a6a58]/40">·</span>
+            )}
+
+            {priceText && (
+              <span className="truncate font-semibold text-[#b98a3e]">
+                {priceText}
+              </span>
+            )}
+
+            {product.productCount === 0 && (
+              <span className="truncate">{product.slug}</span>
+            )}
+          </div>
         </div>
 
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2a2a2a] text-white shadow-md transition-all duration-300 group-hover:scale-110 group-hover:bg-[#e0a83c] group-hover:text-[#1a1410]">
@@ -200,7 +264,7 @@ function CategoryCard({ product }: { product: CategoryItem }) {
 }
 
 // ============================================================
-// ProductCards — fetch categories AND products, build mosaics
+// ProductCards
 // ============================================================
 function ProductCards() {
   const { t } = useLanguage();
@@ -271,13 +335,17 @@ function ProductCards() {
             );
           });
 
-          const images = buildCategoryMosaic(cat, productsForCategory);
+          const { images, productCount, minPrice, maxPrice } =
+            buildCategoryData(cat, productsForCategory);
 
           return {
             id: cat.id || slug,
             title: cat.name || "Untitled",
             slug,
             images,
+            productCount,
+            minPrice,
+            maxPrice,
           };
         });
 
@@ -301,6 +369,10 @@ function ProductCards() {
       isMounted = false;
     };
   }, []);
+
+  const productsLabel = t("home.products_label", "products");
+  const fromLabel = t("home.from_label", "From");
+  const priceLabel = t("home.price_label", "Price");
 
   if (loading) {
     return (
@@ -368,7 +440,13 @@ function ProductCards() {
 
         <div className="grid w-full grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {categories.map((product) => (
-            <CategoryCard key={product.id} product={product} />
+            <CategoryCard
+              key={product.id}
+              product={product}
+              priceLabel={priceLabel}
+              productsLabel={productsLabel}
+              fromLabel={fromLabel}
+            />
           ))}
         </div>
       </div>
@@ -596,7 +674,7 @@ export default function HomePage() {
           <div className="relative h-[380px] w-full max-lg:h-[320px]">
             <div className="relative h-full w-full overflow-hidden rounded-2xl bg-[#f6f0e2]">
               <Image
-                src="/banners/carplastik.jpg"
+                src={FACILITY_IMAGE}
                 alt="Alemayehu Plastic Manufacturing Facility"
                 fill
                 sizes="(max-width: 1024px) 100vw, 50vw"
@@ -709,7 +787,7 @@ export default function HomePage() {
         className={`fixed bottom-5 right-5 z-40 grid h-[40px] w-[40px] place-items-center rounded-full bg-[#e0a83c] text-[#1a1410] shadow-lg transition-all duration-300 ${
           showBackTop
             ? "visible translate-y-0 opacity-100"
-            : "invisible translate-y-4 opacity-0"
+            : "invisible translate-y-4 opacity-100"
         }`}
       >
         <ArrowUp size={17} />

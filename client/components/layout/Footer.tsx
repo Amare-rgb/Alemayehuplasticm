@@ -16,6 +16,24 @@ function useMounted() {
   return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
 }
 
+// ============================================================
+// Logo resolver — Cloudinary ONLY
+//   • Full https URL      → as-is
+//   • res.cloudinary.com  → prefixed with https://
+//   • Anything else       → null (caller shows building icon)
+// ============================================================
+function resolveLogo(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+
+  if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  return null;
+}
+
 export const Footer = () => {
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith("/admin") || false;
@@ -28,7 +46,6 @@ export const Footer = () => {
   const DEFAULT_ADDRESS = "Bahir Dar, Ethiopia";
   const DEFAULT_SITE_NAME = "Alemayehu Plastic Manufacturing";
   const DEFAULT_SITE_DESCRIPTION = "PLASTIC MANUFACTURING";
-  const DEFAULT_LOGO = "/banners/plastik.png";
 
   const mounted = useMounted();
 
@@ -45,18 +62,19 @@ export const Footer = () => {
   const siteName = mounted
     ? settings?.siteName || DEFAULT_SITE_NAME
     : DEFAULT_SITE_NAME;
-  const logoUrl = mounted ? settings?.logo || DEFAULT_LOGO : DEFAULT_LOGO;
   const siteDescription = mounted
     ? settings?.siteDescription || DEFAULT_SITE_DESCRIPTION
     : DEFAULT_SITE_DESCRIPTION;
   const enableWhatsApp = mounted ? settings?.enableWhatsApp || false : false;
   const whatsAppNumber = mounted ? settings?.whatsAppNumber || "" : "";
 
+  // ✅ Cloudinary-only logo — resolves to null if unset or invalid
+  const logoUrl = mounted ? resolveLogo(settings?.logo) : null;
+
   if (isAdminRoute) {
     return null;
   }
 
-  // Static year to avoid hydration mismatch
   const currentYear = 2026;
 
   const renderContent = () => {
@@ -68,13 +86,20 @@ export const Footer = () => {
           <div className="max-sm:col-span-2">
             <Link href="/" className="mb-5 flex items-center gap-3">
               <div className="relative h-10 w-10 rounded-full overflow-hidden flex items-center justify-center bg-[#2a1f18] border border-[#e0a83c]/25 shadow-sm flex-shrink-0">
-                <Image
-                  src={logoUrl}
-                  alt={siteName}
-                  width={40}
-                  height={40}
-                  className="h-full w-full object-cover"
-                />
+                {logoUrl ? (
+                  <Image
+                    src={logoUrl}
+                    alt={siteName}
+                    width={40}
+                    height={40}
+                    className="h-full w-full object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <span className="text-[#e0a83c] font-serif text-lg">
+                    {siteName.charAt(0).toUpperCase()}
+                  </span>
+                )}
               </div>
 
               <span className="grid gap-[3px] leading-none">
@@ -99,7 +124,7 @@ export const Footer = () => {
             </p>
           </div>
 
-          {/* Explore column — Tana Farm and Blog removed */}
+          {/* Explore column */}
           <div className="grid content-start gap-2">
             <h4 className="mb-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[#e0a83c]">
               {t("footer.explore", "Explore")}
@@ -180,21 +205,21 @@ export const Footer = () => {
               href="#"
               className="text-[11px] text-white/60 transition hover:text-white"
             >
-              Facebook 
+              Facebook
             </a>
 
             <a
               href="#"
               className="text-[11px] text-white/60 transition hover:text-white"
             >
-              Instagram 
+              Instagram
             </a>
 
             <a
               href="#"
               className="text-[11px] text-white/60 transition hover:text-white"
             >
-              Telegram 
+              Telegram
             </a>
           </div>
         </div>

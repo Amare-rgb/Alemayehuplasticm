@@ -25,6 +25,7 @@ import {
   Globe,
   Search,
   Sparkles,
+  Building2,
 } from "lucide-react";
 import { useAuth } from "@/app/providers";
 import { useLanguage } from "@/context/LanguageContext";
@@ -50,21 +51,38 @@ interface User {
 }
 
 // ============================================================
-// Brand — logo file: client/public/banners/plastik.png
-// (files in /public are served from the root, so no "public" in the URL)
+// Brand — local logo file: /public/banners/plastik.png
 // ============================================================
-const LOGO_SRC = "/banners/plastik.png";
 const BRAND_TOP = "Plastic";
 const BRAND_BOTTOM = "Manufacturing";
 const BRAND_ALT = "Plastic Manufacturing";
 
-// Font stack that actually contains Amharic (Ethiopic) glyphs,
-// so "አማ" renders as proper letters instead of a fallback symbol.
+// ✅ Local logo — files in /public are served from the root
+const LOGO_SRC = "/banners/plastik.png";
+
 const ETHIOPIC_FONT =
   "'Noto Sans Ethiopic','Nyala','Abyssinica SIL','Kefa','Ebrima',sans-serif";
 
 // ============================================================
-// Fallback categories — Alemayehu Plastic Manufacturing
+// Cloudinary-only resolver (for category images + avatars)
+//   • Full https URL      → as-is
+//   • res.cloudinary.com  → prefixed with https://
+//   • Anything else       → null (caller shows fallback)
+// ============================================================
+function resolveCloudinaryUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+
+  if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  return null;
+}
+
+// ============================================================
+// Fallback categories
 // ============================================================
 const FALLBACK_CATEGORIES: Category[] = [
   {
@@ -112,9 +130,8 @@ const FALLBACK_CATEGORIES: Category[] = [
 ];
 
 // ============================================================
-// External-store hooks (no setState inside effects)
+// External-store hooks
 // ============================================================
-
 function subscribeToScroll(callback: () => void) {
   window.addEventListener("scroll", callback, { passive: true });
   return () => window.removeEventListener("scroll", callback);
@@ -163,7 +180,7 @@ function useStoredUser(): User | null {
 }
 
 // ============================================================
-// Reusable avatar renderer
+// Avatar bubble — Cloudinary-only, falls back to initial
 // ============================================================
 function AvatarBubble({
   src,
@@ -174,6 +191,8 @@ function AvatarBubble({
   name?: string | null;
   size: number;
 }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const resolved = resolveCloudinaryUrl(src);
   const initial = name ? name.charAt(0).toUpperCase() : null;
 
   return (
@@ -181,13 +200,14 @@ function AvatarBubble({
       className="relative flex items-center justify-center rounded-full bg-[#e0a83c] text-[#1a1410] font-bold overflow-hidden shadow-sm"
       style={{ width: size, height: size, fontSize: size * 0.42 }}
     >
-      {src ? (
+      {resolved && !imgFailed ? (
         <Image
-          src={src}
+          src={resolved}
           alt={name || "User"}
           width={size}
           height={size}
           className="h-full w-full object-cover"
+          onError={() => setImgFailed(true)}
           unoptimized
         />
       ) : initial ? (
@@ -200,7 +220,7 @@ function AvatarBubble({
 }
 
 // ============================================================
-// Search bar — white pill, gold border, navy sparkle button
+// Search bar
 // ============================================================
 function SearchBar({
   value,
@@ -249,9 +269,9 @@ export const Navbar = () => {
   const [mobileProductsOpen, setMobileProductsOpen] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  // ✅ Fallback toggle if the local logo file is missing
+  const [logoFailed, setLogoFailed] = useState(false);
 
-  // Used for BOTH the account dropdown (logged in) and the
-  // Sign In / Create Account dropdown (guest) — only one is rendered.
   const dropdownRef = useRef<HTMLDivElement>(null);
   const productsDropdownRef = useRef<HTMLDivElement>(null);
   const productsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -393,11 +413,7 @@ export const Navbar = () => {
     "Search products, brands, categories…"
   );
 
-  // ============================================================
-  // THEME
-  //   solid = false → transparent over the hero, white text
-  //   solid = true  → light header, dark text
-  // ============================================================
+  // ── Theme ─────────────────────────────────────────────────
   const solid = !isHome || scrolled || menuOpen;
 
   const headerClass = isHome
@@ -443,7 +459,6 @@ export const Navbar = () => {
     ? "border-[#d9d3c8] bg-white text-[#1a1410] hover:bg-[#faf6ef] hover:border-[#e0a83c]/50"
     : "border-white/25 bg-white/10 text-white backdrop-blur-md hover:bg-white/20";
 
-  // Dropdown panels are always light
   const dropdownItemClass =
     "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[10px] font-medium text-[#1a1410]/80 hover:bg-[#faf6ef] hover:text-[#1a1410] group";
   const dropdownIconClass =
@@ -451,12 +466,10 @@ export const Navbar = () => {
 
   return (
     <header className={headerClass}>
-      {/* gap-* guarantees a minimum space between logo, nav, search and
-          buttons, so nothing can ever touch or overlap */}
       <div
         className={`mx-auto flex w-[min(1180px,calc(100%-48px))] items-center justify-between gap-4 transition-all duration-300 xl:gap-6 ${innerHeight}`}
       >
-        {/* LOGO + BRAND (two stacked lines → narrow, never overlaps) */}
+        {/* LOGO */}
         <Link
           href="/"
           className="group flex shrink-0 items-center gap-2.5"
@@ -466,14 +479,19 @@ export const Navbar = () => {
           <div
             className={`relative flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border shadow-sm transition-colors duration-300 ${logoBoxClass}`}
           >
-            <Image
-              src={LOGO_SRC}
-              alt={BRAND_ALT}
-              width={40}
-              height={40}
-              className="h-full w-full object-contain p-0.5"
-              priority
-            />
+            {logoFailed ? (
+              <Building2 className="h-5 w-5 text-[#8a6212]" />
+            ) : (
+              <Image
+                src={LOGO_SRC}
+                alt={BRAND_ALT}
+                width={40}
+                height={40}
+                className="h-full w-full object-contain p-0.5"
+                onError={() => setLogoFailed(true)}
+                priority
+              />
+            )}
           </div>
           <span className="flex flex-col whitespace-nowrap leading-none">
             <span
@@ -552,14 +570,8 @@ export const Navbar = () => {
                 {displayCategories.slice(0, 9).map((cat) => {
                   const productCount = cat._count?.products;
                   const subCount = cat.children?.length || 0;
-                  const imageSrc = cat.image
-                    ? cat.image.startsWith("http")
-                      ? cat.image
-                      : `${
-                          process.env.NEXT_PUBLIC_API_URL ||
-                          "http://localhost:5000"
-                        }${cat.image}`
-                    : null;
+                  // ✅ Cloudinary-only category image
+                  const imageSrc = resolveCloudinaryUrl(cat.image);
                   return (
                     <Link
                       key={cat.id}
@@ -577,10 +589,7 @@ export const Navbar = () => {
                             width={36}
                             height={36}
                             className="h-full w-full object-cover"
-                            onError={(e) => {
-                              (e.currentTarget as HTMLElement).style.display =
-                                "none";
-                            }}
+                            unoptimized
                           />
                         ) : (
                           <span>{cat.icon || "📦"}</span>
@@ -636,7 +645,7 @@ export const Navbar = () => {
           ))}
         </nav>
 
-        {/* DESKTOP SEARCH BAR — takes the leftover space and shrinks first */}
+        {/* DESKTOP SEARCH BAR */}
         <div className="hidden min-w-0 flex-1 justify-center lg:flex">
           <SearchBar
             value={searchQuery}
@@ -687,7 +696,6 @@ export const Navbar = () => {
           </div>
 
           {isAuthenticated ? (
-            /* ---------- Logged-in account dropdown ---------- */
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setDropdownOpen((prev) => !prev)}
@@ -791,7 +799,6 @@ export const Navbar = () => {
               </div>
             </div>
           ) : (
-            /* ---------- Guest: Sign In pill + dropdown ---------- */
             <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
@@ -858,7 +865,7 @@ export const Navbar = () => {
         </div>
       </div>
 
-      {/* Mobile Drawer (header is always in the light "solid" state while open) */}
+      {/* Mobile Drawer */}
       <div
         className={`mx-auto w-[min(1180px,calc(100%-48px))] overflow-hidden transition-all duration-300 lg:hidden ${
           menuOpen

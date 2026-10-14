@@ -6,7 +6,6 @@ import React, {
   useEffect,
   useRef,
   useCallback,
-  useMemo,
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -39,29 +38,19 @@ const RAW_API_BASE =
   "http://localhost:5000";
 const API_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-const DEFAULT_IMAGE = "/banners/carplastik.jpg";
-
 // ============================================================
-// Shared image resolver
+// Image resolver — Cloudinary ONLY
 // ============================================================
-function resolveImage(raw: unknown): string {
-  if (typeof raw !== "string") return DEFAULT_IMAGE;
+function resolveImage(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
   const s = raw.trim();
-  if (!s) return DEFAULT_IMAGE;
+  if (!s) return null;
 
+  if (s.startsWith("data:")) return s;
   if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
-    const clean = s.startsWith("/") ? s : `/${s}`;
-    return `${API_URL}${clean}`;
-  }
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_URL}/uploads/products/${s}`;
-  }
-
-  return DEFAULT_IMAGE;
+  return null;
 }
 
 // ============================================================
@@ -94,8 +83,6 @@ api.interceptors.response.use(
       localStorage.removeItem("user");
       sessionStorage.removeItem("user");
       if (typeof window !== "undefined") {
-        // Full-page redirect is intentional: we need to fully reset all
-        // React state after an auth failure.
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = "/auth/signin";
       }
@@ -135,7 +122,7 @@ interface EditProductPageProps {
 }
 
 // ============================================================
-// Options — plastic-focused units
+// Options
 // ============================================================
 const unitOptions = [
   { value: "pcs", label: "Pieces (pcs)" },
@@ -252,7 +239,7 @@ const Notification: React.FC<NotificationProps> = ({
 };
 
 // ============================================================
-// Auth helpers
+// Auth helper
 // ============================================================
 const getToken = (): string | null => {
   if (typeof window === "undefined") return null;
@@ -261,6 +248,45 @@ const getToken = (): string | null => {
     sessionStorage.getItem("token") ||
     localStorage.getItem("authToken") ||
     sessionStorage.getItem("authToken")
+  );
+};
+
+// ============================================================
+// ProductImage — top-level, Cloudinary-only
+// ============================================================
+const ProductImage: React.FC<{
+  src: string | null;
+  alt: string;
+  index?: number;
+  priority?: boolean;
+}> = ({ src, alt, index = 0, priority = false }) => {
+  const [prevSrc, setPrevSrc] = useState(src);
+  const [hasError, setHasError] = useState(false);
+
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setHasError(false);
+  }
+
+  if (!src || hasError) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100">
+        <ImageIcon className="w-8 h-8 text-gray-400" />
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={200}
+      height={200}
+      className="w-full h-full object-cover"
+      onError={() => setHasError(true)}
+      unoptimized
+      priority={priority || index === 0}
+    />
   );
 };
 
@@ -332,12 +358,6 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     setError(null);
 
     try {
-      const token = getToken();
-      if (!token) {
-        setError("Authentication required");
-        setLoading(false);
-        return;
-      }
       if (!name.trim()) {
         setError("Name is required");
         setLoading(false);
@@ -364,9 +384,8 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         payload.parentId = parentCategoryId;
       }
 
-      const response = await api.post("/api/categories", payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // No explicit Authorization header — interceptor handles it
+      const response = await api.post("/api/categories", payload);
 
       if (response.data) {
         const newCategory = response.data.category || response.data;
@@ -606,13 +625,12 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   }, [router]);
 
   // SKU
-  const initialSKU = useMemo(() => generateSKU(), []);
   useEffect(() => {
     if (!skuSet.current) {
-      setNewSku(initialSKU);
+      setNewSku(generateSKU());
       skuSet.current = true;
     }
-  }, [initialSKU]);
+  }, []);
 
   const showNotification = (
     type: "success" | "error" | "info" | "warning",
@@ -620,12 +638,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
   ) => setNotification({ type, message });
 
   const clearNotification = () => setNotification(null);
-
-  const getImageUrl = (imagePath: string | null | undefined): string | null => {
-    if (!imagePath) return null;
-    const resolved = resolveImage(imagePath);
-    return resolved === DEFAULT_IMAGE ? null : resolved;
-  };
 
   // ── Params ──────────────────────────────────────────────
   const unwrappedParams = React.use(params);
@@ -709,9 +721,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
           return;
         }
 
-        const response = await api.get(`/api/products/${productId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await api.get(`/api/products/${productId}`);
 
         if (!isMounted.current) return;
 
@@ -745,8 +755,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
           if (categoryId) {
             void fetchSubCategories(categoryId);
           }
-
-          showNotification("success", "Product loaded successfully");
         } else {
           showNotification("error", "Product not found");
           setError("Product not found");
@@ -762,6 +770,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
               "error",
               "Product not found. Please check the product ID."
             );
+            setError("Product not found");
           } else if (
             axiosError.response?.status === 401 ||
             axiosError.response?.status === 403
@@ -770,23 +779,19 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
               "error",
               "Authentication failed. Please login again."
             );
-            localStorage.removeItem("token");
-            localStorage.removeItem("authToken");
-            sessionStorage.removeItem("token");
-            sessionStorage.removeItem("authToken");
             router.push("/auth/signin");
           } else {
-            showNotification(
-              "error",
+            const msg =
               axiosError.response?.data?.error ||
-                `Failed to load product (Status: ${axiosError.response?.status})`
-            );
+              `Failed to load product (Status: ${axiosError.response?.status})`;
+            showNotification("error", msg);
+            setError(msg);
           }
         } else {
-          showNotification(
-            "error",
-            err instanceof Error ? err.message : "An unexpected error occurred"
-          );
+          const msg =
+            err instanceof Error ? err.message : "An unexpected error occurred";
+          showNotification("error", msg);
+          setError(msg);
         }
       } finally {
         if (isMounted.current) setLoading(false);
@@ -796,7 +801,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     fetchData();
   }, [productId, router, authed, fetchSubCategories]);
 
-  // ── Image upload ────────────────────────────────────────
+  // ── Image upload → Cloudinary via /api/upload/product ───
   const handleImageUpload = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -804,6 +809,22 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     if (!files || files.length === 0) return;
 
     const file = files[0];
+
+    const allowed = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ];
+    if (!allowed.includes(file.type)) {
+      showNotification(
+        "error",
+        "Only JPG, PNG, WEBP, or GIF images are allowed."
+      );
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     if (file.size > 10 * 1024 * 1024) {
       showNotification("error", "Image size must be less than 10MB");
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -813,27 +834,17 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
     setUploadingImage(true);
 
     try {
-      const token = getToken();
-      if (!token) {
-        showNotification("error", "Authentication required");
-        return;
-      }
-
       const uploadFormData = new FormData();
       uploadFormData.append("image", file);
 
-      const response = await api.post("/api/upload", uploadFormData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
+      // ✅ Product-specific Cloudinary upload endpoint
+      const response = await api.post("/api/upload/product", uploadFormData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
       let imageUrl: string | null = null;
       if (response.data?.url) imageUrl = response.data.url;
       else if (response.data?.secure_url) imageUrl = response.data.secure_url;
-      else if (response.data?.imageUrl) imageUrl = response.data.imageUrl;
-      else if (response.data?.image) imageUrl = response.data.image;
 
       if (imageUrl) {
         setFormData((prev) => ({
@@ -969,13 +980,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
         durationTime: formData.durationTime || "1h",
       };
 
-      const response = await api.put(
-        `/api/products/${productId}`,
-        submitData,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await api.put(`/api/products/${productId}`, submitData);
 
       if (response.data.success) {
         showNotification("success", "Product updated successfully! 🎉");
@@ -995,10 +1000,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
             "error",
             "Authentication failed. Please login again."
           );
-          localStorage.removeItem("token");
-          localStorage.removeItem("authToken");
-          sessionStorage.removeItem("token");
-          sessionStorage.removeItem("authToken");
           router.push("/auth/signin");
         } else {
           showNotification(
@@ -1025,59 +1026,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount || 0);
-
-  // ============================================================
-  // ProductImage (nested component)
-  // ============================================================
-  const ProductImage: React.FC<{
-    src: string | null;
-    alt: string;
-    index: number;
-  }> = ({ src, alt, index }) => {
-    const [prevSrc, setPrevSrc] = useState(src);
-    const [imgSrc, setImgSrc] = useState(src);
-    const [stage, setStage] = useState<"primary" | "placeholder" | "dead">(
-      "primary"
-    );
-
-    if (src !== prevSrc) {
-      setPrevSrc(src);
-      setImgSrc(src);
-      setStage("primary");
-    }
-
-    const handleError = () => {
-      if (stage === "primary") {
-        setStage("placeholder");
-        setImgSrc(DEFAULT_IMAGE);
-      } else {
-        setStage("dead");
-      }
-    };
-
-    if (!imgSrc || stage === "dead") {
-      return (
-        <div className="w-full h-full flex items-center justify-center bg-gray-100">
-          <ImageIcon className="w-8 h-8 text-gray-400" />
-        </div>
-      );
-    }
-
-    return (
-      <Image
-        src={imgSrc}
-        alt={alt}
-        width={200}
-        height={200}
-        className="w-full h-full object-cover"
-        onError={handleError}
-        unoptimized={
-          imgSrc.startsWith("/") || imgSrc.includes("images.unsplash.com")
-        }
-        priority={index === 0}
-      />
-    );
-  };
 
   // ── Render ──────────────────────────────────────────────
   if (authLoading) {
@@ -1110,8 +1058,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
         <div className="text-center max-w-md">
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-4">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-            <p className="text-red-600 font-medium mb-2">{error}</p>
-            <p className="text-sm text-gray-600">API URL: {API_URL}</p>
+            <p className="text-red-600 font-medium">{error}</p>
           </div>
           <div className="flex justify-center space-x-3">
             <Link
@@ -1185,13 +1132,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
         </Link>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center space-x-2">
-          <AlertCircle className="w-4 h-4" />
-          <span className="text-sm">{error}</span>
-        </div>
-      )}
-
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main */}
@@ -1205,7 +1145,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
               </div>
 
               <div className="space-y-5">
-                {/* Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Product Name <span className="text-red-500">*</span>
@@ -1221,7 +1160,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   />
                 </div>
 
-                {/* Description */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Description <span className="text-red-500">*</span>
@@ -1237,7 +1175,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   />
                 </div>
 
-                {/* Category + Subcategory */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -1305,15 +1242,9 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                         <span>New</span>
                       </button>
                     </div>
-                    {!formData.categoryId && (
-                      <p className="text-xs text-yellow-500 mt-1">
-                        Select a category first to add subcategory
-                      </p>
-                    )}
                   </div>
                 </div>
 
-                {/* SKU */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     SKU
@@ -1334,10 +1265,8 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                       Generate
                     </button>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">Auto-generated</p>
                 </div>
 
-                {/* Duration */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     <div className="flex items-center space-x-2">
@@ -1359,7 +1288,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   </select>
                 </div>
 
-                {/* Weight + Unit */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Weight & Unit{" "}
@@ -1397,7 +1325,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   </div>
                 </div>
 
-                {/* Prices */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -1440,7 +1367,6 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
                   </div>
                 </div>
 
-                {/* Tags */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Tags
@@ -1524,7 +1450,7 @@ const EditProductPage: React.FC<EditProductPageProps> = ({ params }) => {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {formData.images.map((img, index) => {
-                  const imageUrl = getImageUrl(img);
+                  const imageUrl = resolveImage(img);
                   return (
                     <div
                       key={index}

@@ -61,24 +61,9 @@ const RAW_API_BASE =
   "http://localhost:5000";
 const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-// ✅ Rebranded defaults
-const DEFAULT_IMAGE = "/banners/carplastik.jpg";
-const FALLBACK_REMOTE_IMAGE =
-  "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?auto=format&fit=crop&w=1200&q=85";
-
 // ────────────────────────────────────────────────────────────────────────────
 // Liter detection helpers
 // ────────────────────────────────────────────────────────────────────────────
-
-/**
- * Extract a numeric liter value from a product.
- * Priority:
- *   1. Explicit numeric field (liters / volume / capacity)
- *   2. Parsed from "size" string
- *   3. Parsed from name / description
- *
- * Returns null if no liter measurement can be found.
- */
 function detectLiters(product: {
   name?: string;
   description?: string;
@@ -101,15 +86,12 @@ function detectLiters(product: {
     return null;
   };
 
-  // 1. Explicit numeric fields
   const direct = tryParse(product.liters) ?? tryParse(product.volume);
   if (direct) return direct;
 
-  // 2. Size string (e.g. "20L", "5 Liter", "10 Litres")
   const fromSize = tryParse(product.size) ?? tryParse(product.capacity);
   if (fromSize) return fromSize;
 
-  // 3. Parse from name + description
   const haystack = `${product.name || ""} ${product.description || ""}`;
   const matches = haystack.match(
     /(\d+(?:\.\d+)?)\s*(?:l|lt|ltr|liter|litre|liters|litres)\b/i
@@ -122,10 +104,6 @@ function detectLiters(product: {
   return null;
 }
 
-/**
- * Group a raw liter value into a filter bucket label.
- * Products without a detectable liter value are excluded from the liter filter.
- */
 function literBucket(liters: number): string {
   if (liters < 1) return "Under 1L";
   if (liters <= 1) return "1L";
@@ -142,10 +120,6 @@ function literBucket(liters: number): string {
   return "Over 1000L";
 }
 
-/**
- * Parse a numeric liter value out of a bucket label.
- * Used for sorting the filter chips.
- */
 function parseBucketValue(label: string): number {
   if (label === "Under 1L") return 0.5;
   if (label === "Over 1000L") return 99999;
@@ -154,72 +128,79 @@ function parseBucketValue(label: string): number {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Image resolver
+// Image resolver — Cloudinary ONLY
 // ────────────────────────────────────────────────────────────────────────────
-function resolveImage(raw: unknown): string {
-  if (typeof raw !== "string") return DEFAULT_IMAGE;
+function resolveImage(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
   const s = raw.trim();
-  if (!s) return DEFAULT_IMAGE;
+  if (!s) return null;
 
-  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
-    const clean = s.startsWith("/") ? s : `/${s}`;
-    return `${API_BASE_URL}${clean}`;
-  }
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_BASE_URL}/uploads/products/${s}`;
-  }
-
-  return DEFAULT_IMAGE;
+  return null;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Product image with 3-stage fallback
+// Package icon — used as image fallback
+// ────────────────────────────────────────────────────────────────────────────
+function PackageIcon({ className = "h-10 w-10" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
+      <path
+        d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m3.3 7 8.7 5 8.7-5M12 22V12"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Product image — 2-stage fallback (source → package icon)
 // ────────────────────────────────────────────────────────────────────────────
 const ProductImage: React.FC<{
-  src: string;
+  src: string | null;
   alt: string;
   priority?: boolean;
 }> = ({ src, alt, priority = false }) => {
   const [prevSrc, setPrevSrc] = useState(src);
-  const [imgSrc, setImgSrc] = useState(src);
-  const [stage, setStage] = useState<
-    "primary" | "placeholder" | "remote" | "dead"
-  >("primary");
+  const [hasError, setHasError] = useState(false);
 
   if (src !== prevSrc) {
     setPrevSrc(src);
-    setImgSrc(src);
-    setStage("primary");
+    setHasError(false);
   }
 
-  const handleError = () => {
-    if (stage === "primary") {
-      setStage("placeholder");
-      setImgSrc(DEFAULT_IMAGE);
-    } else if (stage === "placeholder") {
-      setStage("remote");
-      setImgSrc(FALLBACK_REMOTE_IMAGE);
-    } else {
-      setStage("dead");
-    }
-  };
-
-  const isLocalAsset = imgSrc.startsWith("/");
-  const isUnsplash = imgSrc.includes("images.unsplash.com");
+  if (!src || hasError) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-[#2a1f18] text-[#e0a83c]/40">
+        <PackageIcon />
+      </div>
+    );
+  }
 
   return (
     <Image
-      src={imgSrc}
+      src={src}
       alt={alt}
       fill
-      unoptimized={isLocalAsset || isUnsplash}
+      unoptimized
       className="object-cover object-center transition-transform duration-500 ease-out group-hover:scale-[1.04]"
-      onError={handleError}
+      onError={() => setHasError(true)}
       sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
       loading={priority ? "eager" : "lazy"}
       fetchPriority={priority ? "high" : "auto"}
@@ -245,17 +226,14 @@ export default function Products() {
     useState<string>(initialCategoryParam);
   const [selectedLiter, setSelectedLiter] = useState<string>("All");
   const [search, setSearch] = useState("");
-  // ✅ Default sort changed from "featured" to "size-low"
   const [sort, setSort] = useState<SortOption>("size-low");
 
-  // ✅ Simplified category label
   const getCategoryLabel = (catName: string) => {
     const lower = catName.toLowerCase();
     if (lower === "all") return t("shop.category_all", "All");
     return catName;
   };
 
-  // Sync category state when URL search params change
   useEffect(() => {
     const cat = searchParams.get("category");
     if (cat && cat !== selectedCategory && !hasInitializedFromURL.current) {
@@ -264,7 +242,6 @@ export default function Products() {
     }
   }, [searchParams, selectedCategory]);
 
-  // Fetch public categories
   useEffect(() => {
     let isMounted = true;
     const fetchCategories = async () => {
@@ -296,7 +273,6 @@ export default function Products() {
     };
   }, []);
 
-  // Fetch products
   useEffect(() => {
     let isMounted = true;
 
@@ -321,10 +297,12 @@ export default function Products() {
           const mapped: Product[] = (rawProducts as ApiProduct[]).map((p) => {
             const categoryName = p.category?.name || "Plastic Products";
 
-            const imageList: string[] =
-              Array.isArray(p.images) && p.images.length > 0
-                ? p.images.map(resolveImage)
-                : [DEFAULT_IMAGE];
+            // ✅ Cloudinary-only — drop non-URL images
+            const imageList: string[] = Array.isArray(p.images)
+              ? p.images
+                  .map((img) => resolveImage(img))
+                  .filter((u): u is string => Boolean(u))
+              : [];
 
             const price = Number(p.price) || 0;
             const discountPrice = p.discountPrice
@@ -332,7 +310,6 @@ export default function Products() {
               : null;
             const stock = typeof p.stock === "number" ? p.stock : 0;
 
-            // ✅ Detect liters from API data
             const liters = detectLiters({
               name: p.name,
               description: p.description || "",
@@ -381,9 +358,6 @@ export default function Products() {
     };
   }, []);
 
-  // ────────────────────────────────────────────────────────────────────────
-  // Liter filter options — built from actual products in the catalogue
-  // ────────────────────────────────────────────────────────────────────────
   const literTabs = useMemo(() => {
     const set = new Set<string>();
     products.forEach((p) => {
@@ -396,7 +370,6 @@ export default function Products() {
       (a, b) => parseBucketValue(a) - parseBucketValue(b)
     );
 
-    // Only show the liter filter if at least one product has a liter value
     return sorted.length > 0 ? ["All", ...sorted] : [];
   }, [products]);
 
@@ -440,7 +413,6 @@ export default function Products() {
       const priceA = a.discountPrice ?? a.price;
       const priceB = b.discountPrice ?? b.price;
 
-      // Products without a liter value go to the end for size sorts
       const litersA = a.liters ?? Number.POSITIVE_INFINITY;
       const litersB = b.liters ?? Number.POSITIVE_INFINITY;
 
@@ -448,7 +420,6 @@ export default function Products() {
         case "size-low":
           return litersA - litersB;
         case "size-high":
-          // Reverse: treat missing as -Infinity so they go last
           return (b.liters ?? -1) - (a.liters ?? -1);
         case "price-low":
           return priceA - priceB;
@@ -545,7 +516,6 @@ export default function Products() {
                   })}
                 </div>
 
-                {/* ✅ Sort dropdown — now liter-based */}
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortOption)}
@@ -570,7 +540,6 @@ export default function Products() {
               </div>
             </div>
 
-            {/* ✅ Liter / Volume filter row — only shown when products have liter data */}
             {literTabs.length > 0 && (
               <div className="mt-4 flex flex-col gap-2 border-t border-[#3a2a1e]/10 pt-4 sm:flex-row sm:items-center sm:gap-4">
                 <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#b98a3e]">
@@ -682,7 +651,9 @@ export default function Products() {
                     )
                   : 0;
                 const isAvailable = product.stock > 0;
-                const imageUrl = product.images?.[0] || DEFAULT_IMAGE;
+
+                // ✅ Cloudinary-only — null if no valid image
+                const imageUrl = product.images?.[0] ?? null;
 
                 return (
                   <div
@@ -798,7 +769,6 @@ export default function Products() {
             </div>
           )}
 
-          {/* Error message (only shows if backend fails) */}
           {error && !loading && filteredProducts.length === 0 && (
             <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600">
               {error}

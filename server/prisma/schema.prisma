@@ -1,15 +1,12 @@
 // prisma/schema.prisma
 generator client {
   provider      = "prisma-client-js"
-  // "native" = your computer, "rhel-openssl-3.0.x" = Netlify Functions / Vercel / AWS Lambda
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
   provider  = "postgresql"
-  // Pooled Neon URL (host contains "-pooler"), used by the app at runtime
   url       = env("DATABASE_URL")
-  // Direct Neon URL (host WITHOUT "-pooler"), used by prisma migrate
   directUrl = env("DIRECT_URL")
 }
 
@@ -32,15 +29,12 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  adminProfile       AdminProfile?
-  profile            Profile?
-  orders             Order[]
-  cartItems          CartItem[]
-  reviews            Review[]
-  addresses          Address[]
-  categories         Category[]    @relation("CategoryCreator")
-  articles           Article[]     @relation("ArticleAuthor")
-  chatMessages       ChatMessage[]
+  adminProfile AdminProfile?
+  profile      Profile?
+  reviews      Review[]
+  addresses    Address[]
+  categories   Category[]    @relation("CategoryCreator")
+  chatMessages ChatMessage[]
 
   @@index([role])
   @@index([createdAt])
@@ -58,7 +52,7 @@ model ChatMessage {
   botResponse    String   @db.Text
   timestamp      DateTime @default(now())
 
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([conversationId])
@@ -70,16 +64,16 @@ model ChatMessage {
 // UNIFIED PROFILE MODEL
 // ============================================
 model Profile {
-  id          String    @id @default(cuid())
-  userId      String    @unique
-  shopName    String?
-  shopDesc    String?
-  logo        String?
-  phone       String?
-  isVerified  Boolean   @default(false)
-  totalSales  Int       @default(0)
-  address     String?
-  banner      String?
+  id         String    @id @default(cuid())
+  userId     String    @unique
+  shopName   String?
+  shopDesc   String?
+  logo       String?
+  phone      String?
+  isVerified Boolean   @default(false)
+  totalSales Int       @default(0)
+  address    String?
+  banner     String?
 
   // Admin-specific fields
   isAdmin     Boolean   @default(false)
@@ -88,10 +82,10 @@ model Profile {
   lastLogin   DateTime?
   status      String    @default("active")
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("profiles")
 }
@@ -104,7 +98,7 @@ model AdminProfile {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("admin_profiles")
 }
@@ -157,81 +151,13 @@ model Product {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  category    Category    @relation(fields: [categoryId], references: [id])
-  subCategory Category?   @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
-  cartItems   CartItem[]
-  orderItems  OrderItem[]
+  category    Category  @relation(fields: [categoryId], references: [id])
+  subCategory Category? @relation("ProductSubCategory", fields: [subCategoryId], references: [id])
   reviews     Review[]
 
   @@index([categoryId])
   @@index([sku])
   @@map("products")
-}
-
-model Cart {
-  id        String     @id @default(cuid())
-  userId    String     @unique
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  items     CartItem[]
-
-  @@map("carts")
-}
-
-model CartItem {
-  id        String @id @default(cuid())
-  userId    String
-  cartId    String
-  productId String
-  quantity  Int    @default(1)
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, productId])
-  @@map("cart_items")
-}
-
-// ============================================
-// ORDER MODEL — payment tracking removed
-// ============================================
-model Order {
-  id          String   @id @default(cuid())
-  orderNumber Int      @unique @default(autoincrement())
-
-  userId      String
-  total       Decimal  @db.Decimal(10, 2)
-  addressId   String
-
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  user    User        @relation(fields: [userId], references: [id])
-  address Address     @relation(fields: [addressId], references: [id])
-  items   OrderItem[]
-
-  @@index([userId])
-  @@index([orderNumber])
-  @@index([createdAt])
-  @@map("orders")
-}
-
-// ============================================
-// ORDER ITEM MODEL
-// ============================================
-model OrderItem {
-  id        String  @id @default(cuid())
-  orderId   String
-  productId String
-  quantity  Int
-  price     Decimal @db.Decimal(10, 2)
-
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id])
-
-  @@map("order_items")
 }
 
 model Review {
@@ -261,41 +187,10 @@ model Address {
   country   String  @default("Ethiopia")
   isDefault Boolean @default(false)
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  orders Order[]
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("addresses")
-}
-
-// ============================================
-// ARTICLE MODEL — status approval removed
-// ============================================
-model Article {
-  id           String   @id @default(cuid())
-  title        String
-  author       String
-  summary      String?
-  content      String   @db.Text
-  note         String?  @db.Text
-
-  pdfUrl       String?
-  pdfFileName  String?
-  pdfFileSize  Int?
-
-  views        Int      @default(0)
-  downloads    Int      @default(0)
-  tags         String[]
-  createdBy    String?
-  publishedAt  DateTime @default(now())
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  authorUser   User?    @relation("ArticleAuthor", fields: [createdBy], references: [id])
-
-  @@index([author])
-  @@index([createdBy])
-  @@map("articles")
 }
 
 // ============================================
@@ -328,21 +223,21 @@ model Settings {
   themeColor           String   @default("#e0a83c")
   darkMode             Boolean  @default(false)
 
-  contactEmail         String?  @default("support@alemayehplastic.com")
-  contactPhone         String?  @default("+251 900 000 000")
-  contactAddress       String?  @default("Bahir Dar, Ethiopia")
-  contactHours         String?  @default("Mon-Sat: 8:00 AM - 6:00 PM")
-  contactMapEmbed      String?  @default("")
-  enableContactForm    Boolean  @default(true)
-  enableWhatsApp       Boolean  @default(true)
-  whatsAppNumber       String?  @default("+251900000000")
-  enableLiveChat       Boolean  @default(false)
-  emergencyPhone       String?  @default("+251 900 000 000")
-  supportEmail         String?  @default("support@alemayehplastic.com")
-  infoEmail            String?  @default("info@alemayehplastic.com")
+  contactEmail      String? @default("support@alemayehplastic.com")
+  contactPhone      String? @default("+251 900 000 000")
+  contactAddress    String? @default("Bahir Dar, Ethiopia")
+  contactHours      String? @default("Mon-Sat: 8:00 AM - 6:00 PM")
+  contactMapEmbed   String? @default("")
+  enableContactForm Boolean @default(true)
+  enableWhatsApp    Boolean @default(true)
+  whatsAppNumber    String? @default("+251900000000")
+  enableLiveChat    Boolean @default(false)
+  emergencyPhone    String? @default("+251 900 000 000")
+  supportEmail      String? @default("support@alemayehplastic.com")
+  infoEmail         String? @default("info@alemayehplastic.com")
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("settings")
 }

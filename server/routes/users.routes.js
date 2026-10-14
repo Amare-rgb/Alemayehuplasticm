@@ -4,13 +4,28 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
-// ============================================================
-// Helper — get the authenticated user's ID
-// Works with JWT middleware (req.user.id or req.userId)
-// ============================================================
-function getAuthUserId(req) {
-  return req.user?.id || req.userId || null;
-}
+// ═══════════════════════════════════════════════════════════
+// Users API — Alemayehu Plastic
+//  • Uses Neon via Prisma
+//  • No Order/OrderItem/Article/Cart/CartItem references
+// ═══════════════════════════════════════════════════════════
+
+// ── Auth user helper (matches middleware/auth.js) ──────────
+const getAuthUserId = (req) => req.user?.id || null;
+
+// ── Shared user select — matches schema fields only ─────────
+const USER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  role: true,
+  avatar: true,
+  address: true,
+  bio: true,
+  createdAt: true,
+  updatedAt: true,
+};
 
 // ============================================================
 // GET /api/users — list all users (Admin only)
@@ -19,9 +34,13 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 10, role, search } = req.query;
 
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+    const skip = (pageNum - 1) * limitNum;
+    const take = limitNum;
+
     const where = {};
 
-    // ✅ Only two roles exist: USER and ADMIN
     if (role && role !== 'ALL') {
       where.role = role;
     }
@@ -34,28 +53,13 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       ];
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
-
     const [users, total] = await Promise.all([
       prisma.user.findMany({
         where,
         skip,
         take,
         orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          phone: true,
-          role: true,
-          avatar: true,
-          createdAt: true,
-          updatedAt: true,
-          _count: {
-            select: { orders: true },
-          },
-        },
+        select: USER_SELECT,
       }),
       prisma.user.count({ where }),
     ]);
@@ -63,8 +67,9 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
     res.json({
       users,
       total,
-      pages: Math.ceil(total / parseInt(limit)),
-      page: parseInt(page),
+      pages: Math.max(1, Math.ceil(total / limitNum)),
+      page: pageNum,
+      limit: limitNum,
     });
   } catch (error) {
     console.error('Error fetching users:', error);
@@ -81,21 +86,7 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        avatar: true,
-        address: true,
-        bio: true,
-        createdAt: true,
-        updatedAt: true,
-        _count: {
-          select: { orders: true },
-        },
-      },
+      select: USER_SELECT,
     });
 
     if (!user) {
@@ -115,7 +106,7 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
 router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { role, name, phone, avatar, address, bio } = req.body;
+    const { role, name, phone, avatar, address, bio } = req.body || {};
 
     const existingUser = await prisma.user.findUnique({ where: { id } });
 
@@ -123,7 +114,6 @@ router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // ✅ Only accept USER or ADMIN
     const updateData = {};
 
     if (role !== undefined) {
@@ -142,21 +132,14 @@ router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
     if (address !== undefined) updateData.address = address;
     if (bio !== undefined) updateData.bio = bio;
 
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'No fields provided to update' });
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id },
       data: updateData,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        avatar: true,
-        address: true,
-        bio: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: USER_SELECT,
     });
 
     res.json({
@@ -172,13 +155,15 @@ router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
 
 // ============================================================
 // DELETE /api/users/:id — delete user (Admin only)
+// Deletes related records that still exist on the schema:
+//   reviews, addresses, chatMessages
+// Order/OrderItem/Cart/CartItem have been removed from the schema.
 // ============================================================
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const authUserId = getAuthUserId(req);
 
-    // ✅ Prevent deleting yourself
     if (authUserId && id === authUserId) {
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
@@ -189,19 +174,15 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // ✅ Delete related records first
+    // ── Delete related records first ────────────────────────
     await prisma.$transaction([
       prisma.review.deleteMany({ where: { userId: id } }),
-      prisma.cartItem.deleteMany({ where: { userId: id } }),
       prisma.address.deleteMany({ where: { userId: id } }),
-      prisma.orderItem.deleteMany({
-        where: { order: { userId: id } },
-      }),
-      prisma.order.deleteMany({ where: { userId: id } }),
       prisma.chatMessage.deleteMany({ where: { userId: id } }),
+      // Cascade in schema also removes profile / adminProfile
     ]);
 
-    // Then delete the user
+    // ── Delete the user ─────────────────────────────────────
     await prisma.user.delete({ where: { id } });
 
     res.json({

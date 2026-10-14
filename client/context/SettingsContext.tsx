@@ -1,4 +1,5 @@
-'use client';
+// context/SettingsContext.tsx
+"use client";
 
 import React, {
   createContext,
@@ -7,11 +8,14 @@ import React, {
   useRef,
   useState,
   useCallback,
-} from 'react';
+} from "react";
 
+// ============================================================
+// API base — strip trailing slash
+// ============================================================
 const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
-).replace(/\/+$/, '');
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
+).replace(/\/+$/, "");
 
 // ============================================================
 // Types
@@ -40,27 +44,27 @@ export interface SettingsData {
 }
 
 // ============================================================
-// ✅ Rebranded defaults — Alemayehu Plastic Manufacturing
+// Defaults — Alemayehu Plastic Manufacturing
 // ============================================================
 export const defaultSettings: SettingsData = {
-  siteName: 'Alemayehu Plastic Manufacturing',
-  siteDescription: 'Quality plastic products manufactured in Ethiopia',
-  storeName: 'Alemayehu Plastic Manufacturing',
-  currency: 'ETB',
-  logo: '',
-  themeColor: '#e0a83c',
-  contactEmail: 'info@alemayehplastic.com',
-  contactPhone: '+251 900 000 000',
-  contactAddress: 'Bahir Dar, Ethiopia',
-  contactHours: 'Mon-Sat: 8:00 AM - 6:00 PM',
-  contactMapEmbed: '',
+  siteName: "Alemayehu Plastic Manufacturing",
+  siteDescription: "Quality plastic products manufactured in Ethiopia",
+  storeName: "Alemayehu Plastic Manufacturing",
+  currency: "ETB",
+  logo: "",
+  themeColor: "#e0a83c",
+  contactEmail: "info@alemayehplastic.com",
+  contactPhone: "+251 900 000 000",
+  contactAddress: "Bahir Dar, Ethiopia",
+  contactHours: "Mon-Sat: 8:00 AM - 6:00 PM",
+  contactMapEmbed: "",
   enableContactForm: true,
   enableWhatsApp: true,
-  whatsAppNumber: '+251900000000',
+  whatsAppNumber: "+251900000000",
   enableLiveChat: false,
-  emergencyPhone: '+251 900 000 000',
-  supportEmail: 'support@alemayehplastic.com',
-  infoEmail: 'info@alemayehplastic.com',
+  emergencyPhone: "+251 900 000 000",
+  supportEmail: "support@alemayehplastic.com",
+  infoEmail: "info@alemayehplastic.com",
 };
 
 // ============================================================
@@ -85,50 +89,57 @@ const SettingsContext = createContext<SettingsContextType>({
 });
 
 // ============================================================
-// Logo URL helper
+// Logo URL helper — Cloudinary ONLY
+//   • Full https URL       → as-is (works for Cloudinary + any absolute URL)
+//   • res.cloudinary.com/  → prefixed with https://
+//   • Anything else        → '' (caller shows fallback)
 // ============================================================
-export const getFullLogoUrl = (logoPath: string): string => {
-  if (!logoPath) return '';
-  if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) {
-    return logoPath;
-  }
-  const cleanPath = logoPath.startsWith('/') ? logoPath.slice(1) : logoPath;
-  return `${API_URL}/${cleanPath}`;
+export const getFullLogoUrl = (logoPath: unknown): string => {
+  if (typeof logoPath !== "string") return "";
+  const s = logoPath.trim();
+  if (!s) return "";
+
+  if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  // ❌ Legacy `/uploads/...` paths, bare filenames → no logo
+  return "";
 };
 
 // ============================================================
 // Provider
 // ============================================================
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  // ✅ Initialize from cache without a setState-in-effect
+  // Initialize from cache without a setState-in-effect
   const [settings, setSettings] = useState<SettingsData>(() => {
-    if (typeof window === 'undefined') return defaultSettings;
+    if (typeof window === "undefined") return defaultSettings;
 
     try {
-      const cached = localStorage.getItem('site_settings');
+      const cached = localStorage.getItem("site_settings");
       if (!cached) return defaultSettings;
 
       const parsed = JSON.parse(cached);
       return {
         ...defaultSettings,
         ...parsed,
-        logo: parsed.logo ? getFullLogoUrl(parsed.logo) : '',
+        logo: getFullLogoUrl(parsed?.logo),
       };
     } catch (e) {
-      console.error('Error reading cached settings:', e);
+      console.error("Error reading cached settings:", e);
       return defaultSettings;
     }
   });
 
-  // ✅ Loading is only true if there's NO cache
+  // Loading is only true if there's NO cache
   const [loading, setLoading] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    return !localStorage.getItem('site_settings');
+    if (typeof window === "undefined") return true;
+    return !localStorage.getItem("site_settings");
   });
 
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ Use refs so `fetchSettings` never depends on state
+  // Refs so `fetchSettings` never depends on state
   const isMountedRef = useRef(true);
   const hasFetchedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -146,7 +157,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     try {
       const url = forceRefresh
@@ -154,8 +165,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         : `${API_URL}/api/admin/settings/public`;
 
       const response = await fetch(url, {
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         signal: controller.signal,
       });
 
@@ -163,7 +175,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (!isMountedRef.current) return;
 
       if (!response.ok) {
-        setError('Failed to fetch settings');
+        // Don't spam the console for 5xx — treat as "keep cached value"
+        if (response.status >= 500) {
+          console.warn(
+            `Settings API returned ${response.status}; keeping cached settings`
+          );
+        }
+        setError("Failed to fetch settings");
         return;
       }
 
@@ -173,7 +191,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       const updatedSettings: SettingsData = {
         ...defaultSettings,
         ...settingsData,
-        logo: settingsData.logo ? getFullLogoUrl(settingsData.logo) : '',
+        logo: getFullLogoUrl(settingsData.logo),
         emergencyPhone:
           settingsData.emergencyPhone || defaultSettings.emergencyPhone,
         supportEmail:
@@ -184,20 +202,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       setSettings(updatedSettings);
       setError(null);
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('site_settings', JSON.stringify(updatedSettings));
-        window.dispatchEvent(new Event('settings-change'));
+      if (typeof window !== "undefined") {
+        localStorage.setItem("site_settings", JSON.stringify(updatedSettings));
+        window.dispatchEvent(new Event("settings-change"));
       }
     } catch (err) {
       // Silently ignore abort errors (they're expected)
-      if (err instanceof Error && err.name === 'AbortError') return;
+      if (err instanceof Error && err.name === "AbortError") return;
 
+      // A network error here usually means: backend is down, CORS blocked,
+      // or NEXT_PUBLIC_API_URL points to the wrong host.
       console.warn(
-        'Could not fetch public settings, using fallback/cache:',
-        err
+        "Could not fetch public settings, using fallback/cache:",
+        err instanceof Error ? err.message : err
       );
       if (isMountedRef.current) {
-        setError('Failed to load settings');
+        setError("Failed to load settings");
       }
     } finally {
       if (isMountedRef.current) {
@@ -210,22 +230,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   // forceUpdate — re-read from localStorage
   // ============================================================
   const forceUpdate = useCallback(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === "undefined") return;
 
     try {
-      const cached = localStorage.getItem('site_settings');
+      const cached = localStorage.getItem("site_settings");
       if (cached) {
         const parsed = JSON.parse(cached);
         setSettings({
           ...defaultSettings,
           ...parsed,
-          logo: parsed.logo ? getFullLogoUrl(parsed.logo) : '',
+          logo: getFullLogoUrl(parsed?.logo),
         });
       } else {
         setSettings({ ...defaultSettings });
       }
     } catch (e) {
-      console.error('Error reading cached settings:', e);
+      console.error("Error reading cached settings:", e);
     }
 
     setLoading(false);
@@ -241,15 +261,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         ...partial,
         logo:
           partial.logo !== undefined
-            ? partial.logo
-              ? getFullLogoUrl(partial.logo)
-              : ''
+            ? getFullLogoUrl(partial.logo)
             : prev.logo,
       };
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('site_settings', JSON.stringify(merged));
-        window.dispatchEvent(new Event('settings-change'));
+      if (typeof window !== "undefined") {
+        localStorage.setItem("site_settings", JSON.stringify(merged));
+        window.dispatchEvent(new Event("settings-change"));
       }
 
       return merged;
@@ -258,7 +276,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   // ============================================================
   // Mount: initial fetch + listeners
-  // ✅ No state (`loading`) in deps — avoids infinite loop
   // ============================================================
   useEffect(() => {
     isMountedRef.current = true;
@@ -272,9 +289,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     // Safety timeout — force loading=false after 4s even if the
     // network is stuck, so the spinner never spins forever
     const safetyTimer = setTimeout(() => {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
+      if (isMountedRef.current) setLoading(false);
     }, 4000);
 
     const handleSettingsChange = () => {
@@ -282,7 +297,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && isMountedRef.current) {
+      if (document.visibilityState === "visible" && isMountedRef.current) {
         void fetchSettings();
       }
     };
@@ -292,13 +307,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     };
 
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'site_settings' && e.newValue && isMountedRef.current) {
+      if (e.key === "site_settings" && e.newValue && isMountedRef.current) {
         try {
           const parsed = JSON.parse(e.newValue);
           setSettings({
             ...defaultSettings,
             ...parsed,
-            logo: parsed.logo ? getFullLogoUrl(parsed.logo) : '',
+            logo: getFullLogoUrl(parsed?.logo),
           });
           setLoading(false);
         } catch {
@@ -307,12 +322,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    window.addEventListener('settings-change', handleSettingsChange);
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener("settings-change", handleSettingsChange);
+    window.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("storage", handleStorageChange);
 
-    // Poll every 5 minutes (unref'd, safe)
+    // Poll every 5 minutes
     const interval = setInterval(() => {
       if (isMountedRef.current) void fetchSettings();
     }, 5 * 60 * 1000);
@@ -323,10 +338,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       clearInterval(interval);
       if (abortRef.current) abortRef.current.abort();
 
-      window.removeEventListener('settings-change', handleSettingsChange);
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener("settings-change", handleSettingsChange);
+      window.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("storage", handleStorageChange);
     };
   }, [fetchSettings]);
 

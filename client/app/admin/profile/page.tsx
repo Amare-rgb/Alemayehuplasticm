@@ -28,24 +28,19 @@ const RAW_API_BASE =
 const API_URL = RAW_API_BASE.replace(/\/+$/, "");
 
 // ============================================================
-// Avatar resolver
+// Avatar resolver — Cloudinary ONLY
+//   • Full https URL      → as-is
+//   • res.cloudinary.com  → prefixed with https://
+//   • Anything else       → "" (caller shows initial letter)
 // ============================================================
 function resolveAvatar(raw: unknown): string {
   if (typeof raw !== "string") return "";
   const s = raw.trim();
   if (!s) return "";
 
-  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("data:")) return s;
-
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
-
-  if (s.startsWith("/uploads/")) return `${API_URL}${s}`;
-  if (s.startsWith("uploads/")) return `${API_URL}/${s}`;
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_URL}/uploads/avatars/${s}`;
-  }
 
   return "";
 }
@@ -80,9 +75,6 @@ api.interceptors.response.use(
       localStorage.removeItem("user");
       sessionStorage.removeItem("user");
       if (typeof window !== "undefined") {
-        // Full-page redirect is intentional here: this interceptor lives
-        // outside React, so useRouter() isn't available. A hard reset is
-        // also desirable after auth failure.
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = "/auth/signin";
       }
@@ -107,7 +99,6 @@ interface UserProfile {
 
 // ============================================================
 // Avatar display — 2-stage fallback (URL → initial letter)
-// ✅ Rebranded with gold/yellow gradient
 // ============================================================
 function AdminAvatar({ src, name }: { src: string; name: string }) {
   const [prevSrc, setPrevSrc] = useState(src);
@@ -136,9 +127,7 @@ function AdminAvatar({ src, name }: { src: string; name: string }) {
       height={80}
       className="object-cover w-full h-full"
       onError={() => setFailed(true)}
-      unoptimized={
-        imgSrc.startsWith("/") || imgSrc.includes("images.unsplash.com")
-      }
+      unoptimized
     />
   );
 }
@@ -207,20 +196,7 @@ export default function AdminProfilePage() {
     const fetchProfile = async () => {
       try {
         setLoading(true);
-        const token =
-          localStorage.getItem("authToken") ||
-          sessionStorage.getItem("authToken") ||
-          localStorage.getItem("token") ||
-          sessionStorage.getItem("token");
-
-        if (!token) {
-          setLoading(false);
-          return;
-        }
-
-        const response = await api.get("/api/profile/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await api.get("/api/profile/me");
 
         let user: UserProfile | null = null;
         if (response.data?.user) user = response.data.user;
@@ -247,6 +223,13 @@ export default function AdminProfilePage() {
     fetchProfile();
   }, [isAuthenticated]);
 
+  // ── Auto-clear messages after 4s ─────────────────────────
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(() => setMessage(null), 4000);
+    return () => clearTimeout(t);
+  }, [message]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -258,21 +241,7 @@ export default function AdminProfilePage() {
     setSaving(true);
 
     try {
-      const token =
-        localStorage.getItem("authToken") ||
-        sessionStorage.getItem("authToken") ||
-        localStorage.getItem("token") ||
-        sessionStorage.getItem("token");
-
-      if (!token) {
-        setMessage({ type: "error", text: "No authentication token found" });
-        setSaving(false);
-        return;
-      }
-
-      const response = await api.put("/api/profile/update", formData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await api.put("/api/profile/update", formData);
 
       if (response.data.success) {
         const updatedUser =
@@ -542,7 +511,7 @@ export default function AdminProfilePage() {
         </div>
       </div>
 
-      {/* Admin Info Card — Rebranded gold theme */}
+      {/* Admin Info Card */}
       <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
         <div className="flex items-start space-x-3">
           <Shield className="w-5 h-5 text-yellow-600 mt-0.5" />

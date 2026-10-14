@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import axios, { AxiosError } from "axios";
-import { Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw, Package } from "lucide-react";
 
 // ============================================================
 // Types
@@ -16,42 +16,24 @@ interface User {
   role: string;
 }
 
-interface OrderItem {
-  product: {
-    name: string;
-  };
-  quantity: number;
-}
-
-interface Order {
+interface Product {
   id: string;
-  orderNumber: number;
-  user: {
-    name: string;
-    email: string;
-  };
-  items: OrderItem[];
-  total: number;
+  name: string;
+  price: number;
+  discountPrice?: number | null;
+  stock?: number;
+  sku?: string;
+  images?: string[];
+  category?: { name: string; slug?: string } | null;
   createdAt: string;
-}
-
-interface WeeklySale {
-  date: string;
-  orders: number;
-  revenue: number;
 }
 
 interface StatsData {
   stats: {
-    revenue: number;
     products: number;
-    orders: number;
     customers: number;
-    pendingOrders: number;
-    completedOrders: number;
   };
-  recentOrders: Order[];
-  weeklySales: WeeklySale[];
+  recentProducts: Product[];
 }
 
 interface StatsCardProps {
@@ -65,9 +47,7 @@ interface StatsCardProps {
 // ============================================================
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000",
-  headers: {
-    "Content-Type": "application/json",
-  },
+  headers: { "Content-Type": "application/json" },
 });
 
 api.interceptors.request.use((config) => {
@@ -90,7 +70,6 @@ api.interceptors.response.use(
       localStorage.removeItem("user");
       sessionStorage.removeItem("user");
       if (typeof window !== "undefined") {
-        // Full-page redirect to fully reset React state on auth failure.
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = "/auth/signin";
       }
@@ -114,6 +93,62 @@ const StatsCard: React.FC<StatsCardProps> = ({ title, value, subtitle }) => {
       </div>
     </div>
   );
+};
+
+// ============================================================
+// Helpers
+// ============================================================
+const formatDate = (dateString: string) => {
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount || 0);
+};
+
+// ✅ Cloudinary-only — returns null if no valid URL
+const resolveCloudinaryUrl = (raw: unknown): string | null => {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+
+  if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  return null;
+};
+
+const getProductImage = (product: Product): string | null => {
+  if (Array.isArray(product.images) && product.images.length > 0) {
+    for (const img of product.images) {
+      const url = resolveCloudinaryUrl(img);
+      if (url) return url;
+    }
+  }
+  return null;
+};
+
+const getCategoryName = (product: Product): string => {
+  if (!product.category) return "Uncategorized";
+  return product.category.name || "Uncategorized";
+};
+
+const getDisplayPrice = (product: Product): number => {
+  if (
+    typeof product.discountPrice === "number" &&
+    product.discountPrice > 0
+  ) {
+    return product.discountPrice;
+  }
+  return product.price;
 };
 
 // ============================================================
@@ -172,7 +207,16 @@ export default function DashboardPage() {
       if (!isMountedRef.current) return;
 
       if (response.data && response.data.stats) {
-        setData(response.data);
+        const normalised: StatsData = {
+          stats: {
+            products: response.data.stats.products || 0,
+            customers: response.data.stats.customers || 0,
+          },
+          recentProducts: Array.isArray(response.data.recentProducts)
+            ? response.data.recentProducts
+            : [],
+        };
+        setData(normalised);
         setError(null);
       } else {
         setError("Invalid data format from API");
@@ -220,23 +264,6 @@ export default function DashboardPage() {
     }, 0);
   }, [getAuthenticatedUser, fetchDashboardData, router]);
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "ETB",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount || 0);
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -280,7 +307,7 @@ export default function DashboardPage() {
     );
   }
 
-  const { stats, recentOrders, weeklySales } = data;
+  const { stats, recentProducts } = data;
 
   return (
     <div className="space-y-6">
@@ -310,118 +337,100 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatsCard title="Total Revenue" value={formatCurrency(stats.revenue)} />
-        <StatsCard title="Total Products" value={stats.products || 0} />
-        <StatsCard title="Total Orders" value={stats.orders || 0} />
-        <StatsCard title="Total Customers" value={stats.customers || 0} />
+      {/* Stats Cards — only Products & Customers now */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <StatsCard title="Total Products" value={stats.products} />
+        <StatsCard title="Total Customers" value={stats.customers} />
       </div>
 
-      {/* Weekly Sales Chart */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-900 text-sm">Weekly Sales</h3>
-          <span className="text-xs text-gray-500">Last 7 days</span>
-        </div>
-        <div className="h-28 flex items-end space-x-2">
-          {weeklySales && weeklySales.length > 0 ? (
-            weeklySales.map((day, index) => {
-              const maxRevenue = Math.max(
-                ...weeklySales.map((d) => d.revenue || 0)
-              );
-              const heightPercentage =
-                maxRevenue > 0 ? (day.revenue / maxRevenue) * 100 : 0;
-              const dayLabel = new Date(day.date).toLocaleDateString("en-US", {
-                weekday: "short",
-              });
-
-              return (
-                <div
-                  key={index}
-                  className="flex-1 flex flex-col items-center space-y-1"
-                >
-                  <div
-                    className="w-full bg-yellow-500 rounded-t transition-all hover:bg-yellow-600"
-                    style={{
-                      height: `${Math.max(heightPercentage, 5)}%`,
-                      minHeight: "8px",
-                    }}
-                  ></div>
-                  <span className="text-xs text-gray-500">{dayLabel}</span>
-                </div>
-              );
-            })
-          ) : (
-            <div className="w-full text-center text-gray-400 text-sm">
-              No sales data available
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Recent Orders Table */}
+      {/* Recent Products Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="font-semibold text-gray-900 text-sm">
-            Recent Orders
-          </h3>
-          <p className="text-xs text-gray-500">
-            Latest transactions from your store
-          </p>
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm">
+              Recent Products
+            </h3>
+            <p className="text-xs text-gray-500">
+              Latest products added to your store
+            </p>
+          </div>
+          <Package className="w-4 h-4 text-gray-400" />
         </div>
         <div className="overflow-x-auto">
-          {recentOrders && recentOrders.length > 0 ? (
+          {recentProducts.length > 0 ? (
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50">
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Order #
+                    Product
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Customer
+                    Category
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Products
+                    Price
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total
+                    Stock
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
+                    Added
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {recentOrders.map((order) => (
-                  <tr
-                    key={order.id}
-                    className="hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      #{order.orderNumber}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {order.user?.name || order.user?.email || "Unknown"}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {order.items
-                        ?.map((item) => item.product?.name)
-                        .join(", ") || "N/A"}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      {formatCurrency(order.total)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      {formatDate(order.createdAt)}
-                    </td>
-                  </tr>
-                ))}
+                {recentProducts.map((product) => {
+                  const img = getProductImage(product);
+                  return (
+                    <tr
+                      key={product.id}
+                      className="hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex items-center space-x-3">
+                          {img ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={img}
+                              alt={product.name}
+                              className="w-9 h-9 rounded-lg object-cover border border-gray-200"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center border border-gray-200">
+                              <Package className="w-4 h-4 text-gray-400" />
+                            </div>
+                          )}
+                          <span className="font-medium text-gray-900">
+                            {product.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {getCategoryName(product)}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        {formatCurrency(getDisplayPrice(product))}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {typeof product.stock === "number"
+                          ? product.stock
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500">
+                        {formatDate(product.createdAt)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (
-            <div className="p-8 text-center text-gray-500">
-              No recent orders found
+            <div className="p-8 text-center">
+              <Package className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+              <p className="text-gray-500 text-sm">No products found</p>
+              <p className="text-gray-400 text-xs mt-1">
+                Add your first product to see it here
+              </p>
             </div>
           )}
         </div>

@@ -1,89 +1,72 @@
 // routes/profile.routes.js
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
+const { requireAuth } = require('../middleware/auth');
 
-// ============================================================
-// Middleware — verify JWT token
-// ============================================================
-const verifyToken = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
+// ═══════════════════════════════════════════════════════════
+// Profile API — Alemayehu Plastic
+//  • Uses the shared auth middleware (same as the rest of the app)
+//  • No Order/Article/Cart references
+// ═══════════════════════════════════════════════════════════
 
-    if (!authHeader) {
-      console.log('❌ No authorization header');
-      return res.status(401).json({
-        success: false,
-        message: 'No authorization header provided',
-      });
-    }
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 10;
 
-    const token = authHeader.split(' ')[1];
-
-    if (!token) {
-      console.log('❌ No token in authorization header');
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided',
-      });
-    }
-
-    console.log('🔑 Verifying token...');
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'your-secret-key'
-    );
-    console.log('✅ Token verified:', decoded);
-
-    req.userId = decoded.id || decoded.userId;
-    req.userRole = decoded.role || 'USER';
-    next();
-  } catch (error) {
-    console.error('❌ Token verification error:', error.message);
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid or expired token',
-    });
+// Same password rule as auth.routes.js
+const passwordError = (pw) => {
+  if (typeof pw !== 'string' || pw.length < 8) {
+    return 'Password must be at least 8 characters';
   }
+  if (pw.length > 128) {
+    return 'Password is too long (maximum 128 characters)';
+  }
+  if (!/\d/.test(pw)) {
+    return 'Password must contain at least one number';
+  }
+  return null;
 };
 
 // ============================================================
 // GET /api/profile/me — current user profile
 // ============================================================
-router.get('/me', verifyToken, async (req, res) => {
+router.get('/me', requireAuth, async (req, res) => {
   try {
-    console.log(`📊 Fetching profile for user ID: ${req.userId}`);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Unauthorized' });
+    }
 
-    // ✅ No more sellerProfile include — the relation was removed
     const user = await prisma.user.findUnique({
-      where: { id: req.userId },
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        address: true,
+        bio: true,
+        role: true,
+        avatar: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     if (!user) {
-      console.log('❌ User not found');
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
     }
 
-    console.log('✅ User found:', user.email);
-    console.log('📝 User name:', user.name);
-    console.log('📝 User role:', user.role);
-
-    const { password, ...userWithoutPassword } = user;
-
-    res.json({
-      success: true,
-      user: userWithoutPassword,
-    });
+    res.json({ success: true, user });
   } catch (error) {
     console.error('❌ Get profile error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error: ' + error.message,
+      message: 'Server error',
     });
   }
 });
@@ -91,14 +74,17 @@ router.get('/me', verifyToken, async (req, res) => {
 // ============================================================
 // PUT /api/profile/update — update user profile
 // ============================================================
-router.put('/update', verifyToken, async (req, res) => {
+router.put('/update', requireAuth, async (req, res) => {
   try {
-    console.log(`📝 Updating profile for user ID: ${req.userId}`);
-    console.log('📝 Update data:', req.body);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Unauthorized' });
+    }
 
-    const { name, phone, address, bio, avatar } = req.body;
+    const { name, phone, address, bio, avatar } = req.body || {};
 
-    // Build update payload — only include fields that were provided
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
@@ -106,49 +92,54 @@ router.put('/update', verifyToken, async (req, res) => {
     if (bio !== undefined) updateData.bio = bio;
     if (avatar !== undefined) updateData.avatar = avatar;
 
-    // If nothing to update, return the current user
+    const select = {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      address: true,
+      bio: true,
+      role: true,
+      avatar: true,
+      createdAt: true,
+      updatedAt: true,
+    };
+
     if (Object.keys(updateData).length === 0) {
       const currentUser = await prisma.user.findUnique({
-        where: { id: req.userId },
+        where: { id: userId },
+        select,
       });
 
       if (!currentUser) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found',
-        });
+        return res
+          .status(404)
+          .json({ success: false, message: 'User not found' });
       }
 
-      const { password, ...userWithoutPassword } = currentUser;
       return res.json({
         success: true,
         message: 'No changes provided',
-        user: userWithoutPassword,
+        user: currentUser,
       });
     }
 
-    // Update user
     const updatedUser = await prisma.user.update({
-      where: { id: req.userId },
+      where: { id: userId },
       data: updateData,
+      select,
     });
-
-    console.log('✅ User updated:', updatedUser.email);
-    console.log('📝 New name:', updatedUser.name);
-    console.log('📝 New phone:', updatedUser.phone);
-
-    const { password, ...userWithoutPassword } = updatedUser;
 
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      user: userWithoutPassword,
+      user: updatedUser,
     });
   } catch (error) {
     console.error('❌ Update profile error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error: ' + error.message,
+      message: 'Server error',
     });
   }
 });
@@ -156,9 +147,16 @@ router.put('/update', verifyToken, async (req, res) => {
 // ============================================================
 // PUT /api/profile/change-password
 // ============================================================
-router.put('/change-password', verifyToken, async (req, res) => {
+router.put('/change-password', requireAuth, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { currentPassword, newPassword } = req.body || {};
 
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
@@ -167,26 +165,22 @@ router.put('/change-password', verifyToken, async (req, res) => {
       });
     }
 
-    if (newPassword.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: 'New password must be at least 8 characters',
-      });
+    const pwErr = passwordError(newPassword);
+    if (pwErr) {
+      return res.status(400).json({ success: false, message: pwErr });
     }
 
-    // Get user with password
     const user = await prisma.user.findUnique({
-      where: { id: req.userId },
+      where: { id: userId },
     });
 
-    if (!user) {
-      return res.status(404).json({
+    if (!user || !user.password) {
+      return res.status(400).json({
         success: false,
-        message: 'User not found',
+        message: 'Cannot change password for this account',
       });
     }
 
-    // Verify current password
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
       return res.status(400).json({
@@ -195,12 +189,10 @@ router.put('/change-password', verifyToken, async (req, res) => {
       });
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
-    // Update password
     await prisma.user.update({
-      where: { id: req.userId },
+      where: { id: userId },
       data: { password: hashedPassword },
     });
 

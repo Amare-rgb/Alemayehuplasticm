@@ -2,58 +2,49 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const crypto = require('crypto');
-const path = require('path');
-const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 /* ────────────────────────────────────────────────────────────────
-   AUTH — optional. Comment out the requireAuth arg on each route if
-   your current setup doesn't have this middleware yet. It's safer
-   to require authentication for uploads so random people can't upload.
+   AUTH — uses your real middleware/auth.js
    ──────────────────────────────────────────────────────────────── */
-let requireAuth = (req, res, next) => next();
-try {
-  requireAuth =
-    require('../middleware/auth').requireAuth ||
-    require('../middleware/auth.middleware').requireAuth ||
-    requireAuth;
-} catch (err) {
+const { requireAuth, requireAdmin } = require('../middleware/auth');
+
+/* Debug — remove after confirming it works */
+console.log(
+  '✅ upload.routes.js → auth loaded:',
+  typeof requireAuth === 'function' ? 'requireAuth OK' : 'MISSING',
+  '|',
+  typeof requireAdmin === 'function' ? 'requireAdmin OK' : 'MISSING'
+);
+
+/* ────────────────────────────────────────────────────────────────
+   CLOUDINARY CONFIG
+   ──────────────────────────────────────────────────────────────── */
+const CLOUDINARY_FOLDER_ROOT =
+  process.env.CLOUDINARY_FOLDER_ROOT || 'alemayehu-plastic';
+
+if (
+  !process.env.CLOUDINARY_CLOUD_NAME ||
+  !process.env.CLOUDINARY_API_KEY ||
+  !process.env.CLOUDINARY_API_SECRET
+) {
   console.warn(
-    '⚠️  middleware/auth not found — /api/upload routes are UNPROTECTED. ' +
-      'Add auth middleware in production.'
+    '⚠️  Cloudinary env vars missing. Set CLOUDINARY_CLOUD_NAME, ' +
+      'CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in .env'
   );
+} else {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
+  });
+  console.log('☁️  Cloudinary configured:', process.env.CLOUDINARY_CLOUD_NAME);
 }
 
 /* ────────────────────────────────────────────────────────────────
-   LOCAL DISK STORAGE
-   Files are saved to:  <server-root>/uploads/<folder>/<filename>
-   Served at:           http://<host>:<port>/uploads/<folder>/<filename>
-   ──────────────────────────────────────────────────────────────── */
-const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
-
-const ALL_FOLDERS = [
-  'products',
-  'avatars',
-  'categories',
-  'settings',
-  'blog',
-  'profiles',
-  'payments',
-  'pdfs',
-  'uploads',
-];
-
-// Create all folders on startup
-for (const folder of ALL_FOLDERS) {
-  const dir = path.join(UPLOAD_ROOT, folder);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log(`📁 Created upload folder: ${dir}`);
-  }
-}
-
-/* ────────────────────────────────────────────────────────────────
-   MULTER — disk storage. Files are written directly to disk.
+   FILE-TYPE GUARDS
    ──────────────────────────────────────────────────────────────── */
 const IMAGE_TYPES = [
   'image/jpeg',
@@ -67,47 +58,77 @@ const IMAGE_TYPES = [
 
 const PDF_TYPES = ['application/pdf'];
 
-function makeFileFilter(allowed) {
+function makeFileFilter(allowed, { allowPdf = false, allowVideo = false } = {}) {
   return (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const okMime = allowed.includes(file.mimetype);
-    const okExt =
-      IMAGE_TYPES.includes(file.mimetype) ||
-      /\.(jpe?g|png|gif|webp|avif|svg)$/i.test(ext);
-    const okPdf = PDF_TYPES.includes(file.mimetype) || ext === '.pdf';
+    const mime = file.mimetype || '';
+    const isImage = mime.startsWith('image/');
+    const isPdf = PDF_TYPES.includes(mime);
+    const isVideo = mime.startsWith('video/');
 
-    if (okMime || okExt || okPdf) return cb(null, true);
-    cb(new Error(`Invalid file type: ${file.mimetype}`), false);
+    const ok =
+      (isImage && (allowed.includes(mime) || allowed.length === 0)) ||
+      (isPdf && allowPdf) ||
+      (isVideo && allowVideo);
+
+    if (ok) return cb(null, true);
+    cb(new Error(`Invalid file type: ${mime}`), false);
   };
 }
 
-/**
- * Build a multer instance that saves files into the given subfolder.
- */
-function buildUploader({ subfolder, maxSizeMB = 10, maxFiles = 10, allowed = IMAGE_TYPES }) {
-  const destinationDir = path.join(UPLOAD_ROOT, subfolder);
+/* ────────────────────────────────────────────────────────────────
+   CLOUDINARY STORAGE ENGINE FACTORY
+   ──────────────────────────────────────────────────────────────── */
+function buildStorage(subfolder) {
+  return new CloudinaryStorage({
+    cloudinary,
+    params: async (req, file) => {
+      const mime = file.mimetype || '';
+      const isVideo = mime.startsWith('video/');
+      const isRaw =
+        mime === 'application/pdf' ||
+        mime.includes('msword') ||
+        mime.includes('officedocument') ||
+        mime.includes('octet-stream');
 
-  if (!fs.existsSync(destinationDir)) {
-    fs.mkdirSync(destinationDir, { recursive: true });
-  }
+      const baseName = (file.originalname || 'file')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9-_]/g, '-')
+        .slice(0, 40);
+      const uniqueSuffix = `${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 10)}`;
 
-  const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, destinationDir),
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-      const unique = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`;
-      cb(null, unique);
+      return {
+        folder: `${CLOUDINARY_FOLDER_ROOT}/${subfolder}`,
+        public_id: `${baseName}-${uniqueSuffix}`,
+        resource_type: isVideo ? 'video' : isRaw ? 'raw' : 'image',
+        transformation:
+          isVideo || isRaw
+            ? undefined
+            : [{ quality: 'auto', fetch_format: 'auto' }],
+      };
     },
   });
+}
 
+function buildUploader({
+  subfolder = 'uploads',
+  maxSizeMB = 10,
+  maxFiles = 10,
+  allowed = IMAGE_TYPES,
+  allowPdf = false,
+  allowVideo = false,
+} = {}) {
   return multer({
-    storage,
-    fileFilter: makeFileFilter(allowed),
+    storage: buildStorage(subfolder),
+    fileFilter: makeFileFilter(allowed, { allowPdf, allowVideo }),
     limits: { fileSize: maxSizeMB * 1024 * 1024, files: maxFiles },
   });
 }
 
-// Default uploaders
+/* ────────────────────────────────────────────────────────────────
+   PRE-BUILT UPLOADERS
+   ──────────────────────────────────────────────────────────────── */
 const imageUploader = buildUploader({
   subfolder: 'uploads',
   maxSizeMB: 10,
@@ -119,24 +140,21 @@ const pdfUploader = buildUploader({
   subfolder: 'pdfs',
   maxSizeMB: 20,
   maxFiles: 1,
-  allowed: PDF_TYPES,
+  allowed: IMAGE_TYPES,
+  allowPdf: true,
 });
 
-/* Accepts ONE file from ANY of the common field names. */
 const singleImage = imageUploader.fields([
   { name: 'file', maxCount: 1 },
   { name: 'image', maxCount: 1 },
   { name: 'avatar', maxCount: 1 },
 ]);
 
-const manyImages = imageUploader.array('files', 10);
 const singlePdf = pdfUploader.single('file');
 
 /* ────────────────────────────────────────────────────────────────
    HELPERS
    ──────────────────────────────────────────────────────────────── */
-const randomId = () => `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
-
 function pickSingleFile(req) {
   if (!req.files || typeof req.files !== 'object') return null;
   const fields = Object.keys(req.files);
@@ -148,14 +166,14 @@ function pickSingleFile(req) {
   return null;
 }
 
-/**
- * Given a saved multer file (with `.path` on disk), return the public URL
- * like: /uploads/products/1712-abc.jpg
- */
 function fileToUrl(file) {
-  if (!file || !file.path) return null;
-  const rel = path.relative(UPLOAD_ROOT, file.path).split(path.sep).join('/');
-  return `/uploads/${rel}`;
+  if (!file) return null;
+  return file.path || file.secure_url || file.url || null;
+}
+
+function fileToPublicId(file) {
+  if (!file) return null;
+  return file.filename || file.public_id || null;
 }
 
 function handleMulterErrors(err, res) {
@@ -189,8 +207,7 @@ function handleMulterErrors(err, res) {
     if (err.message && err.message.includes('Invalid file type')) {
       return res.status(400).json({
         success: false,
-        error:
-          'Only image files are allowed (jpeg, png, gif, webp, avif, svg).',
+        error: 'Only image files are allowed (jpeg, png, gif, webp, avif, svg).',
         code: 'INVALID_FILE_TYPE',
       });
     }
@@ -225,13 +242,14 @@ router.post('/', requireAuth, (req, res) => {
 
     const isAvatar = file.fieldname === 'avatar';
     const url = fileToUrl(file);
+    const publicId = fileToPublicId(file);
 
     return res.json({
       success: true,
       url,
       secure_url: url,
-      publicId: file.filename,
-      public_id: file.filename,
+      publicId,
+      public_id: publicId,
       fileName: file.originalname,
       fileSize: file.size,
       fileType: file.mimetype,
@@ -242,8 +260,8 @@ router.post('/', requireAuth, (req, res) => {
   });
 });
 
-/* Product images — single */
-router.post('/product', requireAuth, (req, res) => {
+/* Product images — single (ADMIN ONLY) */
+router.post('/product', requireAuth, requireAdmin, (req, res) => {
   const uploader = buildUploader({ subfolder: 'products' });
   const mw = uploader.fields([
     { name: 'file', maxCount: 1 },
@@ -264,12 +282,13 @@ router.post('/product', requireAuth, (req, res) => {
     }
 
     const url = fileToUrl(file);
+    const publicId = fileToPublicId(file);
     return res.json({
       success: true,
       url,
       secure_url: url,
-      publicId: file.filename,
-      public_id: file.filename,
+      publicId,
+      public_id: publicId,
       fileName: file.originalname,
       fileSize: file.size,
       fileType: file.mimetype,
@@ -277,8 +296,8 @@ router.post('/product', requireAuth, (req, res) => {
   });
 });
 
-/* Product images — multiple (max 10) */
-router.post('/products', requireAuth, (req, res) => {
+/* Product images — multiple (ADMIN ONLY) */
+router.post('/products', requireAuth, requireAdmin, (req, res) => {
   const uploader = buildUploader({ subfolder: 'products', maxFiles: 10 });
   const mw = uploader.array('files', 10);
 
@@ -298,8 +317,8 @@ router.post('/products', requireAuth, (req, res) => {
     const results = files.map((f) => ({
       url: fileToUrl(f),
       secure_url: fileToUrl(f),
-      publicId: f.filename,
-      public_id: f.filename,
+      publicId: fileToPublicId(f),
+      public_id: fileToPublicId(f),
       fileName: f.originalname,
       fileSize: f.size,
       fileType: f.mimetype,
@@ -309,7 +328,7 @@ router.post('/products', requireAuth, (req, res) => {
   });
 });
 
-/* Avatar */
+/* Avatar — any logged-in user */
 router.post('/avatar', requireAuth, (req, res) => {
   const uploader = buildUploader({ subfolder: 'avatars' });
   const mw = uploader.fields([
@@ -332,12 +351,13 @@ router.post('/avatar', requireAuth, (req, res) => {
     }
 
     const url = fileToUrl(file);
+    const publicId = fileToPublicId(file);
     return res.json({
       success: true,
       url,
       secure_url: url,
-      publicId: file.filename,
-      public_id: file.filename,
+      publicId,
+      public_id: publicId,
     });
   });
 });
@@ -365,12 +385,13 @@ function makeFolderRoute(folder) {
       }
 
       const url = fileToUrl(file);
+      const publicId = fileToPublicId(file);
       return res.json({
         success: true,
         url,
         secure_url: url,
-        publicId: file.filename,
-        public_id: file.filename,
+        publicId,
+        public_id: publicId,
         fileName: file.originalname,
         fileSize: file.size,
         fileType: file.mimetype,
@@ -379,14 +400,14 @@ function makeFolderRoute(folder) {
   };
 }
 
-router.post('/settings', requireAuth, makeFolderRoute('settings'));
-router.post('/category', requireAuth, makeFolderRoute('categories'));
-router.post('/blog', requireAuth, makeFolderRoute('blog'));
-router.post('/profile', requireAuth, makeFolderRoute('profiles'));
-router.post('/payment', requireAuth, makeFolderRoute('payments'));
+router.post('/settings',  requireAuth, requireAdmin, makeFolderRoute('settings'));
+router.post('/category',  requireAuth, requireAdmin, makeFolderRoute('categories'));
+router.post('/blog',      requireAuth, requireAdmin, makeFolderRoute('blog'));
+router.post('/profile',   requireAuth, makeFolderRoute('profiles'));
+router.post('/payment',   requireAuth, makeFolderRoute('payments'));
 
-/* PDF upload */
-router.post('/pdf', requireAuth, (req, res) => {
+/* PDF upload — ADMIN ONLY */
+router.post('/pdf', requireAuth, requireAdmin, (req, res) => {
   singlePdf(req, res, (err) => {
     const mErr = handleMulterErrors(err, res);
     if (mErr) return;
@@ -400,12 +421,13 @@ router.post('/pdf', requireAuth, (req, res) => {
     }
 
     const url = fileToUrl(req.file);
+    const publicId = fileToPublicId(req.file);
     return res.json({
       success: true,
       url,
       secure_url: url,
-      publicId: req.file.filename,
-      public_id: req.file.filename,
+      publicId,
+      public_id: publicId,
       fileName: req.file.originalname,
       fileSize: req.file.size,
       fileType: req.file.mimetype,
@@ -413,41 +435,47 @@ router.post('/pdf', requireAuth, (req, res) => {
   });
 });
 
-/* Delete from disk */
-router.delete('/:filename', requireAuth, async (req, res) => {
+/* Delete from Cloudinary — ADMIN ONLY */
+router.delete('/:publicId(*)', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const filename = decodeURIComponent(req.params.filename);
-    // Prevent path traversal
-    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    const publicId = decodeURIComponent(req.params.publicId || '');
+
+    if (!publicId || publicId.includes('..')) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid filename',
-        code: 'INVALID_FILENAME',
+        error: 'Invalid public_id',
+        code: 'INVALID_PUBLIC_ID',
       });
     }
 
-    // Search for the file across all folders
-    let deleted = false;
-    for (const folder of ALL_FOLDERS) {
-      const filePath = path.join(UPLOAD_ROOT, folder, filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        deleted = true;
-        break;
-      }
+    let result = await cloudinary.uploader.destroy(publicId, {
+      resource_type: 'image',
+    });
+
+    if (result.result !== 'ok') {
+      result = await cloudinary.uploader.destroy(publicId, {
+        resource_type: 'raw',
+      });
     }
 
-    if (!deleted) {
+    if (result.result !== 'ok') {
+      result = await cloudinary.uploader.destroy(publicId, {
+        resource_type: 'video',
+      });
+    }
+
+    if (result.result !== 'ok') {
       return res.status(404).json({
         success: false,
-        error: 'File not found',
+        error: 'File not found on Cloudinary',
         code: 'FILE_NOT_FOUND',
+        result,
       });
     }
 
     return res.json({
       success: true,
-      result: 'ok',
+      result: result.result,
       message: 'File deleted successfully',
     });
   } catch (err) {

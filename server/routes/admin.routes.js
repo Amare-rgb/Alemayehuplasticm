@@ -4,6 +4,11 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAdmin } = require('../middleware/auth');
 
+// ═══════════════════════════════════════════════════════════
+// NOTE: Order, OrderItem, Article, Cart, CartItem models were
+// REMOVED. This file no longer queries them.
+// ═══════════════════════════════════════════════════════════
+
 // ============================================================
 // GET /api/admin/users — list all users
 // ============================================================
@@ -19,9 +24,6 @@ router.get('/users', requireAdmin, async (req, res) => {
         phone: true,
         avatar: true,
         createdAt: true,
-        _count: {
-          select: { orders: true },
-        },
       },
     });
 
@@ -71,24 +73,18 @@ router.patch('/users', requireAdmin, async (req, res) => {
 
 // ============================================================
 // GET /api/admin/stats — dashboard overview counts
+// Orders removed — only counts that still exist.
 // ============================================================
 router.get('/stats', requireAdmin, async (req, res) => {
   try {
-    const [
-      totalUsers,
-      totalOrders,
-      totalProducts,
-      totalCategories,
-    ] = await Promise.all([
+    const [totalUsers, totalProducts, totalCategories] = await Promise.all([
       prisma.user.count(),
-      prisma.order.count(),
       prisma.product.count(),
       prisma.category.count(),
     ]);
 
     res.json({
       totalUsers,
-      totalOrders,
       totalProducts,
       totalCategories,
     });

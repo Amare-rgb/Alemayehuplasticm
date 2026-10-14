@@ -29,29 +29,22 @@ const RAW_API_BASE =
   "http://localhost:5000";
 const API_URL = RAW_API_BASE.replace(/\/+$/, "");
 
-const DEFAULT_IMAGE = "/banners/carplastik.jpg";
-
 // ============================================================
-// Image resolver
+// Image resolver — Cloudinary ONLY
+//   • Full https URL      → as-is
+//   • res.cloudinary.com  → prefixed with https://
+//   • Anything else       → null
 // ============================================================
-function resolveImage(raw: unknown): string {
-  if (typeof raw !== "string") return DEFAULT_IMAGE;
+function resolveImage(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
   const s = raw.trim();
-  if (!s) return DEFAULT_IMAGE;
+  if (!s) return null;
 
+  if (s.startsWith("data:")) return s;
   if (s.startsWith("http://") || s.startsWith("https://")) return s;
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
 
-  if (s.startsWith("/uploads/") || s.startsWith("uploads/")) {
-    const clean = s.startsWith("/") ? s : `/${s}`;
-    return `${API_URL}${clean}`;
-  }
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_URL}/uploads/products/${s}`;
-  }
-
-  return DEFAULT_IMAGE;
+  return null;
 }
 
 // ============================================================
@@ -84,9 +77,6 @@ api.interceptors.response.use(
       localStorage.removeItem("user");
       sessionStorage.removeItem("user");
       if (typeof window !== "undefined") {
-        // Full-page redirect is intentional here: this interceptor lives
-        // outside React, so useRouter() isn't available. A hard reset is
-        // also desirable after auth failure.
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = "/auth/signin";
       }
@@ -242,7 +232,7 @@ const redirectToLogin = (router: ReturnType<typeof useRouter>) => {
 };
 
 // ============================================================
-// ProductImage — 3-stage fallback
+// ProductImage — single fallback (Package icon)
 // ============================================================
 const ProductImage: React.FC<{
   src: string | null;
@@ -251,27 +241,14 @@ const ProductImage: React.FC<{
   priority?: boolean;
 }> = ({ src, alt, className = "", priority = false }) => {
   const [prevSrc, setPrevSrc] = useState(src);
-  const [imgSrc, setImgSrc] = useState(src);
-  const [stage, setStage] = useState<"primary" | "placeholder" | "dead">(
-    "primary"
-  );
+  const [hasError, setHasError] = useState(false);
 
   if (src !== prevSrc) {
     setPrevSrc(src);
-    setImgSrc(src);
-    setStage("primary");
+    setHasError(false);
   }
 
-  const handleError = () => {
-    if (stage === "primary") {
-      setStage("placeholder");
-      setImgSrc(DEFAULT_IMAGE);
-    } else {
-      setStage("dead");
-    }
-  };
-
-  if (!imgSrc || stage === "dead") {
+  if (!src || hasError) {
     return (
       <div
         className={`flex items-center justify-center bg-gray-100 ${className}`}
@@ -283,16 +260,14 @@ const ProductImage: React.FC<{
 
   return (
     <Image
-      src={imgSrc}
+      src={src}
       alt={alt}
       width={400}
       height={400}
       className={`object-cover ${className}`}
-      onError={handleError}
+      onError={() => setHasError(true)}
       priority={priority}
-      unoptimized={
-        imgSrc.startsWith("/") || imgSrc.includes("images.unsplash.com")
-      }
+      unoptimized
     />
   );
 };
@@ -336,14 +311,6 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
 
   const clearNotification = () => setNotification(null);
 
-  const getImageUrl = (
-    imagePath: string | null | undefined
-  ): string | null => {
-    if (!imagePath) return null;
-    const resolved = resolveImage(imagePath);
-    return resolved === DEFAULT_IMAGE ? null : resolved;
-  };
-
   const fetchProduct = useCallback(async () => {
     if (!productId) return;
 
@@ -369,7 +336,6 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
       }
 
       if (productData) {
-        console.log("📸 Product images:", productData.images);
         setProduct(productData);
       } else {
         setError("Product not found");
@@ -577,7 +543,7 @@ const ProductDetailPage: React.FC<DetailPageProps> = ({ params }) => {
             {product.images && product.images.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {product.images.map((img, index) => {
-                  const imageUrl = getImageUrl(img);
+                  const imageUrl = resolveImage(img);
 
                   return (
                     <div

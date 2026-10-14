@@ -1,21 +1,26 @@
+// next.config.ts
 import type { NextConfig } from "next";
-
 import withPWAInit from "next-pwa";
 
 const withPWA = withPWAInit({
   dest: "public",
   register: true,
   skipWaiting: true,
-  disable: process.env.NODE_ENV === "development", // በDevelopment ጊዜ PWA እንዲጠፋ (Build ስታደርግ ግን ይሠራል)
+  disable: process.env.NODE_ENV === "development",
 });
 
 const isProd = process.env.NODE_ENV === "production";
 
-// Normalize the backend URL: no trailing slash, no trailing "/api".
+// ─────────────────────────────────────────────────────────────
+// Normalize the backend URL:
+//   • trim whitespace
+//   • remove trailing slashes        (e.g. ".../" → "...")
+//   • remove trailing "/api"         (e.g. ".../api" → "...")
+// ─────────────────────────────────────────────────────────────
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000")
   .trim()
-  .replace(/\/+\$/, "")
-  .replace(/\/api\$/i, "");
+  .replace(/\/+$/, "")     // ✅ was /\/+\$/ — $ was escaped
+  .replace(/\/api$/i, ""); // ✅ was /\/api\$/i — $ was escaped
 
 type ImagePattern = {
   protocol: "http" | "https";
@@ -43,9 +48,9 @@ const nextConfig: NextConfig = {
   // Allow dev requests from your ngrok tunnel origin
   allowedDevOrigins: ["concise-skunk-preferably.ngrok-free.app"],
 
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // ⚠️ Removed ignoreBuildErrors — your build passes cleanly now.
+  //    If you need it back temporarily, uncomment.
+  // typescript: { ignoreBuildErrors: true },
 
   images: {
     dangerouslyAllowLocalIP: !isProd,
@@ -58,14 +63,7 @@ const nextConfig: NextConfig = {
       { protocol: "http", hostname: "localhost", port: "5000", pathname: "/**" },
       { protocol: "http", hostname: "127.0.0.1", port: "5000", pathname: "/**" },
 
-      // ── Production backend on Railway ───────────────────────────────
-      {
-        protocol: "https",
-        hostname: "genesis-production-1d52.up.railway.app",
-        pathname: "/**",
-      },
-
-      // ── Cloudinary (permanent product images) ───────────────────────
+      // ── Cloudinary (all product / avatar / category images) ─────────
       { protocol: "https", hostname: "res.cloudinary.com", pathname: "/**" },
 
       // ── Other external image hosts ──────────────────────────────────
@@ -76,15 +74,8 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // Proxy /uploads/* from Next.js to the Express backend
-  async rewrites() {
-    return [
-      {
-        source: "/uploads/:path*",
-        destination: `${API_URL}/uploads/:path*`,
-      },
-    ];
-  },
+  // ✅ Removed /uploads/* rewrite — local disk storage is gone.
+  //    All uploads now go to Cloudinary, so no proxy is needed.
 };
 
 export default withPWA(nextConfig);

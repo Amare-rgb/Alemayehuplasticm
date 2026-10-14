@@ -40,44 +40,40 @@ const api = axios.create({
 });
 
 const getStoredToken = (): string | null => {
-  const token =
+  if (typeof window === "undefined") return null;
+  return (
     localStorage.getItem("authToken") ||
     sessionStorage.getItem("authToken") ||
     localStorage.getItem("token") ||
-    sessionStorage.getItem("token");
-
-  console.log("🔑 Token found:", !!token);
-  return token;
+    sessionStorage.getItem("token")
+  );
 };
 
-api.interceptors.request.use(
-  (config) => {
-    const token = getStoredToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-      console.log(`📤 ${config.method?.toUpperCase()} request to ${config.url}`);
-    } else {
-      console.warn("⚠️ No token available for request");
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+api.interceptors.request.use((config) => {
+  const token = getStoredToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    console.error("API Error Details:", {
-      status: error.response?.status,
-      data: error.response?.data,
-      config: {
-        url: error.config?.url,
-        method: error.config?.method,
-      },
-    });
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
+
+// ═══════════════════════════════════════════════════════════
+// Logo resolver — Cloudinary ONLY
+// ═══════════════════════════════════════════════════════════
+function resolveLogo(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+
+  if (s.startsWith("data:") || s.startsWith("blob:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  return null;
+}
 
 // ═══════════════════════════════════════════════════════════
 // Notification
@@ -157,12 +153,10 @@ const Notification: React.FC<NotificationProps> = ({
 // ═══════════════════════════════════════════════════════════
 // TabPanel
 // ═══════════════════════════════════════════════════════════
-interface TabPanelProps {
-  children: React.ReactNode;
-  active: boolean;
-}
-
-const TabPanel: React.FC<TabPanelProps> = ({ children, active }) => {
+const TabPanel: React.FC<{ children: React.ReactNode; active: boolean }> = ({
+  children,
+  active,
+}) => {
   if (!active) return null;
   return <div className="space-y-6">{children}</div>;
 };
@@ -170,17 +164,11 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, active }) => {
 // ═══════════════════════════════════════════════════════════
 // SettingSection
 // ═══════════════════════════════════════════════════════════
-interface SettingSectionProps {
+const SettingSection: React.FC<{
   title: string;
   description: string;
   children: React.ReactNode;
-}
-
-const SettingSection: React.FC<SettingSectionProps> = ({
-  title,
-  description,
-  children,
-}) => {
+}> = ({ title, description, children }) => {
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
@@ -272,7 +260,7 @@ interface ApiErrorResponse {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ Rebranded defaults — Alemayehu Plastic Manufacturing
+// Defaults
 // ═══════════════════════════════════════════════════════════
 const defaultSettings: SettingsData = {
   siteName: "Alemayehu Plastic Manufacturing",
@@ -334,7 +322,6 @@ const SettingsPage: React.FC = () => {
 
   const [formData, setFormData] = useState<SettingsData>(defaultSettings);
 
-  // ✅ Only destructure what we actually use in this component
   const { updateSettings } = useSettings();
 
   const tabs = [
@@ -357,9 +344,7 @@ const SettingsPage: React.FC = () => {
   const showNotification = (
     type: "success" | "error" | "info" | "warning",
     message: string
-  ) => {
-    setNotification({ type, message });
-  };
+  ) => setNotification({ type, message });
 
   const clearNotification = () => setNotification(null);
 
@@ -416,8 +401,7 @@ const SettingsPage: React.FC = () => {
 
       setLogoFile(file);
       setLogoToDelete(false);
-      const previewUrl = URL.createObjectURL(file);
-      setLogoPreview(previewUrl);
+      setLogoPreview(URL.createObjectURL(file));
     }
   };
 
@@ -435,19 +419,11 @@ const SettingsPage: React.FC = () => {
       const token = getStoredToken();
 
       if (!token) {
-        console.log("⚠️ No token found, using default settings");
         setFormData(defaultSettings);
-        setLoading(false);
         return;
       }
 
-      console.log("🔍 Fetching settings from API...");
-
-      const response = await api.get("/api/admin/settings", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      console.log("📦 Settings API Response:", response.data);
+      const response = await api.get("/api/admin/settings");
 
       if (response.data && isMounted.current) {
         const settingsData = response.data.data || response.data;
@@ -456,16 +432,11 @@ const SettingsPage: React.FC = () => {
           ...prev,
           ...settingsData,
         }));
-        if (settingsData.logo) {
-          const logoUrl = settingsData.logo.startsWith("http")
-            ? settingsData.logo
-            : `${API_URL}${settingsData.logo}`;
-          setLogoPreview(logoUrl);
-          setLogoToDelete(false);
-        } else {
-          setLogoPreview(null);
-        }
-        console.log("✅ Settings loaded successfully");
+
+        // ✅ Cloudinary-only logo resolution
+        const resolved = resolveLogo(settingsData.logo);
+        setLogoPreview(resolved);
+        setLogoToDelete(false);
       }
     } catch (err) {
       const error = err as AxiosError<ApiErrorResponse>;
@@ -524,11 +495,8 @@ const SettingsPage: React.FC = () => {
           "Authentication required. Please login again."
         );
         router.push("/auth/signin");
-        setSaving(false);
         return;
       }
-
-      console.log("📝 Saving settings...");
 
       const formDataToSend = new FormData();
 
@@ -536,27 +504,19 @@ const SettingsPage: React.FC = () => {
         if (key !== "logo") {
           const value = formData[key as keyof SettingsData];
           if (value !== undefined && value !== null) {
-            const stringValue =
-              typeof value === "boolean" ? String(value) : String(value);
-            formDataToSend.append(key, stringValue);
+            formDataToSend.append(key, String(value));
           }
         }
       });
 
+      // Send the logo URL (or empty string to clear)
       if (formData.logo) {
         formDataToSend.append("logo", formData.logo);
       }
 
-      console.log("📤 Sending request to /api/admin/settings");
-
       const response = await api.post("/api/admin/settings", formDataToSend, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
+        headers: { "Content-Type": "multipart/form-data" },
       });
-
-      console.log("📥 Save response:", response.data);
 
       const isSuccess =
         response.data?.success || response.data?.status === "success";
@@ -582,11 +542,12 @@ const SettingsPage: React.FC = () => {
 
         await loadSettingsData();
       } else {
-        const errorMsg =
+        showNotification(
+          "error",
           response.data?.error ||
-          response.data?.message ||
-          "Failed to save settings";
-        showNotification("error", errorMsg);
+            response.data?.message ||
+            "Failed to save settings"
+        );
       }
     } catch (err) {
       const error = err as AxiosError<ApiErrorResponse>;
@@ -609,6 +570,7 @@ const SettingsPage: React.FC = () => {
     }
   };
 
+  // ✅ Logo-only save — sends only the file, no re-fetch
   const handleSaveLogo = async () => {
     setSavingLogo(true);
 
@@ -620,7 +582,6 @@ const SettingsPage: React.FC = () => {
           "Authentication required. Please login again."
         );
         router.push("/auth/signin");
-        setSavingLogo(false);
         return;
       }
 
@@ -629,50 +590,19 @@ const SettingsPage: React.FC = () => {
           "warning",
           "Please select a logo to upload or click remove to delete"
         );
-        setSavingLogo(false);
         return;
       }
 
-      console.log("🖼️ Saving logo only...");
-
       const formDataToSend = new FormData();
 
-      const currentResponse = await api.get("/api/admin/settings", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const currentSettings =
-        currentResponse.data.data || currentResponse.data;
-
-      Object.keys(currentSettings).forEach((key) => {
-        if (
-          key !== "logo" &&
-          key !== "id" &&
-          key !== "createdAt" &&
-          key !== "updatedAt"
-        ) {
-          const value = currentSettings[key];
-          if (value !== undefined && value !== null) {
-            const stringValue =
-              typeof value === "boolean" ? String(value) : String(value);
-            formDataToSend.append(key, stringValue);
-          }
-        }
-      });
-
       if (logoToDelete) {
-        formDataToSend.append("logo", "");
-        console.log("🗑️ Logo will be deleted");
+        formDataToSend.append("logo", ""); // empty string clears
       } else if (logoFile) {
-        console.log("🖼️ Appending logo file:", logoFile.name);
         formDataToSend.append("logo", logoFile);
       }
 
       const response = await api.post("/api/admin/settings", formDataToSend, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
       const isSuccess =
@@ -701,11 +631,12 @@ const SettingsPage: React.FC = () => {
         await loadSettingsData();
         if (fileInputRef.current) fileInputRef.current.value = "";
       } else {
-        const errorMsg =
+        showNotification(
+          "error",
           response.data?.error ||
-          response.data?.message ||
-          "Failed to update logo";
-        showNotification("error", errorMsg);
+            response.data?.message ||
+            "Failed to update logo"
+        );
       }
     } catch (err) {
       const error = err as AxiosError<ApiErrorResponse>;
@@ -741,6 +672,13 @@ const SettingsPage: React.FC = () => {
       showNotification("error", "New password must be at least 8 characters");
       return;
     }
+    if (!/\d/.test(passwordData.newPassword)) {
+      showNotification(
+        "error",
+        "New password must contain at least one number"
+      );
+      return;
+    }
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       showNotification("error", "Passwords do not match");
       return;
@@ -754,14 +692,12 @@ const SettingsPage: React.FC = () => {
         return;
       }
 
+      // ✅ Correct endpoint: /api/admin/settings/change-password
       const response = await api.post(
-        "/api/admin/change-password",
+        "/api/admin/settings/change-password",
         {
           currentPassword: passwordData.currentPassword,
           newPassword: passwordData.newPassword,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
         }
       );
 
@@ -808,13 +744,7 @@ const SettingsPage: React.FC = () => {
         return;
       }
 
-      const response = await api.post(
-        "/api/admin/settings/reset",
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await api.post("/api/admin/settings/reset");
 
       if (response.data.success) {
         setFormData(defaultSettings);
@@ -938,10 +868,8 @@ const SettingsPage: React.FC = () => {
                   <div className="relative">
                     <div className="w-32 h-32 rounded-full border-2 border-dashed border-gray-300 overflow-hidden flex items-center justify-center bg-gray-50">
                       {logoPreview ? (
-                        // ✅ Logo preview may be a blob: URL (from a fresh
-                        //    file pick) or a remote/local URL. next/image
-                        //    doesn't support blob: URLs, so we use a raw
-                        //    <img> for this preview and disable the rule.
+                        // Preview can be a blob: URL (fresh pick) or Cloudinary URL.
+                        // next/image doesn't support blob:, so use raw <img> here.
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={logoPreview}
@@ -1005,17 +933,17 @@ const SettingsPage: React.FC = () => {
                       <p className="text-xs text-gray-400">
                         Recommended: PNG or SVG, max 5MB
                       </p>
-                      {logoPreview && !logoToDelete && (
+                      {logoPreview && !logoToDelete && logoFile && (
                         <p className="text-xs text-yellow-600">
-                          ✓ New logo selected - click Save Logo to update
+                          ✓ New logo selected — click Save Logo to update
                         </p>
                       )}
                       {logoToDelete && (
                         <p className="text-xs text-red-600">
-                          ⚠️ Logo will be removed - click Save Logo to confirm
+                          ⚠️ Logo will be removed — click Save Logo to confirm
                         </p>
                       )}
-                      {formData.logo && !logoPreview && !logoToDelete && (
+                      {formData.logo && !logoFile && !logoToDelete && (
                         <p className="text-xs text-blue-600">
                           ✓ Current logo is saved
                         </p>
@@ -1355,7 +1283,7 @@ const SettingsPage: React.FC = () => {
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
                   />
                   <p className="text-xs text-gray-400 mt-1">
-                    Minimum 8 characters
+                    Minimum 8 characters, must include a number
                   </p>
                 </div>
 

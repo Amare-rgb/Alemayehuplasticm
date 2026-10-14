@@ -18,7 +18,6 @@ import {
   RefreshCw,
   Shield,
   ShieldCheck,
-  ShieldAlert,
   AlertCircle,
   Info,
   X,
@@ -26,31 +25,29 @@ import {
   Calendar,
 } from "lucide-react";
 
-// Create axios instance
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+// ============================================================
+// API base
+// ============================================================
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
+).replace(/\/+$/, "");
 
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
+  headers: { "Content-Type": "application/json" },
   withCredentials: true,
 });
 
-// Add token to requests
 api.interceptors.request.use((config) => {
   const token =
     localStorage.getItem("token") ||
     sessionStorage.getItem("token") ||
     localStorage.getItem("authToken") ||
     sessionStorage.getItem("authToken");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Add response interceptor
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -62,9 +59,6 @@ api.interceptors.response.use(
       localStorage.removeItem("user");
       sessionStorage.removeItem("user");
       if (typeof window !== "undefined") {
-        // Full-page redirect is intentional here: this interceptor lives
-        // outside React, so useRouter() isn't available. A hard reset is
-        // also desirable after auth failure.
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = "/auth/signin";
       }
@@ -73,24 +67,74 @@ api.interceptors.response.use(
   }
 );
 
-// Types
-interface UserCount {
-  orders: number;
-}
+// ============================================================
+// Types — Role matches Prisma enum (USER | ADMIN)
+// ============================================================
+type Role = "USER" | "ADMIN";
 
-interface User {
+interface UserRecord {
   id: string;
   name: string;
   email: string;
   phone: string | null;
-  role: "ADMIN" | "SELLER" | "CUSTOMER" | "USER";
+  role: Role;
   avatar: string | null;
   createdAt: string;
   updatedAt: string;
-  _count: UserCount;
 }
 
-// Notification Component
+// ============================================================
+// Shared helpers
+// ============================================================
+const formatDate = (dateString: string) => {
+  if (!dateString) return "N/A";
+  return new Date(dateString).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+const getRoleColor = (role: string) => {
+  const colors: Record<string, string> = {
+    ADMIN: "bg-purple-100 text-purple-700 border-purple-200",
+    USER: "bg-gray-100 text-gray-700 border-gray-200",
+  };
+  return colors[role] || "bg-gray-100 text-gray-700 border-gray-200";
+};
+
+const getRoleIcon = (role: string) => {
+  const icons: Record<string, React.ReactNode> = {
+    ADMIN: <ShieldCheck className="w-4 h-4" />,
+    USER: <Shield className="w-4 h-4" />,
+  };
+  return icons[role] || null;
+};
+
+const getRoleLabel = (role: string) => {
+  const labels: Record<string, string> = {
+    ADMIN: "Admin",
+    USER: "User",
+  };
+  return labels[role] || role;
+};
+
+const getToken = (): string | null => {
+  if (typeof window === "undefined") return null;
+  return (
+    localStorage.getItem("token") ||
+    sessionStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    sessionStorage.getItem("authToken")
+  );
+};
+
+// ============================================================
+// Notification
+// ============================================================
 interface NotificationProps {
   type: "success" | "error" | "info" | "warning";
   message: string;
@@ -109,14 +153,13 @@ const Notification: React.FC<NotificationProps> = ({
       setIsVisible(false);
       setTimeout(onClose, 300);
     }, 5000);
-
     return () => clearTimeout(timer);
   }, [onClose]);
 
   const getIcon = () => {
     switch (type) {
       case "success":
-        return <CheckCircle className="w-5 h-5 text-emerald-500" />;
+        return <CheckCircle className="w-5 h-5 text-yellow-500" />;
       case "error":
         return <XCircle className="w-5 h-5 text-red-500" />;
       case "warning":
@@ -129,7 +172,7 @@ const Notification: React.FC<NotificationProps> = ({
   const getColors = () => {
     switch (type) {
       case "success":
-        return "bg-emerald-50 border-emerald-200 text-emerald-800";
+        return "bg-yellow-50 border-yellow-200 text-yellow-800";
       case "error":
         return "bg-red-50 border-red-200 text-red-800";
       case "warning":
@@ -166,20 +209,11 @@ const Notification: React.FC<NotificationProps> = ({
   );
 };
 
-// Helper function to get token
-const getToken = (): string | null => {
-  if (typeof window === "undefined") return null;
-  return (
-    localStorage.getItem("token") ||
-    sessionStorage.getItem("token") ||
-    localStorage.getItem("authToken") ||
-    sessionStorage.getItem("authToken")
-  );
-};
-
+// ============================================================
 // User Detail Modal
+// ============================================================
 interface UserDetailModalProps {
-  user: User | null;
+  user: UserRecord | null;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -189,48 +223,6 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-  };
-
-  const getRoleColor = (role: string) => {
-    const colors: Record<string, string> = {
-      ADMIN: "bg-purple-100 text-purple-700 border-purple-200",
-      SELLER: "bg-blue-100 text-blue-700 border-blue-200",
-      CUSTOMER: "bg-gray-100 text-gray-700 border-gray-200",
-      USER: "bg-gray-100 text-gray-700 border-gray-200",
-    };
-    return colors[role] || "bg-gray-100 text-gray-700 border-gray-200";
-  };
-
-  const getRoleIcon = (role: string) => {
-    const icons: Record<string, React.ReactNode> = {
-      ADMIN: <ShieldCheck className="w-4 h-4" />,
-      SELLER: <Shield className="w-4 h-4" />,
-      CUSTOMER: <ShieldAlert className="w-4 h-4" />,
-      USER: <ShieldAlert className="w-4 h-4" />,
-    };
-    return icons[role] || null;
-  };
-
-  const getRoleLabel = (role: string) => {
-    const labels: Record<string, string> = {
-      ADMIN: "Admin",
-      SELLER: "Seller",
-      CUSTOMER: "Customer",
-      USER: "User",
-    };
-    return labels[role] || role;
-  };
-
   if (!isOpen || !user) return null;
 
   return (
@@ -253,7 +245,7 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({
 
         <div className="p-6 space-y-6">
           <div className="flex items-center space-x-4">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-xl font-bold">
+            <div className="w-16 h-16 rounded-full bg-yellow-100 flex items-center justify-center text-yellow-700 text-xl font-bold">
               {user.name.charAt(0).toUpperCase()}
             </div>
             <div>
@@ -264,13 +256,12 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({
                 <Mail className="w-4 h-4" />
                 <span>{user.email || "No email"}</span>
               </div>
-              {user.phone && (
+              {user.phone ? (
                 <div className="flex items-center space-x-2 text-sm text-gray-500">
                   <Phone className="w-4 h-4" />
                   <span>{user.phone}</span>
                 </div>
-              )}
-              {!user.phone && (
+              ) : (
                 <div className="flex items-center space-x-2 text-sm text-gray-400">
                   <Phone className="w-4 h-4" />
                   <span>No phone number</span>
@@ -330,12 +321,6 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({
                     {formatDate(user.updatedAt)}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Orders:</span>
-                  <span className="text-gray-700">
-                    {user._count?.orders || 0}
-                  </span>
-                </div>
               </div>
             </div>
           </div>
@@ -345,26 +330,26 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({
   );
 };
 
+// ============================================================
+// Main component
+// ============================================================
 const UsersPage: React.FC = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [notification, setNotification] = useState<{
     type: "success" | "error" | "info" | "warning";
     message: string;
   } | null>(null);
 
-  // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRole, setSelectedRole] = useState("ALL");
   const [showFilters, setShowFilters] = useState(false);
 
-  // Modal
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
@@ -375,59 +360,13 @@ const UsersPage: React.FC = () => {
   const showNotification = (
     type: "success" | "error" | "info" | "warning",
     message: string
-  ) => {
-    setNotification({ type, message });
-  };
+  ) => setNotification({ type, message });
 
-  const clearNotification = () => {
-    setNotification(null);
-  };
+  const clearNotification = () => setNotification(null);
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-  };
+  // Only USER and ADMIN exist in the schema
+  const roles = ["ALL", "USER", "ADMIN"];
 
-  const getRoleColor = (role: string) => {
-    const colors: Record<string, string> = {
-      ADMIN: "bg-purple-100 text-purple-700 border-purple-200",
-      SELLER: "bg-blue-100 text-blue-700 border-blue-200",
-      CUSTOMER: "bg-gray-100 text-gray-700 border-gray-200",
-      USER: "bg-gray-100 text-gray-700 border-gray-200",
-    };
-    return colors[role] || "bg-gray-100 text-gray-700 border-gray-200";
-  };
-
-  const getRoleIcon = (role: string) => {
-    const icons: Record<string, React.ReactNode> = {
-      ADMIN: <ShieldCheck className="w-4 h-4" />,
-      SELLER: <Shield className="w-4 h-4" />,
-      CUSTOMER: <ShieldAlert className="w-4 h-4" />,
-      USER: <ShieldAlert className="w-4 h-4" />,
-    };
-    return icons[role] || null;
-  };
-
-  const getRoleLabel = (role: string) => {
-    const labels: Record<string, string> = {
-      ADMIN: "Admin",
-      SELLER: "Seller",
-      CUSTOMER: "Customer",
-      USER: "User",
-    };
-    return labels[role] || role;
-  };
-
-  const roles = ["ALL", "ADMIN", "SELLER", "CUSTOMER", "USER"];
-
-  // Fetch users
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
@@ -439,7 +378,6 @@ const UsersPage: React.FC = () => {
           "Authentication required. Please login again."
         );
         router.push("/auth/signin");
-        setLoading(false);
         return;
       }
 
@@ -450,20 +388,11 @@ const UsersPage: React.FC = () => {
       params.append("limit", pageSize.toString());
 
       const url = `/api/users?${params.toString()}`;
-
-      console.log("📡 Fetching users from:", url);
-
-      const response = await api.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await api.get(url);
 
       if (!isMounted.current) return;
 
-      console.log("📊 Users response:", response.data);
-
-      let usersData: User[] = [];
+      let usersData: UserRecord[] = [];
       let totalCount = 0;
 
       if (response.data && response.data.users) {
@@ -476,7 +405,7 @@ const UsersPage: React.FC = () => {
 
       setUsers(usersData);
       setTotal(totalCount);
-      setTotalPages(Math.ceil(totalCount / pageSize));
+      setTotalPages(Math.max(1, Math.ceil(totalCount / pageSize)));
     } catch (err: unknown) {
       console.error("❌ Fetch error:", err);
       if (!isMounted.current) return;
@@ -491,10 +420,6 @@ const UsersPage: React.FC = () => {
             "error",
             "Authentication failed. Please login again."
           );
-          localStorage.removeItem("token");
-          localStorage.removeItem("authToken");
-          sessionStorage.removeItem("token");
-          sessionStorage.removeItem("authToken");
           router.push("/auth/signin");
         } else {
           showNotification(
@@ -509,9 +434,7 @@ const UsersPage: React.FC = () => {
         );
       }
     } finally {
-      if (isMounted.current) {
-        setLoading(false);
-      }
+      if (isMounted.current) setLoading(false);
     }
   }, [selectedRole, searchQuery, currentPage, pageSize, router]);
 
@@ -530,14 +453,13 @@ const UsersPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Handle role and search changes
+  // Refetch on filter / page change
   useEffect(() => {
     if (isInitialMount.current) return;
     fetchUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRole, searchQuery, currentPage]);
 
-  // Handler functions
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
     setCurrentPage(1);
@@ -559,16 +481,11 @@ const UsersPage: React.FC = () => {
     fetchUsers();
   };
 
-  // Stats
-  const totalUsers = users.length;
-
-  // Handle user click to view details
-  const handleViewUser = (user: User) => {
+  const handleViewUser = (user: UserRecord) => {
     setSelectedUser(user);
     setIsModalOpen(true);
   };
 
-  // Handle delete user
   const handleDelete = async (id: string, name: string) => {
     if (
       !confirm(
@@ -578,17 +495,7 @@ const UsersPage: React.FC = () => {
       return;
 
     try {
-      const token = getToken();
-      if (!token) {
-        showNotification("error", "Authentication required");
-        return;
-      }
-
-      const response = await api.delete(`/api/users/${id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await api.delete(`/api/users/${id}`);
 
       if (response.data.success) {
         showNotification("success", `User "${name}" deleted successfully`);
@@ -616,7 +523,7 @@ const UsersPage: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading users...</p>
         </div>
       </div>
@@ -643,10 +550,10 @@ const UsersPage: React.FC = () => {
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Users</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Manage users, farmers, and sellers
+            Manage user accounts and permissions
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            Total: {totalUsers} users
+            Total: {total} users
           </p>
         </div>
       </div>
@@ -654,7 +561,7 @@ const UsersPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 p-3">
           <p className="text-xs text-gray-500">Total Users</p>
-          <p className="text-lg font-bold text-gray-900">{totalUsers}</p>
+          <p className="text-lg font-bold text-gray-900">{total}</p>
         </div>
       </div>
 
@@ -666,7 +573,7 @@ const UsersPage: React.FC = () => {
             placeholder="Search users by name, email, or phone..."
             value={searchQuery}
             onChange={handleSearchChange}
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-sm"
+            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all text-sm"
           />
         </div>
         <div className="flex items-center space-x-3">
@@ -684,7 +591,7 @@ const UsersPage: React.FC = () => {
           </button>
           <button
             onClick={handleRefresh}
-            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
+            className="flex items-center space-x-2 px-3 py-1.5 text-xs text-white bg-yellow-500 rounded-lg hover:bg-yellow-600 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Refresh</span>
@@ -699,7 +606,7 @@ const UsersPage: React.FC = () => {
             <select
               value={selectedRole}
               onChange={(e) => handleRoleChange(e.target.value)}
-              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+              className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
             >
               {roles.map((role) => (
                 <option key={role} value={role}>
@@ -722,7 +629,7 @@ const UsersPage: React.FC = () => {
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           {users.length > 0 ? (
-            <table className="w-full min-w-[1000px]">
+            <table className="w-full min-w-[800px]">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
@@ -733,9 +640,6 @@ const UsersPage: React.FC = () => {
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     Role
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Orders
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     Joined
@@ -754,14 +658,14 @@ const UsersPage: React.FC = () => {
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-semibold text-sm flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center text-yellow-700 font-semibold text-sm flex-shrink-0">
                           {user.name.charAt(0).toUpperCase()}
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-900">
                             {user.name}
                           </p>
-                          <p className="text-xs text-gray-500 truncate max-w-[150px]">
+                          <p className="text-xs text-gray-500 truncate max-w-[200px]">
                             {user.email || "No email"}
                           </p>
                         </div>
@@ -789,11 +693,6 @@ const UsersPage: React.FC = () => {
                       >
                         {getRoleIcon(user.role)}
                         <span>{getRoleLabel(user.role)}</span>
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-gray-700">
-                        {user._count?.orders || 0}
                       </span>
                     </td>
                     <td className="px-4 py-3">

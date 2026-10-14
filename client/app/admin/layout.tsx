@@ -1,10 +1,10 @@
 // app/admin/layout.tsx
-'use client';
+"use client";
 
-import React, { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import { usePathname, useRouter } from 'next/navigation';
+import React, { useState, useEffect, useRef } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LogOut,
   Menu,
@@ -14,10 +14,13 @@ import {
   ChevronDown,
   User,
   Settings,
-} from 'lucide-react';
-import { useSettings } from '@/hooks/useSettings';
+  Building2,
+} from "lucide-react";
+import { useSettings } from "@/hooks/useSettings";
 
-// Define types
+// ============================================================
+// Types
+// ============================================================
 interface User {
   id: string;
   name: string;
@@ -33,12 +36,27 @@ interface NavItem {
   section: string;
 }
 
-interface Notification {
+interface NotificationItem {
   id: number;
   title: string;
   message: string;
   time: string;
   read: boolean;
+}
+
+// ============================================================
+// Logo resolver — Cloudinary ONLY
+// ============================================================
+function resolveLogo(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+
+  if (s.startsWith("data:")) return s;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
+
+  return null;
 }
 
 export default function AdminLayout({
@@ -60,7 +78,7 @@ export default function AdminLayout({
   const isAuthCheckedRef = useRef<boolean>(false);
   const redirectingRef = useRef<boolean>(false);
 
-  // Set mounted state - only once
+  // Set mounted state once
   useEffect(() => {
     if (!isMountedRef.current) {
       isMountedRef.current = true;
@@ -68,7 +86,7 @@ export default function AdminLayout({
     }
   }, []);
 
-  // Check authentication - ONLY ONCE on mount
+  // Check authentication once
   useEffect(() => {
     if (isAuthCheckedRef.current || !isMounted || redirectingRef.current) {
       return;
@@ -76,17 +94,14 @@ export default function AdminLayout({
 
     const checkAuth = (): void => {
       const token =
-        localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("authToken");
       const userData =
-        localStorage.getItem('user') || sessionStorage.getItem('user');
-
-      console.log('🔍 Admin Layout - Initial auth check...');
-      console.log('Token exists:', !!token);
+        localStorage.getItem("user") || sessionStorage.getItem("user");
 
       if (!token) {
-        console.log('❌ No token found, redirecting to login...');
         redirectingRef.current = true;
-        router.replace('/auth/signin');
+        router.replace("/auth/signin");
         setLoading(false);
         return;
       }
@@ -94,12 +109,10 @@ export default function AdminLayout({
       if (userData) {
         try {
           const parsedUser: User = JSON.parse(userData);
-          console.log('👤 User role:', parsedUser.role);
 
-          if (parsedUser.role?.toUpperCase() !== 'ADMIN') {
-            console.log('❌ Not an admin, redirecting to home...');
+          if (parsedUser.role?.toUpperCase() !== "ADMIN") {
             redirectingRef.current = true;
-            router.replace('/');
+            router.replace("/");
             setLoading(false);
             return;
           }
@@ -108,15 +121,14 @@ export default function AdminLayout({
           isAuthCheckedRef.current = true;
           setLoading(false);
         } catch (error) {
-          console.error('Error parsing user data:', error);
+          console.error("Error parsing user data:", error);
           redirectingRef.current = true;
-          router.replace('/auth/signin');
+          router.replace("/auth/signin");
           setLoading(false);
         }
       } else {
-        console.log('❌ No user data found');
         redirectingRef.current = true;
-        router.replace('/auth/signin');
+        router.replace("/auth/signin");
         setLoading(false);
       }
     };
@@ -125,92 +137,74 @@ export default function AdminLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted]);
 
-  // ✅ Navigation items — icons removed
+  // Navigation
   const navItems: NavItem[] = [
-    {
-      name: 'Dashboard',
-      href: '/admin/dashboard',
-      section: 'Main',
-    },
-    {
-      name: 'Products',
-      href: '/admin/products',
-      section: 'Main',
-    },
-    {
-      name: 'Users',
-      href: '/admin/users',
-      section: 'Main',
-    },
-    {
-      name: 'Settings',
-      href: '/admin/settings',
-      section: 'Settings',
-    },
+    { name: "Dashboard", href: "/admin/dashboard", section: "Main" },
+    { name: "Products", href: "/admin/products", section: "Main" },
+    { name: "Users", href: "/admin/users", section: "Main" },
+    { name: "Settings", href: "/admin/settings", section: "Settings" },
   ];
 
   // Mock notifications
-  const notifications: Notification[] = [
+  const notifications: NotificationItem[] = [
     {
       id: 1,
-      title: 'New Product Added',
-      message: 'A new plastic product has been listed',
-      time: '5 min ago',
+      title: "New Product Added",
+      message: "A new plastic product has been listed",
+      time: "5 min ago",
       read: false,
     },
     {
       id: 2,
-      title: 'Low Stock Alert',
-      message: 'Heavy-Duty Storage Bin is running low',
-      time: '1 hour ago',
+      title: "Low Stock Alert",
+      message: "Heavy-Duty Storage Bin is running low",
+      time: "1 hour ago",
       read: false,
     },
     {
       id: 3,
-      title: 'New User Registered',
-      message: 'A new customer joined',
-      time: '3 hours ago',
+      title: "New User Registered",
+      message: "A new customer joined",
+      time: "3 hours ago",
       read: true,
     },
     {
       id: 4,
-      title: 'Profile Updated',
-      message: 'Your profile was updated successfully',
-      time: '5 hours ago',
+      title: "Profile Updated",
+      message: "Your profile was updated successfully",
+      time: "5 hours ago",
       read: true,
     },
   ];
 
-  const unreadCount: number = notifications.filter(
-    (n: Notification) => !n.read
-  ).length;
+  const unreadCount: number = notifications.filter((n) => !n.read).length;
 
   // Safe user data
   const adminUser: User = {
-    id: user?.id ?? '',
-    name: user?.name ?? 'Admin User',
-    email: user?.email ?? 'admin@alemayehplastic.com',
-    role: user?.role ?? 'Administrator',
+    id: user?.id ?? "",
+    name: user?.name ?? "Admin User",
+    email: user?.email ?? "admin@alemayehplastic.com",
+    role: user?.role ?? "ADMIN",
   };
 
   const handleLogout = (): void => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('userRole');
-    sessionStorage.removeItem('authToken');
-    sessionStorage.removeItem('user');
-    sessionStorage.removeItem('userRole');
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("userRole");
+    sessionStorage.removeItem("authToken");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
+    sessionStorage.removeItem("userRole");
     isAuthCheckedRef.current = false;
-    router.push('/auth/signin');
+    router.push("/auth/signin");
   };
 
   // Group nav items by section
   const groupedNavItems = navItems.reduce<Record<string, NavItem[]>>(
     (acc, item) => {
-      const section = item.section || 'Main';
-      if (!acc[section]) {
-        acc[section] = [];
-      }
+      const section = item.section || "Main";
+      if (!acc[section]) acc[section] = [];
       acc[section].push(item);
       return acc;
     },
@@ -218,19 +212,19 @@ export default function AdminLayout({
   );
 
   const sectionLabels: Record<string, string> = {
-    Main: 'Main Menu',
-    Settings: 'Settings',
+    Main: "Main Menu",
+    Settings: "Settings",
   };
 
   const getPageTitle = (): string => {
-    if (!pathname) return 'Dashboard';
-    const segments = pathname.split('/');
+    if (!pathname) return "Dashboard";
+    const segments = pathname.split("/");
     const lastSegment = segments[segments.length - 1];
-    if (!lastSegment || lastSegment === 'admin') return 'Dashboard';
+    if (!lastSegment || lastSegment === "admin") return "Dashboard";
     return lastSegment.charAt(0).toUpperCase() + lastSegment.slice(1);
   };
 
-  // Show loading state
+  // ── Loading state ────────────────────────────────────────
   if (loading || !isMounted) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -242,35 +236,42 @@ export default function AdminLayout({
     );
   }
 
-  // Don't render if not authenticated or not admin
-  if (!user || user.role?.toUpperCase() !== 'ADMIN') {
+  if (!user || user.role?.toUpperCase() !== "ADMIN") {
     return null;
   }
+
+  // ── Logo resolution ──────────────────────────────────────
+  const logoUrl = resolveLogo(settings?.logo);
+  const siteName = settings?.siteName || "Alemayehu Plastic";
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sidebar */}
       <aside
         className={`fixed top-0 left-0 z-50 h-full bg-white border-r border-gray-200 transition-all duration-300 ${
-          sidebarOpen ? 'w-64' : 'w-20'
+          sidebarOpen ? "w-64" : "w-20"
         }`}
       >
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
           <Link href="/admin/dashboard" className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 relative">
-              <Image
-                src={settings?.logo || '/banners/carplastik.jpg'}
-                alt={settings?.siteName || 'Alemayehu Plastic Manufacturing'}
-                width={32}
-                height={32}
-                className="w-full h-full object-cover"
-                unoptimized
-              />
+            <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 relative bg-yellow-50 border border-yellow-200 flex items-center justify-center">
+              {logoUrl ? (
+                <Image
+                  src={logoUrl}
+                  alt={siteName}
+                  width={32}
+                  height={32}
+                  className="w-full h-full object-cover"
+                  unoptimized
+                />
+              ) : (
+                <Building2 className="w-4 h-4 text-yellow-600" />
+              )}
             </div>
             {sidebarOpen && (
               <span className="text-sm font-semibold text-gray-800 whitespace-nowrap truncate">
-                {settings?.siteName || 'Alemayehu Plastic'}
+                {siteName}
               </span>
             )}
           </Link>
@@ -287,7 +288,7 @@ export default function AdminLayout({
           </button>
         </div>
 
-        {/* Navigation — icons removed */}
+        {/* Navigation */}
         <nav className="p-4 space-y-4 overflow-y-auto h-[calc(100vh-4rem)]">
           {Object.keys(groupedNavItems).map((section) => (
             <div key={section}>
@@ -297,10 +298,10 @@ export default function AdminLayout({
                 </p>
               )}
               <div className="space-y-1">
-                {groupedNavItems[section]?.map((item: NavItem) => {
+                {groupedNavItems[section]?.map((item) => {
                   const isActive =
                     pathname === item.href ||
-                    pathname?.startsWith(item.href + '/') ||
+                    pathname?.startsWith(item.href + "/") ||
                     false;
                   return (
                     <Link
@@ -308,13 +309,13 @@ export default function AdminLayout({
                       href={item.href}
                       className={`flex items-center px-3 py-2.5 rounded-lg transition-all duration-200 ${
                         isActive
-                          ? 'bg-yellow-50 text-yellow-700'
-                          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                      } ${!sidebarOpen ? 'justify-center' : ''}`}
+                          ? "bg-yellow-50 text-yellow-700"
+                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                      } ${!sidebarOpen ? "justify-center" : ""}`}
                     >
                       <span
                         className={`text-sm font-medium ${
-                          !sidebarOpen ? 'text-xs' : ''
+                          !sidebarOpen ? "text-xs" : ""
                         }`}
                       >
                         {sidebarOpen
@@ -328,30 +329,29 @@ export default function AdminLayout({
             </div>
           ))}
 
-          {/* Divider */}
           <div className="border-t border-gray-200 my-4"></div>
 
           {/* Return to Store */}
           <Link
             href="/"
             className={`flex items-center px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all duration-200 ${
-              sidebarOpen ? 'justify-start' : 'justify-center'
+              sidebarOpen ? "justify-start" : "justify-center"
             }`}
           >
             <span className="text-sm font-medium">
-              {sidebarOpen ? 'Return to Store' : '🏪'}
+              {sidebarOpen ? "Return to Store" : "🏪"}
             </span>
           </Link>
 
-          {/* Logout button */}
+          {/* Logout */}
           <button
             onClick={handleLogout}
             className={`flex items-center px-3 py-2.5 w-full rounded-lg text-red-600 hover:bg-red-50 transition-all duration-200 mt-2 ${
-              sidebarOpen ? 'justify-start' : 'justify-center'
+              sidebarOpen ? "justify-start" : "justify-center"
             }`}
           >
             <span
-              className={`text-sm font-medium ${!sidebarOpen ? 'sr-only' : ''}`}
+              className={`text-sm font-medium ${!sidebarOpen ? "sr-only" : ""}`}
             >
               Logout
             </span>
@@ -363,7 +363,7 @@ export default function AdminLayout({
       {/* Main Content */}
       <div
         className={`transition-all duration-300 ${
-          sidebarOpen ? 'ml-64' : 'ml-20'
+          sidebarOpen ? "ml-64" : "ml-20"
         }`}
       >
         {/* Header */}
@@ -409,11 +409,11 @@ export default function AdminLayout({
                       </h3>
                     </div>
                     <div className="max-h-96 overflow-y-auto">
-                      {notifications.map((notif: Notification) => (
+                      {notifications.map((notif) => (
                         <div
                           key={notif.id}
                           className={`p-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
-                            !notif.read ? 'bg-yellow-50' : ''
+                            !notif.read ? "bg-yellow-50" : ""
                           }`}
                         >
                           <p className="text-sm font-medium text-gray-800">
@@ -446,7 +446,7 @@ export default function AdminLayout({
                 >
                   <div className="w-8 h-8 rounded-full bg-yellow-500 flex items-center justify-center">
                     <span className="text-sm font-medium text-white">
-                      {adminUser.name?.charAt(0) || 'A'}
+                      {adminUser.name?.charAt(0) || "A"}
                     </span>
                   </div>
                   <div className="hidden md:block text-left">

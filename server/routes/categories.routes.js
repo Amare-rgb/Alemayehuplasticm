@@ -4,10 +4,14 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
-// ============================================================
-// Shared select — same shape for every endpoint
-// ✅ `status` and `visibility` fields REMOVED (not in schema)
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// Categories API — Alemayehu Plastic
+//  • Storage: Cloudinary (image is a full URL)
+//  • Database: Neon (PostgreSQL) via Prisma
+//  • No Order/Article/Cart references
+// ═══════════════════════════════════════════════════════════
+
+// ── Shared select — same shape for every endpoint ──────────
 const CATEGORY_PUBLIC_SELECT = {
   id: true,
   name: true,
@@ -21,12 +25,29 @@ const CATEGORY_PUBLIC_SELECT = {
   updatedAt: true,
 };
 
-// ============================================================
-// Helper — get authenticated user ID (JWT-aware)
-// ============================================================
-function getAuthUserId(req) {
-  return req.user?.id || req.userId || null;
+// ── Cloudinary / URL normalizer ────────────────────────────
+const isCloudinaryUrl = (url) =>
+  typeof url === 'string' && /res\.cloudinary\.com/i.test(url);
+
+/**
+ * Normalise an image value:
+ *   - Cloudinary / http(s) URL → kept as-is
+ *   - null / '' / undefined     → null
+ *   - anything else (local path, garbage) → null (rejected)
+ */
+function normaliseImage(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed; // Cloudinary or external
+  // Reject anything that isn't a full URL (local paths like /uploads/xxx)
+  console.warn(`⚠️ Rejected non-URL image value: ${trimmed}`);
+  return null;
 }
+
+// ── Auth user helper ───────────────────────────────────────
+const getAuthUserId = (req) => req.user?.id || null;
 
 // ============================================================
 // ADMIN — Get ALL categories
@@ -54,7 +75,7 @@ router.get('/admin/all', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // ============================================================
-// PUBLIC — Get all categories (no status filter anymore)
+// PUBLIC — Get all categories
 // GET /api/categories/public
 // ============================================================
 router.get('/public', async (req, res) => {
@@ -80,6 +101,7 @@ router.get('/public', async (req, res) => {
 
 // ============================================================
 // SHARED — Get categories (flat, nested, or by parent)
+// GET /api/categories
 // ============================================================
 router.get('/', async (req, res) => {
   try {
@@ -188,9 +210,9 @@ router.get('/:id', async (req, res) => {
 });
 
 // ============================================================
-// CREATE — POST /api/categories
+// CREATE — POST /api/categories (ADMIN ONLY)
 // ============================================================
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { name, slug, description, parentId, image, icon, color } = req.body;
 
@@ -201,7 +223,6 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Slug is required' });
     }
 
-    // ✅ Get user ID from JWT middleware (not session)
     const userId = getAuthUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
@@ -219,19 +240,13 @@ router.post('/', requireAuth, async (req, res) => {
         .json({ error: 'Invalid user session. Please login again.' });
     }
 
-    // Normalize image path
-    let normalizedImage = image || null;
-    if (normalizedImage && typeof normalizedImage === 'string') {
-      normalizedImage = normalizedImage.trim();
-      if (!normalizedImage.startsWith('http')) {
-        normalizedImage = normalizedImage.startsWith('/')
-          ? normalizedImage
-          : `/${normalizedImage}`;
-      }
-      if (!normalizedImage) normalizedImage = null;
+    // Normalise image — only Cloudinary/external URLs accepted
+    const normalizedImage = normaliseImage(image);
+
+    if (image && !normalizedImage) {
+      console.warn(`⚠️ Category "${name}" image rejected (not a URL): ${image}`);
     }
 
-    // ✅ `status` field REMOVED from create
     const category = await prisma.category.create({
       data: {
         name,
@@ -253,7 +268,7 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // ============================================================
-// UPDATE — PUT /api/categories/:id
+// UPDATE — PUT /api/categories/:id (ADMIN ONLY)
 // ============================================================
 router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -272,20 +287,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     if (parentId !== undefined) data.parentId = parentId || null;
     if (icon !== undefined) data.icon = icon || null;
     if (color !== undefined) data.color = color || null;
-
-    if (image !== undefined) {
-      let normalizedImage = image;
-      if (normalizedImage && typeof normalizedImage === 'string') {
-        normalizedImage = normalizedImage.trim();
-        if (normalizedImage && !normalizedImage.startsWith('http')) {
-          normalizedImage = normalizedImage.startsWith('/')
-            ? normalizedImage
-            : `/${normalizedImage}`;
-        }
-        if (!normalizedImage) normalizedImage = null;
-      }
-      data.image = normalizedImage;
-    }
+    if (image !== undefined) data.image = normaliseImage(image);
 
     const updated = await prisma.category.update({
       where: { id },
@@ -300,7 +302,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // ============================================================
-// DELETE — DELETE /api/categories/:id
+// DELETE — DELETE /api/categories/:id (ADMIN ONLY)
 // ============================================================
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {

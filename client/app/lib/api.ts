@@ -21,7 +21,7 @@ export const API_URL = rawUrl
   .replace(/\/+$/, '')
   .replace(/\/api$/i, '');
 
-// ✅ Instance for your EXTERNAL backend (Express)
+// ✅ Instance for the EXTERNAL backend (Express)
 export const api: AxiosInstance = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
@@ -63,7 +63,6 @@ const isAuthRoute = (url?: string) =>
   !!url && /\/auth\/(login|register|signin|signup|forgot|reset)/i.test(url);
 
 const handleAuthError = (error: AxiosError) => {
-  // Force logout only on 401 for NON-auth routes.
   if (
     error.response?.status === 401 &&
     typeof window !== 'undefined' &&
@@ -75,9 +74,6 @@ const handleAuthError = (error: AxiosError) => {
     localStorage.removeItem('user');
     sessionStorage.removeItem('user');
 
-    // Full-page redirect is intentional here: we need to fully reset all
-    // React state and in-memory caches after an auth failure. A router.push()
-    // would keep stale state around, so window.location is the correct tool.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = '/auth/signin';
   }
@@ -124,9 +120,8 @@ api.interceptors.response.use((r) => r, handleAuthError);
 nextApi.interceptors.response.use((r) => r, handleAuthError);
 
 // ============================================================
-// Types — kept minimal (no orders / checkout)
+// Types
 // ============================================================
-
 export interface Product {
   id: string;
   name: string;
@@ -157,49 +152,81 @@ export interface User {
 }
 
 // ============================================================
-// UPLOAD API
+// UPLOAD API — Cloudinary-backed
+//   Each helper targets the correct product/category/avatar route.
+//   Response.url is a FULL Cloudinary URL:
+//     https://res.cloudinary.com/<cloud>/image/upload/v.../alemayehu-plastic/...
 // ============================================================
 export interface UploadResponse {
   success: boolean;
-  url: string; // e.g. "/uploads/products/1712345678-abcd.png"
-  fileName: string;
-  fileSize: number;
-  fileType: string;
-  message: string;
+  /** Full Cloudinary URL — safe to use directly in <img src> */
+  url: string;
+  /** Alias — some endpoints return this too */
+  secure_url?: string;
+  /** Cloudinary public_id (used to delete) */
+  publicId?: string;
+  public_id?: string;
+  fileName?: string;
+  fileSize?: number;
+  fileType?: string;
+  message?: string;
+}
+
+async function postFile(
+  endpoint: string,
+  file: File,
+  fieldName: string
+): Promise<UploadResponse> {
+  const formData = new FormData();
+  formData.append(fieldName, file);
+
+  const response = await api.post<UploadResponse>(endpoint, formData, {
+    timeout: 120000,
+    transformRequest: [
+      (data: FormData, headers: Record<string, unknown>) => {
+        if (headers && typeof headers === 'object') {
+          delete headers['Content-Type'];
+          delete headers['content-type'];
+        }
+        return data;
+      },
+    ],
+  });
+  return response.data;
 }
 
 export const uploadApi = {
-  /**
-   * Upload a single file.
-   * The backend accepts either field name:
-   *   - "image"  → saved to uploads/products/
-   *   - "avatar" → saved to uploads/avatars/
-   */
-  uploadFile: async (
-    file: File,
-    fieldName: 'image' | 'avatar' = 'image'
-  ): Promise<UploadResponse> => {
-    const formData = new FormData();
-    formData.append(fieldName, file);
+  /** Generic single-file upload → Cloudinary */
+  uploadFile: (file: File, fieldName: 'image' | 'avatar' | 'file' = 'file') =>
+    postFile('/api/upload', file, fieldName),
 
-    const response = await api.post<UploadResponse>('/api/upload', formData, {
-      timeout: 120000,
-      transformRequest: [
-        (data: FormData, headers: Record<string, unknown>) => {
-          if (headers && typeof headers === 'object') {
-            delete headers['Content-Type'];
-            delete headers['content-type'];
-          }
-          return data;
-        },
-      ],
-    });
-    return response.data;
+  /** Product image → alemayehu-plastic/products/ */
+  uploadProductImage: (file: File) =>
+    postFile('/api/upload/product', file, 'image'),
+
+  /** Product images (multiple) — call once per file */
+  uploadProductImages: async (files: File[]): Promise<UploadResponse[]> => {
+    const results: UploadResponse[] = [];
+    for (const file of files) {
+      results.push(await postFile('/api/upload/product', file, 'image'));
+    }
+    return results;
   },
 
-  uploadProductImage: (file: File) => uploadApi.uploadFile(file, 'image'),
-  uploadCategoryImage: (file: File) => uploadApi.uploadFile(file, 'image'),
-  uploadAvatar: (file: File) => uploadApi.uploadFile(file, 'avatar'),
+  /** Category image → alemayehu-plastic/categories/ */
+  uploadCategoryImage: (file: File) =>
+    postFile('/api/upload/category', file, 'image'),
+
+  /** Avatar → alemayehu-plastic/avatars/ */
+  uploadAvatar: (file: File) =>
+    postFile('/api/upload/avatar', file, 'avatar'),
+
+  /** PDF (product spec sheet, invoice, etc.) */
+  uploadPdf: (file: File) => postFile('/api/upload/pdf', file, 'file'),
+
+  /** Settings logo → alemayehu-plastic/settings/ */
+  uploadSettingsLogo: (file: File) =>
+    postFile('/api/upload/settings', file, 'logo'),
 };
 
 export default api;

@@ -1,21 +1,6 @@
 // src/lib/auth.ts
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import bcrypt from 'bcryptjs';
-import { prisma } from './prisma';
-
-// ============================================================
-// Types
-// ============================================================
-type UserRecord = {
-  id: string;
-  name: string;
-  email: string;
-  password: string | null;
-  role: string;
-  avatar: string | null;
-  phone: string | null;
-};
 
 type NextAuthUser = {
   id: string;
@@ -34,18 +19,15 @@ type CustomToken = {
   phone?: string | null;
 };
 
-// Prisma typing for the user model (no sellerProfile)
-type PrismaClientWithUser = {
-  user: {
-    findUnique: (args: {
-      where: { email: string };
-    }) => Promise<unknown>;
-  };
-};
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET;
+if (!NEXTAUTH_SECRET || NEXTAUTH_SECRET.length < 32) {
+  throw new Error('❌ NEXTAUTH_SECRET missing or too short (min 32 chars)');
+}
 
-// ============================================================
-// NextAuth options
-// ============================================================
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+).replace(/\/+$/, '');
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -55,59 +37,35 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+
         try {
-          console.log('🔍 === LOGIN ATTEMPT ===');
-          console.log('📧 Email:', credentials?.email);
+          const res = await fetch(`${API_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: credentials.email.trim().toLowerCase(),
+              password: credentials.password,
+            }),
+          });
 
-          if (!credentials?.email || !credentials?.password) {
-            console.log('❌ Missing credentials');
-            return null;
-          }
+          if (!res.ok) return null;
 
-          const prismaClient = prisma as unknown as PrismaClientWithUser;
+          const data = await res.json();
+          if (!data?.success || !data?.user) return null;
 
-          const user = (await prismaClient.user.findUnique({
-            where: { email: credentials.email.toLowerCase() },
-          })) as UserRecord | null;
-
-          if (!user) {
-            console.log('❌ User not found:', credentials.email);
-            return null;
-          }
-
-          console.log('✅ User found:', user.email);
-          console.log('📝 Role:', user.role);
-
-          if (!user.password) {
-            console.log('❌ User has no password set (OAuth user)');
-            return null;
-          }
-
-          const passwordMatch = await bcrypt.compare(
-            credentials.password,
-            user.password
-          );
-          console.log('🔐 Password match:', passwordMatch);
-
-          if (!passwordMatch) {
-            console.log('❌ Password mismatch for:', credentials.email);
-            return null;
-          }
-
-          console.log('✅ Login successful for:', credentials.email);
-
-          const nextAuthUser: NextAuthUser = {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            image: user.avatar ?? undefined,
-            phone: user.phone,
+          const user: NextAuthUser = {
+            id: data.user.id,
+            name: data.user.name,
+            email: data.user.email,
+            role: String(data.user.role || 'USER').toUpperCase(),
+            image: data.user.avatar ?? undefined,
+            phone: data.user.phone ?? null,
           };
 
-          return nextAuthUser;
+          return user;
         } catch (error) {
-          console.error('❌ Auth error:', error);
+          console.error('❌ NextAuth authorize error:', error);
           return null;
         }
       },
@@ -116,7 +74,6 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     async jwt({ token, user }) {
-      // ✅ Only populate token fields on initial sign-in
       if (user) {
         const userData = user as NextAuthUser;
         token.role = userData.role;
@@ -131,14 +88,11 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (token && session.user) {
         const tokenData = token as CustomToken;
-
-        // ✅ Core fields
         session.user.id = tokenData.id as string;
         session.user.role = tokenData.role as string;
         session.user.email = tokenData.email as string;
         session.user.name = tokenData.name as string;
 
-        // ✅ Extended fields
         const extendedSession = session.user as {
           id: string;
           role: string;
@@ -158,14 +112,7 @@ export const authOptions: NextAuthOptions = {
     error: '/auth/signin',
   },
 
-  session: {
-    strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-  },
-
-  secret:
-    process.env.NEXTAUTH_SECRET ||
-    'alemayehu-plastic-nextauth-secret-Z7yX5wV3uT1sR9qP8oN6mK4jH2gF0dS',
-
+  session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 },
+  secret: NEXTAUTH_SECRET,
   debug: process.env.NODE_ENV === 'development',
 };

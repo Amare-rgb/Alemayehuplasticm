@@ -1,3 +1,4 @@
+// app/profile/page.tsx
 "use client";
 
 import React, {
@@ -28,36 +29,31 @@ import {
 import { useAuth } from "@/app/providers";
 import { useLanguage } from "@/context/LanguageContext";
 
-// ─── API base ──────────────────────────────────────────────────────────────
-const RAW_API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "http://localhost:5000";
-const API_BASE_URL = RAW_API_BASE.replace(/\/+$/, "");
-
-// ─── Resolve any stored avatar path to a usable URL ────────────────────────
+// ─── Avatar resolver — Cloudinary-only ────────────────────────────────────
 function resolveAvatar(raw: unknown): string {
   if (typeof raw !== "string") return "";
   const s = raw.trim();
   if (!s) return "";
 
+  if (s.startsWith("data:") || s.startsWith("blob:")) return s;
   if (s.startsWith("http://") || s.startsWith("https://")) return s;
-  if (s.startsWith("data:")) return s;
-
   if (s.startsWith("res.cloudinary.com/")) return `https://${s}`;
-
-  if (s.startsWith("/uploads/")) return `${API_BASE_URL}${s}`;
-  if (s.startsWith("uploads/")) return `${API_BASE_URL}/${s}`;
-
-  if (!s.includes("/") && /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(s)) {
-    return `${API_BASE_URL}/uploads/avatars/${s}`;
-  }
 
   return "";
 }
 
-// ─── Member since — static for now ─────────────────────────────────────────
-const MEMBER_SINCE = "Jan 2024";
+// ─── Member since — derived from user.createdAt if available ───────────────
+function formatMemberSince(createdAt?: string | null): string {
+  if (!createdAt) return "—";
+  try {
+    return new Date(createdAt).toLocaleDateString("en-US", {
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return "—";
+  }
+}
 
 // ─── Avatar with fallback ───────────────────────────────────────────────────
 const AvatarImage: React.FC<{
@@ -94,9 +90,7 @@ const AvatarImage: React.FC<{
       sizes="80px"
       priority
       onError={() => setFailed(true)}
-      unoptimized={
-        imgSrc.startsWith("/") || imgSrc.includes("images.unsplash.com")
-      }
+      unoptimized
     />
   );
 };
@@ -151,8 +145,6 @@ export default function ProfilePage() {
     } catch (err) {
       console.error("Logout error:", err);
     } finally {
-      // ✅ router.replace handles the redirect client-side.
-      //    No need for window.location.href which would force a full reload.
       router.replace("/");
     }
   };
@@ -263,6 +255,9 @@ export default function ProfilePage() {
       .toUpperCase() || "U";
 
   const resolvedAvatar = avatarUrl ? avatarUrl : resolveAvatar(user.avatar);
+  const memberSince = formatMemberSince(
+    (user as { createdAt?: string }).createdAt
+  );
 
   return (
     <div className="min-h-screen bg-[#faf6ee] pt-24 pb-16">
@@ -332,7 +327,7 @@ export default function ProfilePage() {
                   </span>
                   <span className="text-[#7a6a58] text-xs flex items-center gap-1">
                     <Calendar size={12} />
-                    {t("profile.since_label", "Since")} {MEMBER_SINCE}
+                    {t("profile.since_label", "Since")} {memberSince}
                   </span>
                 </div>
               </div>

@@ -3,17 +3,38 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
-const path = require('path');
-const fs = require('fs');
 
-// ✅ Shared Prisma client (singleton)
+// ✅ Shared Prisma client (singleton) — connects to Neon
 const prisma = require('./lib/prisma');
+
+// ✅ Cloudinary (for image storage)
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// ✅ Detect serverless platforms
+// ═══════════════════════════════════════════════════════════
+// CLOUDINARY CONFIG
+// ═══════════════════════════════════════════════════════════
+const cloudinaryConfigured = !!(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
+
+if (cloudinaryConfigured) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// PLATFORM DETECTION
+// ═══════════════════════════════════════════════════════════
 const isNetlify = !!(process.env.NETLIFY || process.env.NETLIFY_LOCAL);
 const isVercel = !!process.env.VERCEL;
 const isRailway = !!(
@@ -34,28 +55,6 @@ const platformName = isNetlify
 // TRUST PROXY
 // ═══════════════════════════════════════════════════════════
 app.set('trust proxy', 1);
-
-// ═══════════════════════════════════════════════════════════
-// LOCAL UPLOAD DIRECTORIES — CREATE IF MISSING
-// ═══════════════════════════════════════════════════════════
-const UPLOAD_ROOT = path.join(__dirname, 'uploads');
-const UPLOAD_DIRS = [
-  UPLOAD_ROOT,
-  path.join(UPLOAD_ROOT, 'products'),
-  path.join(UPLOAD_ROOT, 'categories'),
-  path.join(UPLOAD_ROOT, 'avatars'),
-  path.join(UPLOAD_ROOT, 'articles'),
-];
-
-function ensureUploadDirs() {
-  for (const dir of UPLOAD_DIRS) {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-      console.log(`📁 Created upload dir: ${dir}`);
-    }
-  }
-}
-ensureUploadDirs();
 
 // ═══════════════════════════════════════════════════════════
 // Collapse double slashes in the URL PATH
@@ -100,7 +99,7 @@ const uploadRoutes = require('./routes/upload.routes');
 const usersRoutes = require('./routes/users.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const profileRoutes = require('./routes/profile.routes');
-const chatbotRoutes = require('./routes/chatbot.routes'); // ✅ RE-ENABLED (OpenRouter AI)
+const chatbotRoutes = require('./routes/chatbot.routes');
 
 // ═══════════════════════════════════════════════════════════
 // CORS
@@ -174,20 +173,8 @@ app.use(
 // ═══════════════════════════════════════════════════════════
 // BODY PARSERS
 // ═══════════════════════════════════════════════════════════
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true, limit: '5mb' }));
-
-// ═══════════════════════════════════════════════════════════
-// LOCAL STATIC FILES — serve /uploads/** from disk
-// ═══════════════════════════════════════════════════════════
-app.use(
-  '/uploads',
-  express.static(UPLOAD_ROOT, {
-    maxAge: isProd ? '7d' : 0,
-    etag: true,
-    index: false,
-  })
-);
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ═══════════════════════════════════════════════════════════
 // ROUTES
@@ -203,7 +190,7 @@ apiRouter.use('/products', productsRoutes);
 apiRouter.use('/upload', uploadRoutes);
 apiRouter.use('/users', usersRoutes);
 apiRouter.use('/profile', profileRoutes);
-apiRouter.use('/chatbot', chatbotRoutes); // ✅ RE-ENABLED (OpenRouter AI)
+apiRouter.use('/chatbot', chatbotRoutes);
 
 // ═══════════════════════════════════════════════════════════
 // HEALTH CHECK
@@ -218,10 +205,15 @@ const healthHandler = async (req, res) => {
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
       platform: platformName,
-      storage: 'local-disk',
-      database: { connected: true, userCount },
+      storage: cloudinaryConfigured ? 'cloudinary' : 'not-configured',
+      database: {
+        connected: true,
+        provider: 'neon',
+        userCount,
+      },
       services: {
         chatbot: process.env.OPENROUTER_API_KEY ? 'enabled' : 'disabled',
+        cloudinary: cloudinaryConfigured ? 'enabled' : 'disabled',
       },
     });
   } catch (error) {
@@ -251,20 +243,20 @@ const rootInfo = (req, res) => {
     version: '1.0.0',
     status: 'Running',
     platform: platformName,
-    storage: 'local-disk',
+    storage: cloudinaryConfigured ? 'cloudinary' : 'not-configured',
+    database: 'neon-postgresql',
     endpoints: {
       auth: '/api/auth',
       admin: '/api/admin',
       adminDashboard: '/api/admin/dashboard',
       categories: '/api/categories',
-      chatbot: '/api/chatbot', // ✅ RE-ENABLED
+      chatbot: '/api/chatbot',
       products: '/api/products',
       upload: '/api/upload',
       users: '/api/users',
       profile: '/api/profile',
       settings: '/api/admin/settings',
       health: '/api/health',
-      uploads: '/uploads/*',
     },
   });
 };
@@ -296,7 +288,7 @@ app.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({
       success: false,
-      error: 'File is too large. Please upload a file under 5 MB.',
+      error: 'File is too large. Please upload a file under 10 MB.',
     });
   }
 
@@ -310,7 +302,7 @@ app.use((err, req, res, next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({
       success: false,
-      error: 'File too large. Max 5 MB.',
+      error: 'File too large. Max 10 MB.',
     });
   }
 
@@ -364,16 +356,16 @@ if (!isServerless) {
       await prisma.$connect();
       dbConnected = true;
       const userCount = await prisma.user.count();
-      console.log(`✅ Database connected (${userCount} users)`);
+      console.log(`✅ Neon database connected (${userCount} users)`);
 
       const adminUser = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
       console.log(
         adminUser
           ? `👤 Admin user exists: ${adminUser.email}`
-          : '⚠️ No admin user found. Run: node prisma/seed.js'
+          : '⚠️ No admin user found. Run: npx prisma db seed'
       );
     } catch (error) {
-      console.error('❌ Database connection failed:', error.message);
+      console.error('❌ Neon database connection failed:', error.message);
       console.error('Please check your DATABASE_URL in .env');
     }
 
@@ -381,19 +373,27 @@ if (!isServerless) {
     server.keepAliveTimeout = 65 * 1000;
     server.headersTimeout = 66 * 1000;
 
-    server.listen(PORT, '0.0.0.0', () => {
+    // ✅ FIX: removed the '0.0.0.0' argument — lets Node bind to
+    //    both IPv4 and IPv6 so localhost works correctly on Windows
+    server.listen(PORT, () => {
       const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
       console.log('\n🏭 Alemayehu Plastic Server running on ' + backendUrl);
       console.log('🌍 Environment: ' + (process.env.NODE_ENV || 'development'));
       console.log('🚆 Platform: ' + platformName);
-      console.log('📁 Storage: Local disk (/uploads)');
-      console.log('💾 Database: ' + (dbConnected ? 'Connected ✅' : 'Not Connected ⚠️'));
+      console.log(
+        '📁 Storage: ' +
+          (cloudinaryConfigured ? 'Cloudinary ✅' : 'Not configured ⚠️')
+      );
+      console.log('💾 Database: ' + (dbConnected ? 'Neon Connected ✅' : 'Not Connected ⚠️'));
       console.log(
         '🤖 Chatbot: ' +
-          (process.env.OPENROUTER_API_KEY ? 'OpenRouter AI enabled ✅' : 'Fallback mode ⚠️')
+          (process.env.OPENROUTER_API_KEY
+            ? 'OpenRouter AI enabled ✅'
+            : 'Fallback mode ⚠️')
       );
     });
 
+    // Neon keep-alive (prevents cold-start timeouts)
     const keepAliveMs =
       process.env.DB_KEEPALIVE_MS !== undefined
         ? Number(process.env.DB_KEEPALIVE_MS)
@@ -404,7 +404,7 @@ if (!isServerless) {
         try {
           await prisma.$queryRaw`SELECT 1`;
         } catch (err) {
-          console.warn('⚠️ DB keep-alive ping failed:', err.message);
+          console.warn('⚠️ Neon keep-alive ping failed:', err.message);
         }
       }, keepAliveMs);
       keepAliveTimer.unref();

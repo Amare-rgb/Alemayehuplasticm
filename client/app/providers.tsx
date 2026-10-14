@@ -29,7 +29,6 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// Attach token to every request
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     if (typeof window !== "undefined") {
@@ -59,6 +58,7 @@ export interface User {
   phone?: string | null;
   address?: string | null;
   bio?: string | null;
+  createdAt?: string;
 }
 
 export interface ProfileUpdatePayload {
@@ -103,6 +103,7 @@ interface UserPayload {
   phone?: string | null;
   address?: string | null;
   bio?: string | null;
+  createdAt?: string;
 }
 
 // ============================================================
@@ -122,6 +123,7 @@ const extractUserData = (payload: unknown): User | null => {
     phone: u.phone || null,
     address: u.address || null,
     bio: u.bio || null,
+    createdAt: u.createdAt,
   });
 
   if (
@@ -286,7 +288,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setStatus("authenticated");
 
-      // Redirect based on role
       const userRole = userData?.role?.toUpperCase();
       if (userRole === "ADMIN") {
         router.push("/admin/dashboard");
@@ -301,7 +302,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Logout ────────────────────────────────────────────────
   const logout = (): void => {
-    // Clear all storage
     localStorage.removeItem("token");
     localStorage.removeItem("authToken");
     localStorage.removeItem("user");
@@ -314,8 +314,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser(null);
     setStatus("unauthenticated");
-
-    router.push("/");
   };
 
   // ── Register ──────────────────────────────────────────────
@@ -371,6 +369,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     payload: ProfileUpdatePayload
   ): Promise<User> => {
     try {
+      // Uses the shared Express route: PATCH /api/auth/profile
       const response = await api.patch("/api/auth/profile", payload);
 
       const updated =
@@ -404,27 +403,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const uploadAvatar = async (file: File): Promise<User> => {
     try {
       const formData = new FormData();
-      // Field name MUST match the backend middleware: "avatar"
+      // Field name matches backend avatar route: "avatar"
       formData.append("avatar", file);
 
-      // ✅ Let axios set the multipart Content-Type with boundary
-      const uploadRes = await api.post("/api/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      // ✅ Do NOT set Content-Type manually — axios sets
+      //    multipart/form-data with the correct boundary.
+      // ✅ Endpoint: /api/upload/avatar → Cloudinary alemayehu-plastic/avatars/
+      const uploadRes = await api.post("/api/upload/avatar", formData, {
         timeout: 120000,
       });
 
       const url: string | undefined =
         uploadRes.data?.url ||
-        uploadRes.data?.data?.url ||
-        uploadRes.data?.fileUrl;
+        uploadRes.data?.secure_url ||
+        uploadRes.data?.data?.url;
 
       if (!url) {
         throw new Error("Upload succeeded but no URL returned");
       }
 
-      // ✅ Keep the URL exactly as the backend returned it (relative like
-      //    "/uploads/avatars/..."). The image resolver in each component
-      //    prepends the API origin when needed.
+      // ✅ url is a full Cloudinary URL — save it as-is.
       const updated = await updateProfile({ avatar: url });
       return updated;
     } catch (error: unknown) {
