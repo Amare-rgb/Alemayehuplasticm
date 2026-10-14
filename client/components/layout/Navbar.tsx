@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/app/providers";
 import { useLanguage } from "@/context/LanguageContext";
+import { useSettings } from "@/hooks/useSettings";
 
 interface Category {
   id: string;
@@ -51,20 +52,17 @@ interface User {
 }
 
 // ============================================================
-// Brand — local logo file: /public/banners/plastik.png
+// Brand
 // ============================================================
 const BRAND_TOP = "Plastic";
 const BRAND_BOTTOM = "Manufacturing";
 const BRAND_ALT = "Plastic Manufacturing";
 
-// ✅ Local logo — files in /public are served from the root
-const LOGO_SRC = "/banners/plastik.png";
-
 const ETHIOPIC_FONT =
   "'Noto Sans Ethiopic','Nyala','Abyssinica SIL','Kefa','Ebrima',sans-serif";
 
 // ============================================================
-// Cloudinary-only resolver (for category images + avatars)
+// Cloudinary-only resolver
 //   • Full https URL      → as-is
 //   • res.cloudinary.com  → prefixed with https://
 //   • Anything else       → null (caller shows fallback)
@@ -269,7 +267,7 @@ export const Navbar = () => {
   const [mobileProductsOpen, setMobileProductsOpen] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  // ✅ Fallback toggle if the local logo file is missing
+  // ✅ Fallback toggle if the Cloudinary logo fails to load
   const [logoFailed, setLogoFailed] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -278,6 +276,7 @@ export const Navbar = () => {
 
   const { user, status, logout } = useAuth();
   const { language, setLanguage, t } = useLanguage();
+  const { settings } = useSettings(); // ✅ Cloudinary logo comes from here
   const router = useRouter();
   const pathname = usePathname();
 
@@ -301,6 +300,9 @@ export const Navbar = () => {
     pathname === "/about" ||
     pathname === "/shop" ||
     pathname === "/contact";
+
+  // ✅ Cloudinary-only logo — resolves to null if unset or invalid
+  const logoUrl = resolveCloudinaryUrl(settings?.logo);
 
   useEffect(() => {
     let isMounted = true;
@@ -469,7 +471,7 @@ export const Navbar = () => {
       <div
         className={`mx-auto flex w-[min(1180px,calc(100%-48px))] items-center justify-between gap-4 transition-all duration-300 xl:gap-6 ${innerHeight}`}
       >
-        {/* LOGO */}
+        {/* LOGO — from Cloudinary (settings.logo) */}
         <Link
           href="/"
           className="group flex shrink-0 items-center gap-2.5"
@@ -479,18 +481,19 @@ export const Navbar = () => {
           <div
             className={`relative flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border shadow-sm transition-colors duration-300 ${logoBoxClass}`}
           >
-            {logoFailed ? (
-              <Building2 className="h-5 w-5 text-[#8a6212]" />
-            ) : (
+            {logoUrl && !logoFailed ? (
               <Image
-                src={LOGO_SRC}
+                src={logoUrl}
                 alt={BRAND_ALT}
                 width={40}
                 height={40}
                 className="h-full w-full object-contain p-0.5"
                 onError={() => setLogoFailed(true)}
                 priority
+                unoptimized
               />
+            ) : (
+              <Building2 className="h-5 w-5 text-[#8a6212]" />
             )}
           </div>
           <span className="flex flex-col whitespace-nowrap leading-none">
@@ -570,7 +573,6 @@ export const Navbar = () => {
                 {displayCategories.slice(0, 9).map((cat) => {
                   const productCount = cat._count?.products;
                   const subCount = cat.children?.length || 0;
-                  // ✅ Cloudinary-only category image
                   const imageSrc = resolveCloudinaryUrl(cat.image);
                   return (
                     <Link
